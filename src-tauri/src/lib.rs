@@ -1,5 +1,7 @@
 mod cluster;
+mod helm;
 mod kinds;
+mod portforward;
 mod resources;
 mod state;
 mod streams;
@@ -42,6 +44,12 @@ pub fn run() {
             streams::exec_start,
             streams::exec_input,
             streams::exec_resize,
+            portforward::start_port_forward,
+            portforward::list_port_forwards,
+            helm::helm_list,
+            helm::helm_details,
+            helm::helm_rollback,
+            helm::helm_uninstall,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

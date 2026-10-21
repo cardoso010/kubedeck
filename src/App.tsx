@@ -4,8 +4,13 @@ import type { Connected, Contexts, KindInfo, Row, Target } from "./api";
 import { useStream } from "./useStream";
 import ResourceTable from "./components/ResourceTable";
 import DetailsPanel from "./components/DetailsPanel";
+import HelmView from "./components/HelmView";
+import PortForwardsView from "./components/PortForwardsView";
 
 const ALL = "__all__";
+/** Views in the sidebar that are not Kubernetes kinds. */
+const HELM = "helm";
+const FORWARDS = "port-forwards";
 
 export default function App() {
   const [contexts, setContexts] = useState<Contexts | null>(null);
@@ -45,6 +50,7 @@ export default function App() {
 
   const kind = kinds.find((k) => k.key === kindKey);
   const ns = kind?.namespaced && namespace !== ALL ? namespace : null;
+  const selectedNamespace = namespace !== ALL ? namespace : null;
 
   useStream(
     conn && kind
@@ -104,7 +110,7 @@ export default function App() {
         </label>
         <label className="field">
           <span>Namespace</span>
-          <select value={namespace} disabled={!conn || !kind?.namespaced} onChange={(e) => setNamespace(e.target.value)}>
+          <select value={namespace} disabled={!conn || kindKey === FORWARDS || (kind !== undefined && !kind.namespaced)} onChange={(e) => setNamespace(e.target.value)}>
             <option value={ALL}>All namespaces</option>
             {namespaces.map((n) => (
               <option key={n}>{n}</option>
@@ -117,6 +123,13 @@ export default function App() {
               {k.label}
             </button>
           ))}
+          <div className="nav-separator" />
+          <button className={kindKey === HELM ? "active" : ""} disabled={!conn} onClick={() => setKindKey(HELM)}>
+            Helm Releases
+          </button>
+          <button className={kindKey === FORWARDS ? "active" : ""} disabled={!conn} onClick={() => setKindKey(FORWARDS)}>
+            Port Forwards
+          </button>
         </nav>
         {conn && (
           <div className="conn-info">
@@ -131,6 +144,14 @@ export default function App() {
         {error && <div className="error-bar">{error}</div>}
         {!conn ? (
           <div className="empty">{connecting ? "Connecting…" : "Choose a cluster context to start."}</div>
+        ) : kindKey === HELM ? (
+          <div className="workspace">
+            <HelmView key={conn.context} namespace={selectedNamespace} production={prod} context={conn.context} />
+          </div>
+        ) : kindKey === FORWARDS ? (
+          <div className="workspace">
+            <PortForwardsView key={conn.context} />
+          </div>
         ) : kind ? (
           <div className="workspace">
             <ResourceTable

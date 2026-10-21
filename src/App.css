@@ -102,3 +102,16 @@ input:focus, select:focus { outline: 1px solid var(--accent); }
 .modal p { margin: 0; color: var(--muted); }
 .modal code { color: var(--text); }
 .modal-actions { display: flex; justify-content: flex-end; gap: 8px; }
+
+.nav-separator { height: 1px; background: var(--border); margin: 6px 8px; }
+a { color: var(--accent); }
+.tabs-status { margin-left: auto; padding-right: 6px; }
+.forward-bar { display: flex; align-items: center; gap: 6px; padding: 6px 14px; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
+.forward-bar button { padding: 2px 8px; }
+
+.simple-table { flex: 1; overflow: auto; min-height: 0; }
+.simple-row { display: grid; grid-template-columns: minmax(200px, 2fr) 1fr 80px 150px 100px minmax(140px, 2fr) 80px; gap: 10px; padding: 6px 14px; align-items: center; border-bottom: 1px solid #1a202b; }
+.simple-row.history { grid-template-columns: 80px 180px 110px 150px minmax(160px, 3fr) 100px; }
+.simple-row.head { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; border-bottom-color: var(--border); }
+.simple-row > div { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.simple-row button { padding: 2px 8px; }

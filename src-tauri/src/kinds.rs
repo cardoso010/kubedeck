@@ -71,6 +71,8 @@ pub struct Row {
     pub cells: Vec<String>,
     /// Container names, for pods only (used by logs and terminal).
     pub containers: Vec<String>,
+    /// TCP ports that can be port-forwarded (container ports for pods, service ports for services).
+    pub ports: Vec<u16>,
 }
 
 pub fn summarize(def: &KindDef, obj: &DynamicObject) -> Row {
@@ -82,6 +84,7 @@ pub fn summarize(def: &KindDef, obj: &DynamicObject) -> Row {
         .and_then(|t| serde_json::to_value(t).ok())
         .and_then(|v| v.as_str().map(str::to_owned));
     let mut containers = Vec::new();
+    let mut ports = Vec::new();
 
     let cells = match def.key {
         "pods" => {
@@ -90,6 +93,7 @@ pub fn summarize(def: &KindDef, obj: &DynamicObject) -> Row {
             let ready = statuses.iter().filter(|c| c["ready"].as_bool() == Some(true)).count();
             let restarts: i64 = statuses.iter().filter_map(|c| c["restartCount"].as_i64()).sum();
             containers = arr(d, "/spec/containers").iter().filter_map(|c| c["name"].as_str().map(str::to_owned)).collect();
+            ports = arr(d, "/spec/containers").iter().flat_map(|c| tcp_ports(c.get("ports"), "containerPort")).collect();
             vec![format!("{ready}/{total}"), pod_status(d, meta.deletion_timestamp.is_some()), restarts.to_string(), s(d, "/spec/nodeName")]
         }
         "deployments" => vec![
@@ -105,12 +109,13 @@ pub fn summarize(def: &KindDef, obj: &DynamicObject) -> Row {
         }
         "cronjobs" => vec![s(d, "/spec/schedule"), d.pointer("/spec/suspend").and_then(Value::as_bool).unwrap_or(false).to_string(), arr(d, "/status/active").len().to_string()],
         "services" => {
-            let ports = arr(d, "/spec/ports")
+            ports = tcp_ports(d.pointer("/spec/ports"), "port");
+            let port_list = arr(d, "/spec/ports")
                 .iter()
                 .map(|p| format!("{}/{}", p["port"], p["protocol"].as_str().unwrap_or("TCP")))
                 .collect::<Vec<_>>()
                 .join(", ");
-            vec![s(d, "/spec/type"), s(d, "/spec/clusterIP"), ports]
+            vec![s(d, "/spec/type"), s(d, "/spec/clusterIP"), port_list]
         }
         "ingresses" => {
             let hosts = arr(d, "/spec/rules").iter().filter_map(|r| r["host"].as_str()).collect::<Vec<_>>().join(", ");
@@ -147,7 +152,17 @@ pub fn summarize(def: &KindDef, obj: &DynamicObject) -> Row {
         created,
         cells,
         containers,
+        ports,
     }
+}
+
+fn tcp_ports(list: Option<&Value>, field: &str) -> Vec<u16> {
+    list.and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter(|p| p["protocol"].as_str().unwrap_or("TCP") == "TCP")
+        .filter_map(|p| p[field].as_u64().and_then(|n| u16::try_from(n).ok()))
+        .collect()
 }
 
 /// Mirrors the STATUS column of `kubectl get pods`.

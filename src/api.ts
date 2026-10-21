@@ -32,6 +32,7 @@ export interface Row {
   created: string | null;
   cells: string[];
   containers: string[];
+  ports: number[];
 }
 
 export type WatchMsg =
@@ -86,6 +87,52 @@ export function execStart(
 
 export const execInput = (id: number, data: string) => invoke<void>("exec_input", { id, data });
 export const execResize = (id: number, cols: number, rows: number) => invoke<void>("exec_resize", { id, cols, rows });
+
+export interface ForwardInfo {
+  id: number;
+  kind: "pod" | "service";
+  namespace: string;
+  name: string;
+  remotePort: number;
+  localPort: number;
+  connections: number;
+  lastError: string | null;
+}
+
+export const startPortForward = (kind: "pod" | "service", namespace: string, name: string, remotePort: number, localPort: number | null = null) =>
+  invoke<ForwardInfo>("start_port_forward", { kind, namespace, name, remotePort, localPort });
+export const listPortForwards = () => invoke<ForwardInfo[]>("list_port_forwards");
+
+export interface HelmRelease {
+  name: string;
+  namespace: string;
+  revision: string;
+  updated: string;
+  status: string;
+  chart: string;
+  appVersion: string;
+}
+
+export interface HelmRevision {
+  revision: number;
+  updated: string;
+  status: string;
+  chart: string;
+  appVersion: string;
+  description: string;
+}
+
+export interface HelmDetails {
+  values: string;
+  manifest: string;
+  notes: string;
+  history: HelmRevision[];
+}
+
+export const helmList = (namespace: string | null) => invoke<HelmRelease[]>("helm_list", { namespace });
+export const helmDetails = (namespace: string, name: string) => invoke<HelmDetails>("helm_details", { namespace, name });
+export const helmRollback = (namespace: string, name: string, revision: number) => invoke<string>("helm_rollback", { namespace, name, revision });
+export const helmUninstall = (namespace: string, name: string) => invoke<string>("helm_uninstall", { namespace, name });
 
 /** Errors from Rust commands arrive as plain strings. */
 export const errorText = (e: unknown) => (typeof e === "string" ? e : e instanceof Error ? e.message : JSON.stringify(e));

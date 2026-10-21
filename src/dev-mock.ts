@@ -15,31 +15,32 @@ function send(channelId: number, message: unknown) {
 }
 
 const ago = (s: number) => new Date(Date.now() - s * 1000).toISOString();
-const pod = (name: string, ready: string, status: string, restarts: number, ageS: number, containers = [name.split("-")[0]]): Row => ({
+const pod = (name: string, ready: string, status: string, restarts: number, ageS: number, containers = [name.split("-")[0]], ports: number[] = []): Row => ({
   uid: `uid-${name}`,
   name,
   namespace: "demo",
   created: ago(ageS),
   cells: [ready, status, String(restarts), "kubedeck-test-control-plane"],
   containers,
+  ports,
 });
 
 const ROWS: Record<string, Row[]> = {
   pods: [
-    pod("web-7c6cdd646-2zjfg", "1/1", "Running", 0, 3600),
+    pod("web-7c6cdd646-2zjfg", "1/1", "Running", 0, 3600, ["web"], [80]),
     pod("web-7c6cdd646-cggh4", "1/1", "Running", 0, 3600),
     pod("web-7c6cdd646-jtjnc", "1/1", "Running", 0, 3500),
-    pod("api-5d9f8b7c6-x2k9p", "2/2", "Running", 1, 86400 * 3, ["api", "envoy"]),
+    pod("api-5d9f8b7c6-x2k9p", "2/2", "Running", 1, 86400 * 3, ["api", "envoy"], [8080, 9901]),
     pod("ticker", "1/1", "Running", 0, 600),
     pod("broken", "0/1", "CrashLoopBackOff", 7, 900),
     pod("migrate-29gxk", "0/1", "Pending", 0, 20),
   ],
   deployments: [
-    { uid: "d1", name: "web", namespace: "demo", created: ago(3600), cells: ["3/3", "3", "3"], containers: [] },
-    { uid: "d2", name: "api", namespace: "demo", created: ago(86400 * 3), cells: ["1/1", "1", "1"], containers: [] },
+    { uid: "d1", name: "web", namespace: "demo", created: ago(3600), cells: ["3/3", "3", "3"], containers: [], ports: [] },
+    { uid: "d2", name: "api", namespace: "demo", created: ago(86400 * 3), cells: ["1/1", "1", "1"], containers: [], ports: [] },
   ],
-  services: [{ uid: "s1", name: "web", namespace: "demo", created: ago(3600), cells: ["ClusterIP", "10.96.12.4", "80/TCP"], containers: [] }],
-  configmaps: [{ uid: "c1", name: "app-config", namespace: "demo", created: ago(3600), cells: ["2"], containers: [] }],
+  services: [{ uid: "s1", name: "web", namespace: "demo", created: ago(3600), cells: ["ClusterIP", "10.96.12.4", "80/TCP"], containers: [], ports: [80] }],
+  configmaps: [{ uid: "c1", name: "app-config", namespace: "demo", created: ago(3600), cells: ["2"], containers: [], ports: [] }],
 };
 
 // Mirrors src-tauri/src/kinds.rs (subset).
@@ -61,6 +62,13 @@ data:
   FEATURE_X: "true"
   LOG_LEVEL: debug
 `;
+
+const forwards: any[] = [];
+const HISTORY = [
+  { revision: 3, updated: ago(600), status: "deployed", chart: "hello-0.1.0", appVersion: "1.16.0", description: "Rollback to 1" },
+  { revision: 2, updated: ago(3000), status: "superseded", chart: "hello-0.1.0", appVersion: "1.16.0", description: "Upgrade complete" },
+  { revision: 1, updated: ago(3600), status: "superseded", chart: "hello-0.1.0", appVersion: "1.16.0", description: "Install complete" },
+];
 
 const timers = new Map<number, ReturnType<typeof setInterval>>();
 let nextStream = 1;
@@ -112,9 +120,30 @@ async function invoke(cmd: string, args: Record<string, any>): Promise<unknown> 
       send(ch, { type: "data", data: echo + (echo.endsWith("\n") ? "(preview: no real shell)\r\n/ # " : "") });
       return null;
     }
-    case "stop_stream":
+    case "start_port_forward": {
+      const f = { id: nextStream++, kind: args.kind, namespace: args.namespace, name: args.name, remotePort: args.remotePort, localPort: args.localPort ?? 50000 + forwards.length, connections: 0, lastError: null };
+      forwards.push(f);
+      return f;
+    }
+    case "list_port_forwards":
+      return forwards;
+    case "helm_list":
+      return [
+        { name: "hello", namespace: "demo", revision: "3", updated: ago(600), status: "deployed", chart: "hello-0.1.0", appVersion: "1.16.0" },
+        { name: "ingress-nginx", namespace: "kube-system", revision: "12", updated: ago(86400 * 9), status: "deployed", chart: "ingress-nginx-4.11.3", appVersion: "1.11.3" },
+        { name: "broken-upgrade", namespace: "demo", revision: "4", updated: ago(7200), status: "failed", chart: "api-2.3.0", appVersion: "2.3.0" },
+      ].filter((r) => !args.namespace || r.namespace === args.namespace);
+    case "helm_details":
+      return { values: "replicaCount: 2\nimage:\n  tag: 1.16.0\n", manifest: "---\n# Source: hello/templates/deployment.yaml\napiVersion: apps/v1\nkind: Deployment\n", notes: "1. Get the application URL by running these commands: ...", history: HISTORY };
+    case "helm_rollback":
+    case "helm_uninstall":
+      return "";
+    case "stop_stream": {
       clearInterval(timers.get(args.id));
+      const i = forwards.findIndex((f) => f.id === args.id);
+      if (i >= 0) forwards.splice(i, 1);
       return null;
+    }
     default:
       return null;
   }

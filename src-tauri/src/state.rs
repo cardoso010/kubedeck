@@ -6,6 +6,7 @@ use kube::Client;
 use tauri::async_runtime::JoinHandle;
 use tokio::sync::RwLock;
 
+use crate::portforward::Forward;
 use crate::streams::ExecHandle;
 
 /// Commands return plain strings as errors so the UI can show them directly.
@@ -18,6 +19,7 @@ pub fn err(e: impl std::fmt::Display) -> String {
 #[derive(Clone)]
 pub struct Connection {
     pub client: Client,
+    pub context: String,
     pub default_namespace: String,
 }
 
@@ -27,6 +29,7 @@ pub struct AppState {
     /// Background streams (watches and logs), keyed by the id handed to the UI.
     pub tasks: Mutex<HashMap<u64, JoinHandle<()>>>,
     pub execs: Mutex<HashMap<u64, ExecHandle>>,
+    pub forwards: Mutex<HashMap<u64, Forward>>,
     next_id: AtomicU64,
 }
 
@@ -50,6 +53,9 @@ impl AppState {
         if let Some(exec) = self.execs.lock().unwrap().remove(&id) {
             exec.task.abort();
         }
+        if let Some(forward) = self.forwards.lock().unwrap().remove(&id) {
+            forward.task.abort();
+        }
     }
 
     /// Stops every stream; used when switching clusters.
@@ -59,6 +65,9 @@ impl AppState {
         }
         for (_, exec) in self.execs.lock().unwrap().drain() {
             exec.task.abort();
+        }
+        for (_, forward) in self.forwards.lock().unwrap().drain() {
+            forward.task.abort();
         }
     }
 }

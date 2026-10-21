@@ -4,6 +4,7 @@ import ConfirmDialog from "./ConfirmDialog";
 import YamlEditor from "./YamlEditor";
 import LogsView from "./LogsView";
 import TerminalView from "./TerminalView";
+import PortForwardButtons from "./PortForwardButtons";
 
 interface Props {
   kind: KindInfo;
@@ -72,6 +73,9 @@ export default function DetailsPanel({ kind, row, target, context, production, o
           </select>
         )}
       </nav>
+      {(isPod || kind.key === "services") && row.namespace && (
+        <PortForwardButtons kind={isPod ? "pod" : "service"} namespace={row.namespace} name={row.name} ports={row.ports} />
+      )}
       {error && <div className="error-bar">{error}</div>}
       <div className="details-body">
         {tab === "yaml" && <YamlEditor target={target} production={production} />}

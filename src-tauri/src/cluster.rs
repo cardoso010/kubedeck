@@ -59,7 +59,7 @@ pub async fn connect(context: String, state: State<'_, AppState>) -> CmdResult<C
     let client = Client::try_from(config).map_err(err)?;
     let version = client.apiserver_version().await.map_err(err)?;
 
-    *state.conn.write().await = Some(Connection { client, default_namespace: default_namespace.clone() });
+    *state.conn.write().await = Some(Connection { client, context: context.clone(), default_namespace: default_namespace.clone() });
     Ok(Connected { context, server_version: version.git_version, default_namespace })
 }
 

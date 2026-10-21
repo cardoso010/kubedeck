@@ -7,6 +7,9 @@ interface Props {
   rows: Row[];
   loading: boolean;
   error: string | null;
+  /** Shown before the error; defaults to the watch wording. */
+  errorPrefix?: string;
+  ageLabel?: string;
   showNamespace: boolean;
   selectedUid: string | null;
   onSelect: (row: Row) => void;
@@ -14,7 +17,7 @@ interface Props {
 
 const ROW_HEIGHT = 30;
 
-export default function ResourceTable({ kind, rows, loading, error, showNamespace, selectedUid, onSelect }: Props) {
+export default function ResourceTable({ kind, rows, loading, error, errorPrefix = "Watch error (retrying)", ageLabel = "Age", showNamespace, selectedUid, onSelect }: Props) {
   const [filter, setFilter] = useState("");
   const [now, setNow] = useState(Date.now());
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -38,7 +41,7 @@ export default function ResourceTable({ kind, rows, loading, error, showNamespac
     overscan: 20,
   });
 
-  const columns = [...(showNamespace ? ["Namespace"] : []), ...kind.columns, "Age"];
+  const columns = [...(showNamespace ? ["Namespace"] : []), ...kind.columns, ageLabel];
   const template = `minmax(220px, 2fr) ${columns.map((c) => (c === "Message" ? "minmax(200px, 3fr)" : "minmax(80px, 1fr)")).join(" ")}`;
 
   return (
@@ -48,7 +51,11 @@ export default function ResourceTable({ kind, rows, loading, error, showNamespac
         <span className="count">{loading ? "loading…" : `${visible.length}${visible.length !== rows.length ? ` of ${rows.length}` : ""}`}</span>
         <input placeholder="Filter…" value={filter} onChange={(e) => setFilter(e.target.value)} />
       </header>
-      {error && <div className="error-bar">Watch error (retrying): {error}</div>}
+      {error && (
+        <div className="error-bar">
+          {errorPrefix}: {error}
+        </div>
+      )}
       <div className="table-head" style={{ gridTemplateColumns: template }}>
         <div>Name</div>
         {columns.map((c) => (
@@ -86,8 +93,8 @@ export default function ResourceTable({ kind, rows, loading, error, showNamespac
 
 function statusClass(column: string | undefined, value: string) {
   if (column !== "Status" && column !== "Type") return "";
-  if (/^(Running|Ready|Active|Complete|Succeeded|Normal)$/.test(value)) return "ok";
-  if (/^(Pending|ContainerCreating|PodInitializing|Terminating)$/.test(value)) return "warn";
-  if (/(Err|Fail|BackOff|NotReady|Warning|OOM|Evicted|Unknown)/.test(value)) return "bad";
+  if (/^(Running|Ready|Active|Complete|Succeeded|Normal|deployed)$/.test(value)) return "ok";
+  if (/^(Pending|ContainerCreating|PodInitializing|Terminating)$|^(pending-|uninstalling)/.test(value)) return "warn";
+  if (/(Err|Fail|fail|BackOff|NotReady|Warning|OOM|Evicted|Unknown)/.test(value)) return "bad";
   return "";
 }

@@ -1,8 +1,10 @@
 //! End-to-end test of the backend commands against a real, disposable cluster.
 //!
-//! Needs a cluster with the `demo` namespace from README.md ("Testing"), then:
+//! Needs a cluster with the `demo` namespace and `hello` Helm release from README.md
+//! ("Testing"), then:
 //!   KUBECONFIG=../.kind-kubeconfig KUBEDECK_E2E_CONTEXT=kind-kubedeck-test cargo test -- --ignored
-//! Never point it at a shared cluster: it edits a ConfigMap and deletes a pod.
+//! Never point it at a shared cluster: it edits a ConfigMap, deletes a pod and rolls back
+//! and uninstalls Helm releases.
 
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -11,7 +13,9 @@ use serde_json::Value;
 use tauri::ipc::{Channel, InvokeResponseBody};
 use tauri::Manager;
 
-use crate::{cluster, resources, state::AppState, streams};
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+use crate::{cluster, helm, portforward, resources, state::AppState, streams};
 
 type Inbox = Arc<Mutex<Vec<Value>>>;
 
@@ -41,16 +45,24 @@ fn opt(s: &str) -> Option<String> {
     Some(s.to_owned())
 }
 
+fn test_context() -> String {
+    let context = std::env::var("KUBEDECK_E2E_CONTEXT").expect("set KUBEDECK_E2E_CONTEXT");
+    assert!(!crate_is_production(&context), "refusing to run against {context}");
+    context
+}
+
+fn mock_app() -> tauri::App<tauri::test::MockRuntime> {
+    tauri::test::mock_builder()
+        .manage(AppState::default())
+        .build(tauri::test::mock_context(tauri::test::noop_assets()))
+        .unwrap()
+}
+
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "needs a disposable cluster, see module docs"]
 async fn backend_against_real_cluster() {
-    let context = std::env::var("KUBEDECK_E2E_CONTEXT").expect("set KUBEDECK_E2E_CONTEXT");
-    assert!(!crate_is_production(&context), "refusing to run against {context}");
-
-    let app = tauri::test::mock_builder()
-        .manage(AppState::default())
-        .build(tauri::test::mock_context(tauri::test::noop_assets()))
-        .unwrap();
+    let context = test_context();
+    let app = mock_app();
     let state = || app.state::<AppState>();
 
     // Contexts and connection
@@ -78,16 +90,19 @@ async fn backend_against_real_cluster() {
 
     // YAML read / replace / conflict detection
     let yaml = resources::get_yaml("configmaps".into(), opt("demo"), "app-config".into(), state()).await.unwrap();
-    assert!(yaml.contains("LOG_LEVEL: debug") && !yaml.contains("managedFields"), "{yaml}");
-    let edited = yaml.replace("LOG_LEVEL: debug", "LOG_LEVEL: info");
+    assert!(!yaml.contains("managedFields"), "{yaml}");
+    // Flip LOG_LEVEL whatever it is now (people edit it by hand while trying the app).
+    let (from, to) = if yaml.contains("LOG_LEVEL: debug") { ("LOG_LEVEL: debug", "LOG_LEVEL: info") } else { ("LOG_LEVEL: info", "LOG_LEVEL: debug") };
+    assert!(yaml.contains(from), "{yaml}");
+    let edited = yaml.replace(from, to);
     let saved = resources::replace_yaml("configmaps".into(), opt("demo"), "app-config".into(), edited.clone(), state()).await.unwrap();
-    assert!(saved.contains("LOG_LEVEL: info"));
+    assert!(saved.contains(to));
     let stale = resources::replace_yaml("configmaps".into(), opt("demo"), "app-config".into(), edited, state()).await;
     assert!(stale.unwrap_err().contains("modified"), "stale resourceVersion must be rejected");
     let renamed = resources::replace_yaml("configmaps".into(), opt("demo"), "app-config".into(), saved.replace("name: app-config", "name: other"), state()).await;
     assert!(renamed.is_err());
-    // Put it back so the test can run again.
-    resources::replace_yaml("configmaps".into(), opt("demo"), "app-config".into(), saved.replace("LOG_LEVEL: info", "LOG_LEVEL: debug"), state()).await.unwrap();
+    // Put it back as it was.
+    resources::replace_yaml("configmaps".into(), opt("demo"), "app-config".into(), saved.replace(to, from), state()).await.unwrap();
 
     // Delete: watch reports the deletion and the Deployment's replacement pod
     let web_name = web["name"].as_str().unwrap().to_owned();
@@ -117,6 +132,106 @@ async fn backend_against_real_cluster() {
     streams::exec_input(exec_id, "exit\r".into(), state()).unwrap();
     wait_for(&term, "exec end", |m| m.iter().any(|m| m["type"] == "end")).await;
     resources::stop_stream(exec_id, state());
+}
+
+/// Sends a plain HTTP request through 127.0.0.1:port and returns the response.
+async fn http_get(port: u16) -> String {
+    let mut socket = tokio::net::TcpStream::connect(("127.0.0.1", port)).await.unwrap();
+    socket.write_all(b"GET / HTTP/1.0\r\nHost: localhost\r\n\r\n").await.unwrap();
+    let mut response = String::new();
+    tokio::time::timeout(Duration::from_secs(20), socket.read_to_string(&mut response)).await.expect("http timeout").unwrap();
+    response
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "needs a disposable cluster, see module docs"]
+async fn port_forward_against_real_cluster() {
+    let context = test_context();
+    let app = mock_app();
+    let state = || app.state::<AppState>();
+    cluster::connect(context, state()).await.unwrap();
+
+    // Service: resolved to a ready pod behind it, auto-assigned local port.
+    let svc = serde_json::to_value(portforward::start_port_forward("service".into(), "demo".into(), "web".into(), 80, None, state()).await.unwrap()).unwrap();
+    let port = svc["localPort"].as_u64().unwrap() as u16;
+    assert_ne!(port, 0);
+    // Several connections each get their own stream.
+    for _ in 0..3 {
+        let response = http_get(port).await;
+        assert!(response.starts_with("HTTP/1.1 200") && response.contains("nginx"), "{response}");
+    }
+
+    // Pod, on an explicit local port.
+    let pods = cluster::list_namespaces(state()).await.unwrap();
+    assert!(pods.contains(&"demo".to_owned()));
+    let k8s: kube::Api<k8s_openapi::api::core::v1::Pod> = kube::Api::namespaced(state().connection().await.unwrap().client, "demo");
+    let web_pod = k8s.list(&kube::api::ListParams::default().labels("app=web")).await.unwrap().items[0].metadata.name.clone().unwrap();
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let free_port = listener.local_addr().unwrap().port();
+    drop(listener);
+    let pod = serde_json::to_value(portforward::start_port_forward("pod".into(), "demo".into(), web_pod, 80, Some(free_port), state()).await.unwrap()).unwrap();
+    assert_eq!(pod["localPort"], free_port);
+    assert!(http_get(free_port).await.contains("nginx"));
+
+    let listed = serde_json::to_value(portforward::list_port_forwards(state())).unwrap();
+    assert_eq!(listed.as_array().unwrap().len(), 2);
+    assert_eq!(listed[0]["connections"], 3, "{listed}");
+
+    // Errors surface at start instead of on the first connection.
+    assert!(portforward::start_port_forward("service".into(), "demo".into(), "missing".into(), 80, None, state()).await.is_err());
+    assert!(portforward::start_port_forward("pod".into(), "demo".into(), "x".into(), 80, Some(free_port), state()).await.is_err());
+
+    // Stopping closes the listener.
+    resources::stop_stream(svc["id"].as_u64().unwrap(), state());
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    assert!(tokio::net::TcpStream::connect(("127.0.0.1", port)).await.is_err(), "listener should be closed");
+    assert_eq!(portforward::list_port_forwards(state()).len(), 1);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "needs a disposable cluster, see module docs"]
+async fn helm_against_real_cluster() {
+    let context = test_context();
+    let app = mock_app();
+    let state = || app.state::<AppState>();
+    cluster::connect(context, state()).await.unwrap();
+
+    let releases = serde_json::to_value(helm::helm_list(Some("demo".into()), state()).await.unwrap()).unwrap();
+    let hello = releases.as_array().unwrap().iter().find(|r| r["name"] == "hello").expect("hello release (see README)").clone();
+    assert_eq!(hello["status"], "deployed");
+    assert!(hello["updated"].as_str().unwrap().contains('T'), "{hello}");
+    let all = helm::helm_list(None, state()).await.unwrap();
+    assert!(!all.is_empty());
+
+    let details = serde_json::to_value(helm::helm_details("demo".into(), "hello".into(), state()).await.unwrap()).unwrap();
+    assert!(details["values"].as_str().unwrap().contains("replicaCount"), "{details}");
+    assert!(details["manifest"].as_str().unwrap().contains("kind: Deployment"));
+    let history = details["history"].as_array().unwrap();
+    assert!(history.len() >= 2);
+    assert!(history[0]["revision"].as_u64() > history[1]["revision"].as_u64(), "newest first");
+
+    // Roll back to the previous revision: a new revision appears on top.
+    let latest = history[0]["revision"].as_u64().unwrap();
+    let previous = history[1]["revision"].as_u64().unwrap() as u32;
+    helm::helm_rollback("demo".into(), "hello".into(), previous, state()).await.unwrap();
+    let after = serde_json::to_value(helm::helm_details("demo".into(), "hello".into(), state()).await.unwrap()).unwrap();
+    assert_eq!(after["history"][0]["revision"].as_u64().unwrap(), latest + 1);
+    assert!(after["history"][0]["description"].as_str().unwrap().contains(&format!("Rollback to {previous}")));
+
+    // Uninstall a throwaway release.
+    let dir = std::env::temp_dir().join(format!("kubedeck-chart-{}", std::process::id()));
+    let helm_bin = std::env::var("KUBEDECK_HELM").unwrap_or_else(|_| "helm".into());
+    let run = |args: &[&str]| std::process::Command::new(&helm_bin).args(args).output().unwrap();
+    assert!(run(&["create", dir.to_str().unwrap()]).status.success());
+    assert!(run(&["install", "throwaway", dir.to_str().unwrap(), "-n", "demo", "--set", "replicaCount=0"]).status.success());
+    helm::helm_uninstall("demo".into(), "throwaway".into(), state()).await.unwrap();
+    let names: Vec<Value> = serde_json::to_value(helm::helm_list(Some("demo".into()), state()).await.unwrap()).unwrap().as_array().unwrap().iter().map(|r| r["name"].clone()).collect();
+    assert!(!names.contains(&Value::from("throwaway")));
+    let _ = std::fs::remove_dir_all(dir);
+
+    // CLI errors come back readable.
+    let missing = helm::helm_details("demo".into(), "nope".into(), state()).await.err().unwrap();
+    assert!(missing.contains("not found"), "{missing}");
 }
 
 fn crate_is_production(context: &str) -> bool {
