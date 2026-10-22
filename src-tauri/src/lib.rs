@@ -51,6 +51,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             cluster::list_contexts,
             cluster::connect,
+            cluster::context_auth,
             cluster::list_namespaces,
             resources::list_kinds,
             resources::watch_resources,

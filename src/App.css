@@ -408,3 +408,9 @@ kbd { font-size: 10px; padding: 1px 5px; border: 1px solid var(--line-2); border
 .chart-tooltip-row strong { margin-left: auto; padding-left: 12px; font-family: var(--font-mono); font-weight: 500; }
 .chart-swatch { display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: 4px; }
 .chart-legend { display: flex; gap: 14px; padding: 2px 0 0 56px; color: var(--text-2); font-size: 11px; }
+
+.auth-banner { display: flex; align-items: center; gap: 14px; padding: 10px 14px; background: color-mix(in srgb, var(--warn) 10%, var(--bg)); border-bottom: 1px solid color-mix(in srgb, var(--warn) 45%, transparent); line-height: 1.5; }
+.auth-banner-text { flex: 1; }
+.auth-banner strong { color: var(--warn); font-weight: 600; }
+.auth-banner code { padding: 0 4px; border-radius: 3px; background: var(--bg-2); }
+.auth-banner button { flex: none; }

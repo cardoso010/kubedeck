@@ -28,3 +28,6 @@ dist-ssr
 
 # Sidecar binaries, downloaded by scripts/fetch-helm.mjs
 /src-tauri/binaries/
+
+# e2e exec-plugin token
+/e2e/.auth-token

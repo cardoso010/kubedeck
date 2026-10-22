@@ -64,6 +64,13 @@ if ! kubectl -n kube-system get deployment metrics-server >/dev/null 2>&1; then
     -p '[{"op":"add","path":"/spec/template/spec/containers/0/args/-","value":"--kubelet-insecure-tls"}]'
 fi
 
+# A second context that logs in through an exec plugin (e2e/auth-plugin.sh) handing out the
+# token in e2e/.auth-token, so the tests can revoke and renew its credentials: what an expired
+# AWS session looks like to the app.
+touch "$ROOT/e2e/.auth-token"
+kubectl config set-credentials kubedeck-auth --exec-api-version=client.authentication.k8s.io/v1beta1 --exec-command="$ROOT/e2e/auth-plugin.sh" >/dev/null
+kubectl config set-context kind-kubedeck-auth --cluster="kind-$CLUSTER" --user=kubedeck-auth >/dev/null
+
 # A minimal Prometheus (server only, 10s scrapes) for the pod metrics history.
 PROMETHEUS_CHART_VERSION=29.37.1
 if ! "$HELM" status prometheus -n monitoring >/dev/null 2>&1; then

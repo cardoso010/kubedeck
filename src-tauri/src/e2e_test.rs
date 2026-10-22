@@ -551,6 +551,78 @@ async fn pod_metrics_against_real_cluster() {
     assert!(empty["cpu"].as_array().unwrap().is_empty());
 }
 
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "needs a disposable cluster, see module docs"]
+async fn expired_credentials_are_reported_and_recover() {
+    use k8s_openapi::api::authentication::v1::{TokenRequest, TokenRequestSpec};
+    use k8s_openapi::api::core::v1::ServiceAccount;
+    use k8s_openapi::api::rbac::v1::ClusterRoleBinding;
+    use kube::api::{DeleteParams, PostParams};
+
+    let context = test_context();
+    let app = mock_app();
+    let admin = || Session::of(&app, "main");
+    let user = || Session::of(&app, "window-1");
+    cluster::connect(context, admin()).await.unwrap();
+    let client = admin().connection().await.unwrap().client;
+    let token_file = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../e2e/.auth-token");
+    let sas: kube::Api<ServiceAccount> = kube::Api::namespaced(client.clone(), "demo");
+    let bindings: kube::Api<ClusterRoleBinding> = kube::Api::all(client.clone());
+    let _ = sas.delete("kubedeck-auth", &DeleteParams::default()).await;
+    let _ = bindings.delete("kubedeck-auth-view", &DeleteParams::default()).await;
+    let binding: ClusterRoleBinding = serde_json::from_value(serde_json::json!({
+        "metadata": { "name": "kubedeck-auth-view" },
+        "roleRef": { "apiGroup": "rbac.authorization.k8s.io", "kind": "ClusterRole", "name": "view" },
+        "subjects": [{ "kind": "ServiceAccount", "name": "kubedeck-auth", "namespace": "demo" }]
+    }))
+    .unwrap();
+    bindings.create(&PostParams::default(), &binding).await.unwrap();
+
+    // Hands the exec plugin a fresh token for a new service account (a "login").
+    let login = || async {
+        let sa: ServiceAccount = serde_json::from_value(serde_json::json!({ "metadata": { "name": "kubedeck-auth" } })).unwrap();
+        sas.create(&PostParams::default(), &sa).await.unwrap();
+        let request = TokenRequest { spec: Some(TokenRequestSpec { expiration_seconds: Some(3600), ..Default::default() }), ..Default::default() };
+        let token = sas.create_token_request("kubedeck-auth", &PostParams::default(), &request).await.unwrap().status.and_then(|s| s.token).expect("token");
+        std::fs::write(&token_file, token).unwrap();
+    };
+    let watch_pods = || async {
+        let (ch, inbox) = channel();
+        resources::watch_resources("pods".into(), vec!["demo".into()], ch, user()).await.unwrap();
+        wait_for(&inbox, "snapshot or error", |m| m.iter().any(|m| m["type"] == "snapshot" || m["type"] == "error")).await;
+        inbox.lock().unwrap().iter().find(|m| m["type"] == "snapshot" || m["type"] == "error").cloned().unwrap()
+    };
+
+    login().await;
+    let connected = serde_json::to_value(cluster::connect("kind-kubedeck-auth".into(), user()).await.unwrap()).unwrap();
+    assert!(connected["auth"]["command"].as_str().unwrap().ends_with("e2e/auth-plugin.sh"), "{connected}");
+    assert_eq!(watch_pods().await["type"], "snapshot");
+
+    // The credentials stop working (like an expired AWS session): reported as such.
+    sas.delete("kubedeck-auth", &DeleteParams::default()).await.unwrap();
+    let mut failed = Value::Null;
+    for _ in 0..20 {
+        failed = watch_pods().await;
+        if failed["type"] == "error" {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(500)).await;
+    }
+    assert_eq!(failed["unauthorized"], true, "{failed}");
+    assert!(failed["message"].as_str().unwrap().contains("(401)"), "{failed}");
+    let reconnect = cluster::connect("kind-kubedeck-auth".into(), user()).await.err().expect("connect must fail");
+    assert!(reconnect.contains("(401)"), "{reconnect}");
+
+    // After a new login, reconnecting runs the plugin again and works.
+    login().await;
+    cluster::connect("kind-kubedeck-auth".into(), user()).await.unwrap();
+    assert_eq!(watch_pods().await["type"], "snapshot");
+
+    let _ = sas.delete("kubedeck-auth", &DeleteParams::default()).await;
+    let _ = bindings.delete("kubedeck-auth-view", &DeleteParams::default()).await;
+    std::fs::write(&token_file, "").unwrap();
+}
+
 fn crate_is_production(context: &str) -> bool {
     let lower = context.to_lowercase();
     ["prd", "prod", "production"].iter().any(|p| lower.contains(p))

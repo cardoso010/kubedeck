@@ -20,6 +20,21 @@ pub fn err(e: impl std::fmt::Display) -> String {
     e.to_string()
 }
 
+/// The cluster rejected the credentials (expired or revoked token, e.g. expired AWS session).
+pub fn is_unauthorized(e: &kube::Error) -> bool {
+    matches!(e, kube::Error::Api(s) if s.code == 401)
+}
+
+/// Readable text for API errors; the UI matches on the "(401)" of unauthorized ones.
+pub fn kube_err(e: &kube::Error) -> String {
+    match e {
+        kube::Error::Api(s) if s.code == 401 => "Unauthorized (401): the cluster rejected your credentials. They have probably expired.".into(),
+        kube::Error::Api(s) if s.code == 403 => format!("Forbidden (403): {}", s.message),
+        kube::Error::Api(s) => format!("{} ({}): {}", s.reason, s.code, s.message),
+        other => other.to_string(),
+    }
+}
+
 #[derive(Clone)]
 pub struct Connection {
     pub client: Client,

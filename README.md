@@ -58,6 +58,7 @@ O app ainda não é assinado com Developer ID nem notarizado. O script de instal
   - **Delete**.
   - **Port forward** de pods e services. Cada porta TCP vira um botão. O service escolhe um pod pronto a cada conexão, então continua funcionando quando os pods são trocados. A tela **Port Forwards** lista os túneis ativos, com o número de conexões e o último erro.
 - **Helm Releases:** lista os releases e mostra valores, manifest, notas e histórico, com **rollback** para uma revisão anterior e **uninstall**. **Install chart** busca nos repositórios configurados (os mesmos do `helm repo list`, que podem ser gerenciados ali), escolhe a versão e abre os valores padrão do chart para editar; a aba **Upgrade** de cada release parte dos valores atuais. As duas têm *dry run* (renderiza e valida no servidor sem mudar nada) e a confirmação de produção. O app traz o próprio Helm (3.22.1) embutido como sidecar, então funciona sem nada instalado na máquina. Ele usa sempre o mesmo kubeconfig e contexto do app. Para usar outro binário, defina `KUBEDECK_HELM` com o caminho dele.
+- **Credenciais expiradas:** se o cluster recusar as credenciais (401, por exemplo quando a sessão AWS por trás do `aws eks get-token` vence), uma faixa explica o que renovar (o comando e o profile AWS do kubeconfig) e o app tenta reconectar sozinho a cada 20 s. Assim que as credenciais voltam a valer, a janela se recupera sem precisar reabrir.
 - **Proteção de produção:** contextos com `prd`/`prod`/`production` no nome mostram uma faixa vermelha. Salvar, apagar, instalar, fazer upgrade, rollback ou uninstall nesses contextos exige digitar o nome do recurso.
 
 ## Desenvolver
@@ -76,7 +77,7 @@ As convenções do código e os cuidados para trabalhar no projeto (inclusive co
 
 ## Testing
 
-Os testes de ponta a ponta rodam contra um cluster **kind descartável**. Eles editam um ConfigMap, apagam um pod e fazem rollback e uninstall de releases Helm, então nunca aponte para um cluster compartilhado. O script cria o cluster com todos os fixtures (workloads em dois namespaces, um pod com requests e limits, release Helm, CRD de exemplo, metrics-server e um Prometheus mínimo) num kubeconfig separado, `.kind-kubeconfig`, sem tocar no `~/.kube/config`:
+Os testes de ponta a ponta rodam contra um cluster **kind descartável**. Eles editam um ConfigMap, apagam um pod e fazem rollback e uninstall de releases Helm, então nunca aponte para um cluster compartilhado. O script cria o cluster com todos os fixtures (workloads em dois namespaces, um pod com requests e limits, release Helm, CRD de exemplo, metrics-server, um Prometheus mínimo e um segundo contexto que autentica por exec plugin, para testar credenciais revogadas) num kubeconfig separado, `.kind-kubeconfig`, sem tocar no `~/.kube/config`:
 
 ```bash
 npm run binaries

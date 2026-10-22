@@ -56,6 +56,8 @@ export default function App() {
   const [selected, setSelected] = useState<Row | null>(null);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [helmInstallRequest, setHelmInstallRequest] = useState(0);
+  /** The cluster rejected this window's credentials (e.g. an expired AWS session). */
+  const [authProblem, setAuthProblem] = useState<{ context: string; auth: Connected["auth"]; tries: number } | null>(null);
 
   useEffect(() => {
     api.listKinds().then(setKinds);
@@ -71,12 +73,18 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  async function choose(context: string) {
-    if (context === conn?.context) return;
-    setConnecting(true);
-    setError(null);
-    setConn(null);
-    setSelected(null);
+  /**
+   * Connects this window to `context`. `force` reconnects to the current cluster (fresh
+   * credentials); `quiet` keeps the screen as it is until it succeeds (background retries).
+   */
+  async function choose(context: string, { force = false, quiet = false } = {}) {
+    if (context === conn?.context && !force) return;
+    if (!quiet) {
+      setConnecting(true);
+      setError(null);
+      setConn(null);
+      setSelected(null);
+    }
     try {
       const c = await api.connect(context);
       // The new cluster may have different custom resources.
@@ -85,6 +93,8 @@ export default function App() {
       setView((v) => (v === HELM || v === FORWARDS || k.some((x) => x.key === v) ? v : "pods"));
       setRecentCustom((recent) => recent.filter((key) => k.some((x) => x.key === key)));
       setConn(c);
+      setAuthProblem(null);
+      setError(null);
       // Cosmetic: never let the title fail a connection.
       try {
         getCurrentWindow()
@@ -98,9 +108,14 @@ export default function App() {
       const saved = savedNamespaces(context)?.filter((n) => ns.includes(n));
       setSelectedNs(saved ?? (ns.includes(c.defaultNamespace) ? [c.defaultNamespace] : []));
     } catch (e) {
-      setError(`Could not connect to ${context}: ${api.errorText(e)}`);
+      const message = api.errorText(e);
+      if (api.isUnauthorized(message)) {
+        const auth = await api.contextAuth(context).catch(() => null);
+        setAuthProblem((p) => ({ context, auth, tries: (p?.tries ?? 0) + 1 }));
+      }
+      else if (!quiet) setError(`Could not connect to ${context}: ${message}`);
     } finally {
-      setConnecting(false);
+      if (!quiet) setConnecting(false);
     }
   }
 
@@ -156,7 +171,10 @@ export default function App() {
             });
           };
           return api.watchResources(kind.key, scopedNs, (msg) => {
-            if (msg.type === "error") return setWatchError(msg.message);
+            if (msg.type === "error") {
+              if (msg.unauthorized && conn) setAuthProblem((p) => p ?? { context: conn.context, auth: conn.auth, tries: 0 });
+              return setWatchError(msg.unauthorized ? null : msg.message);
+            }
             setWatchError(null);
             if (queue.push(msg) === 1) requestAnimationFrame(flush);
           });
@@ -165,6 +183,15 @@ export default function App() {
     (e) => setWatchError(api.errorText(e)),
     [conn, kind?.key, nsKey],
   );
+
+  // While the credentials are rejected, reconnect quietly every 20s: once the user renews
+  // them (e.g. logs in to AWS again), the exec plugin runs again and the window recovers.
+  useEffect(() => {
+    if (!authProblem) return;
+    const timer = setInterval(() => void choose(authProblem.context, { force: true, quiet: true }), 20_000);
+    return () => clearInterval(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [authProblem?.context]);
 
   // Keep the details drawer pointing at the live version of the selected row.
   const selectedRow = selected && rows ? (rows.get(selected.uid) ?? null) : null;
@@ -266,6 +293,7 @@ export default function App() {
             onOpenPalette={() => setPaletteOpen(true)}
           />
           {conn && <KindTabs section={section} kinds={kinds} active={view} recentCustom={recentCustom} onSelect={openView} />}
+          {authProblem && <AuthBanner problem={authProblem} auth={authProblem.auth ?? conn?.auth ?? null} onRetry={() => void choose(authProblem.context, { force: true, quiet: !!conn })} />}
           {error && <div className="error-bar">{error}</div>}
 
           {!conn ? (
@@ -307,6 +335,38 @@ export default function App() {
         {paletteOpen && <CommandPalette commands={commands} onClose={() => setPaletteOpen(false)} />}
       </div>
     </ThemeContext.Provider>
+  );
+}
+
+function AuthBanner({ problem, auth, onRetry }: { problem: { context: string; tries: number }; auth: Connected["auth"]; onRetry: () => void }) {
+  const [retrying, setRetrying] = useState(false);
+  const retry = () => {
+    setRetrying(true);
+    onRetry();
+    setTimeout(() => setRetrying(false), 1500);
+  };
+  return (
+    <div className="auth-banner" role="alert">
+      <div className="auth-banner-text">
+        <strong>{api.shortContextName(problem.context)} rejected your credentials (401).</strong> They have probably expired.{" "}
+        {auth?.awsProfile ? (
+          <>
+            This cluster signs in with <code>{auth.command}</code> using the AWS profile <code>{auth.awsProfile}</code>: renew that profile&apos;s credentials (for example{" "}
+            <code>aws sso login --profile {auth.awsProfile}</code>, or the tool that writes <code>~/.aws/credentials</code>).
+          </>
+        ) : auth ? (
+          <>
+            This cluster signs in with <code>{auth.command}</code>: renew the credentials that command uses.
+          </>
+        ) : (
+          <>Update the credentials in your kubeconfig.</>
+        )}{" "}
+        <span className="faint">kubedeck retries every 20s and recovers by itself once they work again.</span>
+      </div>
+      <button className="primary" disabled={retrying} onClick={retry}>
+        {retrying ? "Reconnecting…" : "Reconnect now"}
+      </button>
+    </div>
   );
 }
 

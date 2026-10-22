@@ -16,6 +16,8 @@ export interface Connected {
   context: string;
   serverVersion: string;
   defaultNamespace: string;
+  /** How the context logs in (exec plugin), to say what to renew when credentials expire. */
+  auth: { command: string; awsProfile: string | null } | null;
 }
 
 export interface KindInfo {
@@ -41,7 +43,7 @@ export type WatchMsg =
   | { type: "snapshot"; rows: Row[] }
   | { type: "upsert"; row: Row }
   | { type: "delete"; uid: string }
-  | { type: "error"; message: string };
+  | { type: "error"; message: string; unauthorized: boolean };
 
 export type StreamMsg = { type: "data"; data: string } | { type: "end"; message: string | null };
 
@@ -54,6 +56,7 @@ export interface Target {
 
 export const listContexts = () => invoke<Contexts>("list_contexts");
 export const connect = (context: string) => invoke<Connected>("connect", { context });
+export const contextAuth = (context: string) => invoke<Connected["auth"]>("context_auth", { context });
 export const listNamespaces = () => invoke<string[]>("list_namespaces");
 export const listKinds = () => invoke<KindInfo[]>("list_kinds");
 export const stopStream = (id: number) => invoke<void>("stop_stream", { id });
@@ -261,6 +264,9 @@ export function formatRate(bytesPerSecond: number): string {
   if (bytesPerSecond >= 1024) return `${(bytesPerSecond / 1024).toFixed(1)} KiB/s`;
   return `${Math.round(bytesPerSecond)} B/s`;
 }
+
+/** The cluster rejected the credentials (the backend words these errors with "(401)"). */
+export const isUnauthorized = (message: string) => /\(401\)|\bUnauthorized\b/.test(message);
 
 /** Errors from Rust commands arrive as plain strings. */
 export const errorText = (e: unknown) => (typeof e === "string" ? e : e instanceof Error ? e.message : JSON.stringify(e));

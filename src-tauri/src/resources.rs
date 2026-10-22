@@ -9,7 +9,7 @@ use serde::Serialize;
 use tauri::ipc::Channel;
 
 use crate::kinds::{self, KindDef, KindInfo, Row};
-use crate::state::{err, AppState, CmdResult, Session};
+use crate::state::{err, is_unauthorized, kube_err, AppState, CmdResult, Session};
 
 #[derive(Serialize, Clone)]
 #[serde(tag = "type", rename_all = "camelCase")]
@@ -18,7 +18,8 @@ pub enum WatchMsg {
     Snapshot { rows: Vec<Row> },
     Upsert { row: Row },
     Delete { uid: String },
-    Error { message: String },
+    /// `unauthorized`: the cluster rejected the credentials, so retrying the same ones is pointless.
+    Error { message: String, unauthorized: bool },
 }
 
 /// Built-in kinds before connecting; built-ins plus the cluster's custom resources after.
@@ -106,11 +107,15 @@ pub async fn watch_resources(
                 }
                 // The backoff keeps the watch alive; the UI just shows the latest error.
                 Err(e) => {
-                    let message = match &labels[i] {
-                        Some(ns) => format!("{ns}: {e}"),
-                        None => e.to_string(),
+                    let (detail, unauthorized) = match &e {
+                        watcher::Error::InitialListFailed(k) | watcher::Error::WatchStartFailed(k) | watcher::Error::WatchFailed(k) => (kube_err(k), is_unauthorized(k)),
+                        other => (other.to_string(), false),
                     };
-                    msgs.push(WatchMsg::Error { message });
+                    let message = match &labels[i] {
+                        Some(ns) => format!("{ns}: {detail}"),
+                        None => detail,
+                    };
+                    msgs.push(WatchMsg::Error { message, unauthorized });
                     if !std::mem::replace(&mut listed[i], true) && listed.iter().all(|l| *l) {
                         msgs.push(snapshot(&current));
                     }

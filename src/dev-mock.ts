@@ -134,10 +134,17 @@ async function invoke(cmd: string, args: Record<string, any>): Promise<unknown> 
       };
     case "connect":
       connected = true;
-      return { context: args.context, serverVersion: "v1.37.0", defaultNamespace: "demo" };
+      return { context: args.context, serverVersion: "v1.37.0", defaultNamespace: "demo", auth: args.context.includes("eks") ? { command: "aws eks get-token --cluster-name shop-prd", awsProfile: "prod" } : null };
+    case "context_auth":
+      return args.context.includes("eks") ? { command: "aws eks get-token --cluster-name shop-prd", awsProfile: "prod" } : null;
     case "list_namespaces":
       return ["default", "demo", "demo2", "kube-system", "monitoring", "payments", "rental"];
     case "watch_resources": {
+      // localStorage["kubedeck.mock.unauthorized"] = "1" simulates expired credentials.
+      if (localStorage.getItem("kubedeck.mock.unauthorized")) {
+        setTimeout(() => send(channel!, { type: "error", message: "demo: Unauthorized (401): the cluster rejected your credentials. They have probably expired.", unauthorized: true }), 150);
+        return nextStream++;
+      }
       const id = nextStream++;
       const wanted: string[] = args.namespaces ?? [];
       const rows = (ROWS[args.kindKey] ?? []).filter((r) => !r.namespace || wanted.length === 0 || wanted.includes(r.namespace));
