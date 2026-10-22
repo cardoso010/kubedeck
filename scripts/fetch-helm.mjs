@@ -67,7 +67,10 @@ try {
   const archivePath = join(work, archive);
   writeFileSync(archivePath, bytes);
   // bsdtar (macOS, Windows 10+) and GNU tar both read .tar.gz; bsdtar also reads .zip.
-  execFileSync("tar", ["-xf", archivePath, "-C", work]);
+  // On Windows, call the system bsdtar explicitly: Git Bash puts GNU tar first on PATH,
+  // which reads "C:\..." as a remote host and cannot open zips.
+  const tar = process.platform === "win32" ? join(process.env.SystemRoot ?? "C:\\Windows", "System32", "tar.exe") : "tar";
+  execFileSync(tar, ["-xf", archivePath, "-C", work]);
   mkdirSync(outDir, { recursive: true });
   copyFileSync(join(work, helmPlatform, windows ? "helm.exe" : "helm"), out);
   chmodSync(out, 0o755);

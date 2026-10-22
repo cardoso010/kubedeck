@@ -2,23 +2,40 @@ name: Release
 
 # Pushing a v* tag (npm run release -- x.y.z --push) builds every platform into a draft
 # release, adds latest.json and publishes it, so installed apps only see complete releases.
-# Running it by hand (Actions → Release → Run workflow) only builds and keeps the bundles as
-# workflow artifacts, to check packaging without publishing anything.
+#
+# Every other run only builds, without publishing anything:
+# - by hand (Actions → Release → Run workflow): keeps the bundles as workflow artifacts, to
+#   check packaging;
+# - on main when dependencies change, and weekly: warms the build caches. Caches are scoped
+#   to the ref that saved them, and a tag can read main's caches but never another tag's,
+#   so without this every release would compile from scratch.
 on:
   push:
     tags: ["v*"]
+    branches: [main]
+    paths:
+      - src-tauri/Cargo.lock
+      - package-lock.json
+      - scripts/fetch-helm.mjs
+      - .github/workflows/release.yml
+  schedule:
+    - cron: "0 6 * * 1"
   workflow_dispatch:
 
 permissions:
   contents: write
 
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref_type != 'tag' }}
+
 env:
   GH_TOKEN: ${{ github.token }}
-  PUBLISH: ${{ github.event_name == 'push' }}
+  PUBLISH: ${{ github.ref_type == 'tag' }}
 
 jobs:
   draft:
-    if: github.event_name == 'push'
+    if: github.ref_type == 'tag'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -29,7 +46,7 @@ jobs:
 
   build:
     needs: draft
-    # Also runs when the draft job is skipped (manual runs).
+    # Also runs when the draft job is skipped (builds that do not publish).
     if: ${{ !cancelled() && needs.draft.result != 'failure' }}
     timeout-minutes: 75
     strategy:
@@ -48,14 +65,21 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      - uses: actions/cache@v6
+        if: runner.os == 'Linux'
+        with:
+          path: ~/apt-cache
+          key: apt-${{ matrix.os }}-webkit-appimage-v1
       - name: Linux system dependencies
         if: runner.os == 'Linux'
         timeout-minutes: 20
         run: |
           # The default Azure apt mirror is sometimes extremely slow (see ci.yml).
           printf 'http://archive.ubuntu.com/ubuntu/\tpriority:1\nhttp://azure.archive.ubuntu.com/ubuntu/\tpriority:2\n' | sudo tee /etc/apt/apt-mirrors.txt
+          mkdir -p ~/apt-cache/partial
           sudo apt-get -o Acquire::Retries=5 update
-          sudo apt-get -o Acquire::Retries=5 install -y --no-install-recommends libwebkit2gtk-4.1-dev librsvg2-dev patchelf libfuse2 file
+          sudo apt-get -o Acquire::Retries=5 -o dir::cache::archives="$HOME/apt-cache" install -y --no-install-recommends libwebkit2gtk-4.1-dev librsvg2-dev patchelf libfuse2 file
+          sudo chown -R "$USER" ~/apt-cache
 
       - uses: actions/setup-node@v7
         with:
@@ -70,6 +94,8 @@ jobs:
         with:
           workspaces: src-tauri
           key: ${{ matrix.target }}
+          # A tag's cache could only ever be read by that same tag.
+          save-if: ${{ github.ref_type != 'tag' }}
 
       - run: npm ci
 
@@ -105,7 +131,7 @@ jobs:
         run: gh release upload "$GITHUB_REF_NAME" out/* --clobber
 
       - name: Keep as workflow artifacts
-        if: env.PUBLISH != 'true'
+        if: github.event_name == 'workflow_dispatch'
         uses: actions/upload-artifact@v7
         with:
           name: kubedeck-${{ matrix.suffix }}
@@ -114,7 +140,7 @@ jobs:
 
   publish:
     needs: build
-    if: github.event_name == 'push'
+    if: github.ref_type == 'tag'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
