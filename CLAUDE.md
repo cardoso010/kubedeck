@@ -41,6 +41,8 @@ Rust (`src-tauri/src/`), one module per feature; every `#[tauri::command]` is re
 
 UI (`src/`): `api.ts` holds a typed wrapper for every command; components in `src/components/`; `useStream.ts` owns stream lifecycles; `dev-mock.ts` mirrors the commands for browser-only work.
 
+Layout: `Rail` (sections from `sections.ts`, pinned clusters from `pins.ts`, theme and update popovers) · `TopBar` (cluster / namespaces / view breadcrumb, ⌘K trigger) · `KindTabs` · `.workspace` (table + right-hand `.details` drawer) · `CommandPalette` (commands are built in `App.tsx`).
+
 ## Conventions
 
 - **Commands** take `state: Session` (never `State<AppState>`, which would share one cluster across windows) and return `CmdResult<T>` (`Result<T, String>`); map errors with `state::err`. The UI shows these strings as-is, so make them readable.
@@ -50,6 +52,8 @@ UI (`src/`): `api.ts` holds a typed wrapper for every command; components in `sr
 - **New command checklist**: Rust fn + register in `lib.rs` + wrapper in `api.ts` + case in `dev-mock.ts` + e2e coverage in `e2e_test.rs`.
 - Anything that shells out to helm goes through `helm::helm` (cluster commands, adds `--kube-context`) or `helm::helm_local` (repos/search), so the session's helm environment applies.
 - Secret values never go into table rows (`summarize` counts keys only).
+- **Styling**: use only the theme tokens from the top of `App.css` (`--bg*`, `--line*`, `--text*`, `--accent*`, `--ok/--warn/--bad`, `--font-ui/--font-mono`, `--radius*`); never hard-code colors, or a theme will break. A new theme is one `[data-theme]` block plus an entry in `theme.ts` (with Monaco and xterm colors). Icons come from `@tabler/icons-react`; fonts are bundled (`@fontsource-variable/*`), never loaded from a CDN.
+- New global actions belong in the command palette (`commands` in `App.tsx`) as well as wherever they have a button.
 - Comments explain *why* (constraints, API quirks), not what the code does. Match the surrounding density.
 - Rust edition 2024; prefer let-chains where clippy suggests them.
 

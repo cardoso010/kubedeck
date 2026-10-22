@@ -26,8 +26,11 @@ O app ainda não é assinado com Developer ID nem notarizado. O script de instal
 
 ## O que faz
 
+- **Visual próprio, com temas.** *Terminal* (padrão: quase preto, fonte mono, acento verde-limão), *Grafite* (cinza-azulado, cantos arredondados, acento violeta) e *Claro*. O editor de YAML e o terminal seguem o tema, e a escolha vale para todas as janelas (ícone de paleta no trilho, ou ⌘K → "Theme").
+- **Layout enxuto.** Um trilho fino à esquerda com as seções (Workloads, Network, Config, Cluster, Custom resources, Helm, Port forwards) e os clusters fixados; uma barra em trilha `cluster / namespaces / tipo`; abas com os tipos da seção; detalhes numa gaveta à direita.
+- **Paleta de comandos (⌘K / Ctrl+K)** com busca aproximada: pula para qualquer tipo (inclusive CRDs) ou recurso da tabela, troca de cluster ou abre um numa janela nova, escolhe namespaces, troca o tema e roda ações como instalar um chart.
 - Lê o `~/.kube/config` (ou `$KUBECONFIG`) e conecta em qualquer contexto, incluindo EKS/GKE via exec plugin. O app herda o `PATH` do shell de login, então `aws`/`gcloud` são encontrados mesmo quando ele é aberto pelo Finder.
-- **Várias janelas**: cada janela é independente (cluster, watches, terminais e port forwards próprios), então dá para ver dois clusters lado a lado. A **hotbar** à esquerda guarda os clusters fixados: clique troca o cluster da janela, ⌘/Ctrl-clique (ou botão direito) abre numa janela nova, ⌘/Ctrl+1…9 alterna entre eles e ⌘/Ctrl+N abre uma janela vazia. Clusters de produção ficam com anel vermelho.
+- **Várias janelas**: cada janela é independente (cluster, watches, terminais e port forwards próprios), então dá para ver dois clusters lado a lado. Os clusters fixados (ícone de alfinete no seletor de cluster) ficam no trilho: clique troca o cluster da janela, ⌘/Ctrl-clique (ou botão direito) abre numa janela nova, ⌘/Ctrl+1…9 alterna entre eles e ⌘/Ctrl+N abre uma janela vazia. Clusters de produção ficam com anel vermelho.
 - **Vários namespaces de uma vez**: o seletor de namespace aceita múltipla escolha (clique no nome seleciona só ele; o checkbox soma à seleção), lembrada por cluster. Pods, métricas e releases Helm seguem a seleção, e a coluna Namespace aparece quando há mais de um.
 - Lista em tempo real (*watch*) Pods, Deployments, StatefulSets, DaemonSets, Jobs, CronJobs, Services, Ingresses, ConfigMaps, Secrets, Events, Nodes e Namespaces, com filtro e tabela virtualizada.
 - **Custom Resources:** ao conectar, o app lê os CRDs do cluster e os mostra na barra lateral, agrupados por API group e com busca. As colunas são as mesmas do `kubectl get` (`additionalPrinterColumns`).
@@ -105,7 +108,10 @@ src-tauri/src/
 src/
   api.ts          wrappers tipados dos comandos Rust
   App.tsx         layout, seleção de cluster/namespace/tipo, estado do watch
-  components/     tabela, painéis de detalhes, Helm, port forwards, navegação, atualização
+  App.css         tokens dos temas ([data-theme]) e todo o estilo
+  theme.ts        temas, cores do editor e do terminal
+  sections.ts     seções do trilho
+  components/     trilho, barra superior, abas, paleta ⌘K, tabela, gaveta de detalhes, Helm, port forwards
 scripts/          fetch-helm, release, latest-json, install (sh e ps1)
 e2e/              cluster kind e fixtures dos testes de ponta a ponta
 ```
