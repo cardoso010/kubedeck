@@ -7,10 +7,9 @@ use kube::api::{Api, DeleteParams, DynamicObject, PostParams};
 use kube::runtime::{watcher, WatchStreamExt};
 use serde::Serialize;
 use tauri::ipc::Channel;
-use tauri::State;
 
 use crate::kinds::{self, KindDef, KindInfo, Row};
-use crate::state::{err, AppState, CmdResult};
+use crate::state::{err, AppState, CmdResult, Session};
 
 #[derive(Serialize, Clone)]
 #[serde(tag = "type", rename_all = "camelCase")]
@@ -24,7 +23,7 @@ pub enum WatchMsg {
 
 /// Built-in kinds before connecting; built-ins plus the cluster's custom resources after.
 #[tauri::command]
-pub async fn list_kinds(state: State<'_, AppState>) -> CmdResult<Vec<KindInfo>> {
+pub async fn list_kinds(state: Session) -> CmdResult<Vec<KindInfo>> {
     Ok(match state.conn.read().await.as_ref() {
         Some(conn) => conn.kinds.iter().map(KindInfo::from).collect(),
         None => kinds::builtins().iter().map(KindInfo::from).collect(),
@@ -54,7 +53,7 @@ pub async fn watch_resources(
     kind_key: String,
     namespaces: Vec<String>,
     on_event: Channel<WatchMsg>,
-    state: State<'_, AppState>,
+    state: Session,
 ) -> CmdResult<u64> {
     let conn = state.connection().await?;
     let def = conn.kind(&kind_key)?;
@@ -129,12 +128,12 @@ pub async fn watch_resources(
 }
 
 #[tauri::command]
-pub fn stop_stream(id: u64, state: State<'_, AppState>) {
+pub fn stop_stream(id: u64, state: Session) {
     state.stop(id);
 }
 
 #[tauri::command]
-pub async fn get_yaml(kind_key: String, namespace: Option<String>, name: String, state: State<'_, AppState>) -> CmdResult<String> {
+pub async fn get_yaml(kind_key: String, namespace: Option<String>, name: String, state: Session) -> CmdResult<String> {
     let (_, api) = api_for(&state, &kind_key, namespace.as_deref()).await?;
     let mut obj = api.get(&name).await.map_err(err)?;
     // Same noise `kubectl edit` hides; it also cannot be sent back on replace.
@@ -150,7 +149,7 @@ pub async fn replace_yaml(
     namespace: Option<String>,
     name: String,
     yaml: String,
-    state: State<'_, AppState>,
+    state: Session,
 ) -> CmdResult<String> {
     let (_, api) = api_for(&state, &kind_key, namespace.as_deref()).await?;
     let mut obj: DynamicObject = serde_yaml::from_str(&yaml).map_err(|e| format!("Invalid YAML: {e}"))?;
@@ -164,7 +163,7 @@ pub async fn replace_yaml(
 }
 
 #[tauri::command]
-pub async fn delete_resource(kind_key: String, namespace: Option<String>, name: String, state: State<'_, AppState>) -> CmdResult<()> {
+pub async fn delete_resource(kind_key: String, namespace: Option<String>, name: String, state: Session) -> CmdResult<()> {
     let (_, api) = api_for(&state, &kind_key, namespace.as_deref()).await?;
     api.delete(&name, &DeleteParams::default()).await.map_err(err)?;
     Ok(())

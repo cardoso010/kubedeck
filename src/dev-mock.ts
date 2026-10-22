@@ -140,6 +140,12 @@ async function invoke(cmd: string, args: Record<string, any>): Promise<unknown> 
       forwards.push(f);
       return f;
     }
+    case "open_window":
+      window.open(location.href, "_blank");
+      return null;
+    case "plugin:window|set_title":
+      document.title = args.value ?? document.title;
+      return null;
     case "check_for_update":
       return { status: "available", version: "0.3.0", notes: "Sample release notes", date: null };
     case "plugin:app|version":
@@ -190,6 +196,7 @@ async function invoke(cmd: string, args: Record<string, any>): Promise<unknown> 
 const execChannels = new Map<number, number>();
 
 (window as any).__TAURI_INTERNALS__ = {
+  metadata: { currentWindow: { label: "main" }, currentWebview: { windowLabel: "main", label: "main" } },
   transformCallback(cb: Callback) {
     const id = nextCallback++;
     callbacks.set(id, cb);

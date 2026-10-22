@@ -214,6 +214,18 @@ export const installUpdate = () => invoke<void>("install_update");
 /** Errors from Rust commands arrive as plain strings. */
 export const errorText = (e: unknown) => (typeof e === "string" ? e : e instanceof Error ? e.message : JSON.stringify(e));
 
+/** Opens another window, connected to `context` when given. Each window is independent. */
+export const openWindow = (context: string | null) => invoke<void>("open_window", { context });
+
+/** Readable cluster name: "shop-prd" from an EKS ARN, the cluster from a GKE context. */
+export function shortContextName(context: string): string {
+  const eks = /:cluster\/(.+)$/.exec(context);
+  if (eks) return eks[1];
+  const gke = /^gke_[^_]+_[^_]+_(.+)$/.exec(context);
+  if (gke) return gke[1];
+  return context;
+}
+
 export const isProduction = (context: string) => /(^|[-_/.:])(prd|prod|production)([-_/.:]|$)/i.test(context);
 
 export function age(created: string | null, now: number): string {

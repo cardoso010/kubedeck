@@ -1,9 +1,12 @@
 use std::collections::HashMap;
+use std::ops::Deref;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
 use kube::Client;
 use tauri::async_runtime::JoinHandle;
+use tauri::ipc::{CommandArg, CommandItem, InvokeError};
+use tauri::{Manager, Runtime};
 use tokio::sync::RwLock;
 
 use crate::kinds::KindDef;
@@ -81,5 +84,63 @@ impl AppState {
         for (_, forward) in self.forwards.lock().unwrap().drain() {
             forward.task.abort();
         }
+    }
+}
+
+/// One `AppState` per window, so every window has its own cluster, watches, terminals and
+/// port forwards.
+#[derive(Default)]
+pub struct Sessions {
+    map: Mutex<HashMap<String, Arc<AppState>>>,
+    /// Copied into every new session (see `AppState::helm_env`).
+    pub helm_env: Vec<(String, String)>,
+}
+
+impl Sessions {
+    /// Sessions whose helm runs with extra environment (tests isolate helm's config this way).
+    #[cfg(test)]
+    pub fn with_helm_env(helm_env: Vec<(String, String)>) -> Self {
+        Sessions { helm_env, ..Default::default() }
+    }
+
+    pub fn get(&self, label: &str) -> Arc<AppState> {
+        self.map
+            .lock()
+            .unwrap()
+            .entry(label.to_owned())
+            .or_insert_with(|| Arc::new(AppState { helm_env: self.helm_env.clone(), ..Default::default() }))
+            .clone()
+    }
+
+    /// Stops everything a closed window was running.
+    pub fn close(&self, label: &str) {
+        if let Some(session) = self.map.lock().unwrap().remove(label) {
+            session.stop_all();
+        }
+    }
+}
+
+/// The calling window's state. As a command argument it is filled in by Tauri from the
+/// webview that invoked the command, so commands need no extra parameter from the UI.
+pub struct Session(Arc<AppState>);
+
+impl Session {
+    /// The session of window `label`; for code that is not a command (tests, menus).
+    pub fn of<R: Runtime>(manager: &impl Manager<R>, label: &str) -> Self {
+        Session(manager.state::<Sessions>().get(label))
+    }
+}
+
+impl Deref for Session {
+    type Target = AppState;
+    fn deref(&self) -> &AppState {
+        &self.0
+    }
+}
+
+impl<'de, R: Runtime> CommandArg<'de, R> for Session {
+    fn from_command(command: CommandItem<'de, R>) -> Result<Self, InvokeError> {
+        let webview = command.message.webview();
+        Ok(Session::of(&webview, webview.label()))
     }
 }

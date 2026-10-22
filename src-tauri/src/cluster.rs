@@ -8,10 +8,9 @@ use kube::api::{Api, ListParams};
 use kube::config::{KubeConfigOptions, Kubeconfig};
 use kube::{Client, Config};
 use serde::Serialize;
-use tauri::State;
 
 use crate::kinds;
-use crate::state::{err, AppState, CmdResult, Connection};
+use crate::state::{err, CmdResult, Connection, Session};
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -52,7 +51,7 @@ pub fn list_contexts() -> CmdResult<Contexts> {
 }
 
 #[tauri::command]
-pub async fn connect(context: String, state: State<'_, AppState>) -> CmdResult<Connected> {
+pub async fn connect(context: String, state: Session) -> CmdResult<Connected> {
     state.stop_all();
     *state.conn.write().await = None;
 
@@ -84,7 +83,7 @@ async fn custom_kinds(client: &Client) -> Vec<kinds::KindDef> {
 }
 
 #[tauri::command]
-pub async fn list_namespaces(state: State<'_, AppState>) -> CmdResult<Vec<String>> {
+pub async fn list_namespaces(state: Session) -> CmdResult<Vec<String>> {
     let conn = state.connection().await?;
     let api: Api<Namespace> = Api::all(conn.client);
     match api.list(&ListParams::default()).await {

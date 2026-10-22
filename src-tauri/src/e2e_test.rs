@@ -14,7 +14,8 @@ use tauri::Manager;
 
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
-use crate::{cluster, helm, helm_charts, metrics, portforward, resources, state::AppState, streams};
+use crate::state::{Session, Sessions};
+use crate::{cluster, helm, helm_charts, metrics, portforward, resources, streams};
 
 type Inbox = Arc<Mutex<Vec<Value>>>;
 
@@ -51,10 +52,10 @@ fn test_context() -> String {
 }
 
 fn mock_app() -> tauri::App<tauri::test::MockRuntime> {
-    mock_app_with(AppState::default())
+    mock_app_with(Sessions::default())
 }
 
-fn mock_app_with(state: AppState) -> tauri::App<tauri::test::MockRuntime> {
+fn mock_app_with(state: Sessions) -> tauri::App<tauri::test::MockRuntime> {
     crate::install_crypto_provider();
     tauri::test::mock_builder()
         .manage(state)
@@ -67,7 +68,7 @@ fn mock_app_with(state: AppState) -> tauri::App<tauri::test::MockRuntime> {
 async fn backend_against_real_cluster() {
     let context = test_context();
     let app = mock_app();
-    let state = || app.state::<AppState>();
+    let state = || Session::of(&app, "main");
 
     // Contexts and connection
     let contexts = serde_json::to_value(cluster::list_contexts().unwrap()).unwrap();
@@ -162,7 +163,7 @@ async fn http_get(port: u16) -> String {
 async fn port_forward_against_real_cluster() {
     let context = test_context();
     let app = mock_app();
-    let state = || app.state::<AppState>();
+    let state = || Session::of(&app, "main");
     cluster::connect(context, state()).await.unwrap();
 
     // Service: resolved to a ready pod behind it, auto-assigned local port.
@@ -207,7 +208,7 @@ async fn port_forward_against_real_cluster() {
 async fn helm_against_real_cluster() {
     let context = test_context();
     let app = mock_app();
-    let state = || app.state::<AppState>();
+    let state = || Session::of(&app, "main");
     cluster::connect(context, state()).await.unwrap();
 
     let releases = serde_json::to_value(helm::helm_list(vec!["demo".into()], state()).await.unwrap()).unwrap();
@@ -253,7 +254,7 @@ async fn helm_against_real_cluster() {
 async fn custom_resources_and_metrics_against_real_cluster() {
     let context = test_context();
     let app = mock_app();
-    let state = || app.state::<AppState>();
+    let state = || Session::of(&app, "main");
 
     // Before connecting only built-ins are offered; after, the cluster's CRDs too.
     let before = serde_json::to_value(resources::list_kinds(state()).await.unwrap()).unwrap();
@@ -292,7 +293,7 @@ async fn custom_resources_and_metrics_against_real_cluster() {
 async fn several_namespaces_against_real_cluster() {
     let context = test_context();
     let app = mock_app();
-    let state = || app.state::<AppState>();
+    let state = || Session::of(&app, "main");
     cluster::connect(context, state()).await.unwrap();
     let namespaces = |rows: &Value| -> std::collections::BTreeSet<String> {
         rows.as_array().unwrap().iter().map(|r| r["namespace"].as_str().unwrap().to_owned()).collect()
@@ -311,7 +312,8 @@ async fn several_namespaces_against_real_cluster() {
     // Live events from either namespace keep flowing through the merged stream.
     let k8s: kube::Api<k8s_openapi::api::core::v1::Pod> = kube::Api::namespaced(state().connection().await.unwrap().client, "demo2");
     let victim = k8s.list(&kube::api::ListParams::default().labels("app=worker")).await.unwrap().items[0].metadata.clone();
-    k8s.delete(victim.name.as_deref().unwrap(), &Default::default()).await.unwrap();
+    // The worker ignores SIGTERM; skip the 30s grace period.
+    k8s.delete(victim.name.as_deref().unwrap(), &kube::api::DeleteParams { grace_period_seconds: Some(0), ..Default::default() }).await.unwrap();
     let uid = Value::from(victim.uid.unwrap());
     wait_for(&inbox, "delete from demo2", |m| m.iter().any(|m| m["type"] == "delete" && m["uid"] == uid)).await;
     resources::stop_stream(id, state());
@@ -391,10 +393,8 @@ async fn helm_charts_against_real_cluster() {
     let url = format!("http://127.0.0.1:{port}");
     run(&["repo", "index", repo_dir.to_str().unwrap(), "--url", &url]);
 
-    let mut app_state = AppState::default();
-    app_state.helm_env = helm_env.clone();
-    let app = mock_app_with(app_state);
-    let state = || app.state::<AppState>();
+    let app = mock_app_with(Sessions::with_helm_env(helm_env.clone()));
+    let state = || Session::of(&app, "main");
     cluster::connect(context, state()).await.unwrap();
 
     // Repositories
@@ -423,7 +423,7 @@ async fn helm_charts_against_real_cluster() {
         }))
         .unwrap()
     };
-    async fn release(state: tauri::State<'_, AppState>) -> Option<Value> {
+    async fn release(state: Session) -> Option<Value> {
         let list = serde_json::to_value(helm::helm_list(vec!["demo2".into()], state).await.unwrap()).unwrap();
         list.as_array().unwrap().iter().find(|r| r["name"] == "greeter").cloned()
     }
@@ -465,6 +465,41 @@ async fn helm_charts_against_real_cluster() {
     helm::helm_uninstall("demo2".into(), "greeter".into(), state()).await.unwrap();
     helm_charts::helm_repo_remove("e2e".into(), state()).await.unwrap();
     let _ = std::fs::remove_dir_all(&work);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "needs a disposable cluster, see module docs"]
+async fn windows_are_independent_sessions() {
+    let context = test_context();
+    let app = mock_app();
+    let (a, b) = (|| Session::of(&app, "main"), || Session::of(&app, "window-1"));
+
+    // Only the first window connects; the second one has no cluster yet.
+    cluster::connect(context.clone(), a()).await.unwrap();
+    assert!(b().connection().await.is_err());
+    cluster::connect(context.clone(), b()).await.unwrap();
+
+    // Each window runs its own watch.
+    let (ch, inbox_a) = channel();
+    resources::watch_resources("pods".into(), vec!["demo".into()], ch, a()).await.unwrap();
+    let (ch, inbox_b) = channel();
+    resources::watch_resources("pods".into(), vec!["demo2".into()], ch, b()).await.unwrap();
+    wait_for(&inbox_a, "snapshot a", |m| m.iter().any(|m| m["type"] == "snapshot")).await;
+    wait_for(&inbox_b, "snapshot b", |m| m.iter().any(|m| m["type"] == "snapshot")).await;
+    let forward = serde_json::to_value(portforward::start_port_forward("service".into(), "demo".into(), "web".into(), 80, None, b()).await.unwrap()).unwrap();
+    let port = forward["localPort"].as_u64().unwrap() as u16;
+
+    // Reconnecting window A stops A's streams only.
+    cluster::connect(context, a()).await.unwrap();
+    assert_eq!(portforward::list_port_forwards(b()).len(), 1, "B's port forward must survive");
+    assert!(portforward::list_port_forwards(a()).is_empty());
+    assert!(http_get(port).await.contains("nginx"));
+
+    // Closing window B stops everything it ran.
+    app.state::<Sessions>().close("window-1");
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    assert!(tokio::net::TcpStream::connect(("127.0.0.1", port)).await.is_err(), "B's listener should be closed");
+    assert!(Session::of(&app, "window-1").connection().await.is_err(), "a reopened label starts fresh");
 }
 
 fn crate_is_production(context: &str) -> bool {

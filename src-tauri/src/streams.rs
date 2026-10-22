@@ -6,11 +6,10 @@ use kube::api::{Api, AttachParams, LogParams, TerminalSize};
 use serde::Serialize;
 use tauri::async_runtime::JoinHandle;
 use tauri::ipc::Channel;
-use tauri::State;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::sync::mpsc;
 
-use crate::state::{err, AppState, CmdResult};
+use crate::state::{err, CmdResult, Session};
 
 #[derive(Serialize, Clone)]
 #[serde(tag = "type", rename_all = "camelCase")]
@@ -26,7 +25,7 @@ pub async fn stream_logs(
     container: Option<String>,
     tail_lines: Option<i64>,
     on_event: Channel<StreamMsg>,
-    state: State<'_, AppState>,
+    state: Session,
 ) -> CmdResult<u64> {
     let api: Api<Pod> = Api::namespaced(state.connection().await?.client, &namespace);
     let params = LogParams { follow: true, container, tail_lines: Some(tail_lines.unwrap_or(500)), ..Default::default() };
@@ -66,7 +65,7 @@ pub async fn exec_start(
     cols: u16,
     rows: u16,
     on_event: Channel<StreamMsg>,
-    state: State<'_, AppState>,
+    state: Session,
 ) -> CmdResult<u64> {
     let api: Api<Pod> = Api::namespaced(state.connection().await?.client, &namespace);
     let mut params = AttachParams::interactive_tty();
@@ -125,14 +124,14 @@ pub async fn exec_start(
 }
 
 #[tauri::command]
-pub fn exec_input(id: u64, data: String, state: State<'_, AppState>) -> CmdResult<()> {
+pub fn exec_input(id: u64, data: String, state: Session) -> CmdResult<()> {
     let execs = state.execs.lock().unwrap();
     let exec = execs.get(&id).ok_or("exec session ended")?;
     exec.input.send(data.into_bytes()).map_err(|_| "exec session ended".to_owned())
 }
 
 #[tauri::command]
-pub fn exec_resize(id: u64, cols: u16, rows: u16, state: State<'_, AppState>) -> CmdResult<()> {
+pub fn exec_resize(id: u64, cols: u16, rows: u16, state: Session) -> CmdResult<()> {
     let mut execs = state.execs.lock().unwrap();
     let exec = execs.get_mut(&id).ok_or("exec session ended")?;
     // try_send: a dropped resize is harmless, the next one will catch up.

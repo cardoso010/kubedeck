@@ -5,9 +5,8 @@ use kube::api::{Api, ApiResource, DynamicObject, GroupVersionKind, ListParams};
 use kube::Client;
 use serde::Serialize;
 use serde_json::Value;
-use tauri::State;
 
-use crate::state::{AppState, CmdResult};
+use crate::state::{CmdResult, Session};
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -39,7 +38,7 @@ fn metrics_error(e: kube::Error) -> String {
 
 /// Pod usage in `namespaces` (every namespace when empty).
 #[tauri::command]
-pub async fn pod_metrics(namespaces: Vec<String>, state: State<'_, AppState>) -> CmdResult<Vec<Usage>> {
+pub async fn pod_metrics(namespaces: Vec<String>, state: Session) -> CmdResult<Vec<Usage>> {
     let client = state.connection().await?.client;
     let scopes: Vec<Option<&str>> = if namespaces.is_empty() { vec![None] } else { namespaces.iter().map(|n| Some(n.as_str())).collect() };
     let lists = futures::future::join_all(scopes.into_iter().map(|ns| {
@@ -69,7 +68,7 @@ pub async fn pod_metrics(namespaces: Vec<String>, state: State<'_, AppState>) ->
 }
 
 #[tauri::command]
-pub async fn node_metrics(state: State<'_, AppState>) -> CmdResult<Vec<Usage>> {
+pub async fn node_metrics(state: Session) -> CmdResult<Vec<Usage>> {
     let client = state.connection().await?.client;
     let usage = metrics_api(client.clone(), "nodes", "NodeMetrics", None).list(&ListParams::default()).await.map_err(metrics_error)?;
     let nodes = Api::<Node>::all(client).list(&ListParams::default()).await.map_err(|e| e.to_string())?;

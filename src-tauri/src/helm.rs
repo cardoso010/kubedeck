@@ -7,10 +7,9 @@
 use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
-use tauri::State;
 use tokio::process::Command;
 
-use crate::state::{AppState, CmdResult};
+use crate::state::{AppState, CmdResult, Session};
 
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -93,7 +92,7 @@ async fn run(state: &AppState, args: &[&str], context: Option<&str>) -> CmdResul
 
 /// Releases in `namespaces` (every namespace when empty).
 #[tauri::command]
-pub async fn helm_list(namespaces: Vec<String>, state: State<'_, AppState>) -> CmdResult<Vec<Release>> {
+pub async fn helm_list(namespaces: Vec<String>, state: Session) -> CmdResult<Vec<Release>> {
     let scopes: Vec<Vec<&str>> = if namespaces.is_empty() {
         vec![vec!["--all-namespaces"]]
     } else {
@@ -130,7 +129,7 @@ fn iso_time(go: &str) -> String {
 }
 
 #[tauri::command]
-pub async fn helm_details(namespace: String, name: String, state: State<'_, AppState>) -> CmdResult<ReleaseDetails> {
+pub async fn helm_details(namespace: String, name: String, state: Session) -> CmdResult<ReleaseDetails> {
     let ns = namespace.as_str();
     let n = name.as_str();
     let values_args = ["get", "values", n, "--namespace", ns, "--output", "yaml"];
@@ -157,12 +156,12 @@ pub async fn helm_details(namespace: String, name: String, state: State<'_, AppS
 }
 
 #[tauri::command]
-pub async fn helm_rollback(namespace: String, name: String, revision: u32, state: State<'_, AppState>) -> CmdResult<String> {
+pub async fn helm_rollback(namespace: String, name: String, revision: u32, state: Session) -> CmdResult<String> {
     helm(&state, &["rollback", &name, &revision.to_string(), "--namespace", &namespace, "--wait", "--timeout", "5m"]).await
 }
 
 #[tauri::command]
-pub async fn helm_uninstall(namespace: String, name: String, state: State<'_, AppState>) -> CmdResult<String> {
+pub async fn helm_uninstall(namespace: String, name: String, state: Session) -> CmdResult<String> {
     helm(&state, &["uninstall", &name, "--namespace", &namespace]).await
 }
 

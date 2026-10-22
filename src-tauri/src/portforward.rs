@@ -8,10 +8,9 @@ use kube::api::{Api, ListParams};
 use kube::Client;
 use serde::Serialize;
 use tauri::async_runtime::JoinHandle;
-use tauri::State;
 use tokio::net::{TcpListener, TcpStream};
 
-use crate::state::{err, AppState, CmdResult};
+use crate::state::{err, CmdResult, Session};
 
 #[derive(Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
@@ -39,7 +38,7 @@ pub async fn start_port_forward(
     name: String,
     remote_port: u16,
     local_port: Option<u16>,
-    state: State<'_, AppState>,
+    state: Session,
 ) -> CmdResult<ForwardInfo> {
     if kind != "pod" && kind != "service" {
         return Err(format!("Cannot port-forward a {kind}"));
@@ -83,7 +82,7 @@ pub async fn start_port_forward(
 }
 
 #[tauri::command]
-pub fn list_port_forwards(state: State<'_, AppState>) -> Vec<ForwardInfo> {
+pub fn list_port_forwards(state: Session) -> Vec<ForwardInfo> {
     let mut list: Vec<ForwardInfo> = state.forwards.lock().unwrap().values().map(|f| f.info.lock().unwrap().clone()).collect();
     list.sort_by_key(|f| f.id);
     list

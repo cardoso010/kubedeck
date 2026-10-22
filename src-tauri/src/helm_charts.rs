@@ -4,10 +4,9 @@
 //! and the CLI stay in sync.
 
 use serde::{Deserialize, Serialize};
-use tauri::State;
 
 use crate::helm::{helm, helm_local};
-use crate::state::{err, AppState, CmdResult};
+use crate::state::{err, AppState, CmdResult, Session};
 
 #[derive(Serialize, Deserialize)]
 pub struct Repo {
@@ -45,7 +44,7 @@ pub struct ChartAction {
 }
 
 #[tauri::command]
-pub async fn helm_repo_list(state: State<'_, AppState>) -> CmdResult<Vec<Repo>> {
+pub async fn helm_repo_list(state: Session) -> CmdResult<Vec<Repo>> {
     match helm_local(&state, &["repo", "list", "--output", "json"]).await {
         Ok(json) => serde_json::from_str(&json).map_err(|e| format!("Unexpected helm output: {e}")),
         // Helm treats "no repositories configured" as an error.
@@ -55,24 +54,24 @@ pub async fn helm_repo_list(state: State<'_, AppState>) -> CmdResult<Vec<Repo>> 
 }
 
 #[tauri::command]
-pub async fn helm_repo_add(name: String, url: String, state: State<'_, AppState>) -> CmdResult<()> {
+pub async fn helm_repo_add(name: String, url: String, state: Session) -> CmdResult<()> {
     helm_local(&state, &["repo", "add", &name, &url, "--force-update"]).await.map(drop)
 }
 
 #[tauri::command]
-pub async fn helm_repo_remove(name: String, state: State<'_, AppState>) -> CmdResult<()> {
+pub async fn helm_repo_remove(name: String, state: Session) -> CmdResult<()> {
     helm_local(&state, &["repo", "remove", &name]).await.map(drop)
 }
 
 /// Refreshes every repository index, like `helm repo update`.
 #[tauri::command]
-pub async fn helm_repo_update(state: State<'_, AppState>) -> CmdResult<()> {
+pub async fn helm_repo_update(state: Session) -> CmdResult<()> {
     helm_local(&state, &["repo", "update"]).await.map(drop)
 }
 
 /// Latest version of each chart matching `query` (all charts when empty).
 #[tauri::command]
-pub async fn helm_search(query: String, state: State<'_, AppState>) -> CmdResult<Vec<Chart>> {
+pub async fn helm_search(query: String, state: Session) -> CmdResult<Vec<Chart>> {
     let mut args = vec!["search", "repo", "--output", "json"];
     if !query.trim().is_empty() {
         args.push(query.trim());
@@ -84,7 +83,7 @@ pub async fn helm_search(query: String, state: State<'_, AppState>) -> CmdResult
 /// Every version of `chart` (a `repo/chart` reference), newest first. Other references
 /// (OCI, URLs, paths) have no searchable index and return nothing.
 #[tauri::command]
-pub async fn helm_chart_versions(chart: String, state: State<'_, AppState>) -> CmdResult<Vec<Chart>> {
+pub async fn helm_chart_versions(chart: String, state: Session) -> CmdResult<Vec<Chart>> {
     if chart.contains("://") || chart.starts_with('.') || chart.starts_with('/') {
         return Ok(vec![]);
     }
@@ -96,7 +95,7 @@ pub async fn helm_chart_versions(chart: String, state: State<'_, AppState>) -> C
 
 /// The chart's default values.yaml.
 #[tauri::command]
-pub async fn helm_show_values(chart: String, version: Option<String>, state: State<'_, AppState>) -> CmdResult<String> {
+pub async fn helm_show_values(chart: String, version: Option<String>, state: Session) -> CmdResult<String> {
     let mut args = vec!["show", "values", chart.as_str()];
     if let Some(v) = version.as_deref().filter(|v| !v.is_empty()) {
         args.extend(["--version", v]);
@@ -105,14 +104,14 @@ pub async fn helm_show_values(chart: String, version: Option<String>, state: Sta
 }
 
 #[tauri::command]
-pub async fn helm_install(request: ChartAction, state: State<'_, AppState>) -> CmdResult<String> {
+pub async fn helm_install(request: ChartAction, state: Session) -> CmdResult<String> {
     chart_action("install", request, &state).await
 }
 
 /// Upgrades with exactly the given values (the UI starts from the release's current ones),
 /// so values removed in the editor really go away.
 #[tauri::command]
-pub async fn helm_upgrade(request: ChartAction, state: State<'_, AppState>) -> CmdResult<String> {
+pub async fn helm_upgrade(request: ChartAction, state: Session) -> CmdResult<String> {
     chart_action("upgrade", request, &state).await
 }
 

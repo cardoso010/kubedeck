@@ -9,6 +9,8 @@ import PortForwardsView from "./components/PortForwardsView";
 import KindNav from "./components/KindNav";
 import NamespacePicker from "./components/NamespacePicker";
 import UpdateNotice from "./components/UpdateNotice";
+import Hotbar from "./components/Hotbar";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { METRIC_COLUMNS, useMetrics } from "./useMetrics";
 
 
@@ -48,7 +50,16 @@ export default function App() {
 
   useEffect(() => {
     api.listKinds().then(setKinds);
-    api.listContexts().then(setContexts, (e) => setError(`Could not read kubeconfig: ${api.errorText(e)}`));
+    api.listContexts().then(
+      (c) => {
+        setContexts(c);
+        // Windows opened from the hotbar start connected to their cluster.
+        const initial = (window as { __KUBEDECK_INITIAL_CONTEXT__?: string | null }).__KUBEDECK_INITIAL_CONTEXT__;
+        if (initial && c.contexts.some((x) => x.name === initial)) void choose(initial);
+      },
+      (e) => setError(`Could not read kubeconfig: ${api.errorText(e)}`),
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   async function choose(context: string) {
@@ -63,6 +74,14 @@ export default function App() {
       setKinds(k);
       setKindKey((key) => (key === HELM || key === FORWARDS || k.some((x) => x.key === key) ? key : "pods"));
       setConn(c);
+      // Cosmetic: never let the title fail a connection.
+      try {
+        getCurrentWindow()
+          .setTitle(`${api.shortContextName(context)} — kubedeck`)
+          .catch(() => {});
+      } catch {
+        // Not running inside a Tauri window.
+      }
       const ns = await api.listNamespaces();
       setNamespaces(ns);
       const saved = savedNamespaces(context)?.filter((n) => ns.includes(n));
@@ -125,6 +144,7 @@ export default function App() {
 
   return (
     <div className={`app ${prod ? "prod" : ""}`}>
+      <Hotbar current={conn?.context ?? null} available={contexts?.contexts.map((c) => c.name) ?? []} onSwitch={(c) => c !== conn?.context && void choose(c)} />
       <aside className="sidebar">
         <div className="brand">kubedeck</div>
         <label className="field">

@@ -41,7 +41,7 @@ input:focus, select:focus { outline: 1px solid var(--accent); }
 .warn { color: var(--warn); }
 .bad { color: var(--bad); }
 
-.app { display: grid; grid-template-columns: 230px 1fr; height: 100%; }
+.app { display: grid; grid-template-columns: 56px 230px 1fr; height: 100%; }
 .app.prod .sidebar { border-right: 3px solid var(--prod); }
 
 .sidebar { background: var(--panel); border-right: 1px solid var(--border); display: flex; flex-direction: column; padding: 14px 10px; gap: 12px; min-height: 0; }
@@ -169,3 +169,16 @@ button.link { background: none; border: none; padding: 0; color: var(--accent); 
 .chart-output.error pre { color: #ffb4ae; }
 .chart-output .modal-actions { padding: 8px 14px; }
 .chart-form-actions { display: flex; justify-content: flex-end; align-items: center; gap: 8px; padding: 10px 14px; border-top: 1px solid var(--border); }
+
+.hotbar { background: #0a0d12; border-right: 1px solid var(--border); display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 12px 0; position: relative; }
+.hotbar-item { width: 36px; height: 36px; border-radius: 9px; padding: 0; border: 2px solid transparent; color: white; font-weight: 700; font-size: 13px; letter-spacing: 0.5px; }
+.hotbar-item:hover:not(:disabled) { border-color: rgba(255, 255, 255, 0.5); }
+.hotbar-item.active { border-color: white; box-shadow: 0 0 0 2px var(--accent); }
+.hotbar-item.prod { box-shadow: 0 0 0 2px var(--prod); }
+.hotbar-item.prod.active { box-shadow: 0 0 0 2px var(--prod), 0 0 0 4px white; }
+.hotbar-add { width: 36px; height: 36px; border-radius: 9px; padding: 0; background: transparent; border: 1px dashed var(--border); color: var(--muted); font-size: 16px; }
+.hotbar-spacer { flex: 1; }
+.hotbar-menu { position: fixed; z-index: 30; display: flex; flex-direction: column; min-width: 190px; padding: 4px; background: var(--panel-2); border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4); }
+.hotbar-menu button { background: transparent; border: none; text-align: left; padding: 6px 8px; }
+.hotbar-menu button:hover:not(:disabled) { background: #222a38; }
+.hotbar-menu-title { padding: 4px 8px; font-size: 11px; }

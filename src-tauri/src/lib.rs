@@ -1,3 +1,5 @@
+use tauri::Manager;
+
 mod cluster;
 mod helm;
 mod helm_charts;
@@ -8,6 +10,7 @@ mod resources;
 mod state;
 mod streams;
 mod updater;
+mod windows;
 
 /// Apps started from Finder or the Dock get a minimal PATH, so kubeconfig exec plugins
 /// such as `aws eks get-token` or `gke-gcloud-auth-plugin` would not be found.
@@ -41,7 +44,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
-        .manage(state::AppState::default())
+        .manage(state::Sessions::default())
         .manage(updater::PendingUpdate::default())
         .invoke_handler(tauri::generate_handler![
             cluster::list_contexts,
@@ -76,7 +79,13 @@ pub fn run() {
             metrics::node_metrics,
             updater::check_for_update,
             updater::install_update,
+            windows::open_window,
         ])
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::Destroyed = event {
+                window.state::<state::Sessions>().close(window.label());
+            }
+        })
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
