@@ -15,7 +15,7 @@ use tauri::Manager;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 use crate::state::{Session, Sessions};
-use crate::{cluster, helm, helm_charts, metrics, pod_insights, portforward, resources, streams, workloads};
+use crate::{ai, cluster, diagnostics, helm, helm_charts, metrics, nodes, pod_insights, portforward, resources, streams, workloads};
 
 type Inbox = Arc<Mutex<Vec<Value>>>;
 
@@ -219,7 +219,8 @@ async fn helm_against_real_cluster() {
     assert!(!all.is_empty());
 
     let details = serde_json::to_value(helm::helm_details("demo".into(), "hello".into(), state()).await.unwrap()).unwrap();
-    assert!(details["values"].as_str().unwrap().contains("replicaCount"), "{details}");
+    // Earlier runs may have rolled back to the install revision, which has no custom values.
+    assert!(details["values"].is_string(), "{details}");
     assert!(details["manifest"].as_str().unwrap().contains("kind: Deployment"));
     let history = details["history"].as_array().unwrap();
     assert!(history.len() >= 2);
@@ -645,14 +646,14 @@ async fn workload_actions_against_real_cluster() {
     let app = mock_app();
     let state = || Session::of(&app, "main");
     cluster::connect(context, state()).await.unwrap();
-    let status = || async { serde_json::to_value(workloads::rollout_status("demo".into(), "web".into(), state()).await.unwrap()).unwrap() };
+    let status = || async { serde_json::to_value(workloads::rollout_status("demo".into(), "rollme".into(), state()).await.unwrap()).unwrap() };
     let deployments: kube::Api<k8s_openapi::api::apps::v1::Deployment> = kube::Api::namespaced(state().connection().await.unwrap().client, "demo");
 
     // Restart creates a new revision.
     let before = status().await;
     let top = before["revisions"][0]["revision"].as_i64().unwrap();
     assert_eq!(before["revisions"][0]["current"], true, "{before}");
-    workloads::rollout_restart("deployments".into(), "demo".into(), "web".into(), state()).await.unwrap();
+    workloads::rollout_restart("deployments".into(), "demo".into(), "rollme".into(), state()).await.unwrap();
     eventually("restart revision", || async { status().await["revisions"][0]["revision"].as_i64().unwrap() == top + 1 }).await;
     let after = status().await;
     assert!(after["revisions"][0]["templateYaml"].as_str().unwrap().contains("kubectl.kubernetes.io/restartedAt"));
@@ -661,7 +662,7 @@ async fn workload_actions_against_real_cluster() {
     // Roll back to the revision before the restart: the controller reuses that ReplicaSet and
     // makes it the newest revision, with exactly the old template.
     let old_template = before["revisions"][0]["templateYaml"].clone();
-    workloads::rollback("demo".into(), "web".into(), top, state()).await.unwrap();
+    workloads::rollback("demo".into(), "rollme".into(), top, state()).await.unwrap();
     eventually("rollback", || {
         let old_template = old_template.clone();
         async move {
@@ -671,23 +672,27 @@ async fn workload_actions_against_real_cluster() {
         }
     })
     .await;
-    assert!(workloads::rollback("demo".into(), "web".into(), 999, state()).await.unwrap_err().contains("not found"));
+    assert!(workloads::rollback("demo".into(), "rollme".into(), 999, state()).await.unwrap_err().contains("not found"));
 
     // Scale and pause.
-    workloads::scale("deployments".into(), "demo".into(), "web".into(), 2, state()).await.unwrap();
-    assert_eq!(deployments.get("web").await.unwrap().spec.unwrap().replicas, Some(2));
-    workloads::scale("deployments".into(), "demo".into(), "web".into(), 3, state()).await.unwrap();
-    assert!(workloads::scale("deployments".into(), "demo".into(), "web".into(), -1, state()).await.is_err());
-    workloads::set_paused("demo".into(), "web".into(), true, state()).await.unwrap();
+    workloads::scale("deployments".into(), "demo".into(), "rollme".into(), 1, state()).await.unwrap();
+    assert_eq!(deployments.get("rollme").await.unwrap().spec.unwrap().replicas, Some(1));
+    workloads::scale("deployments".into(), "demo".into(), "rollme".into(), 2, state()).await.unwrap();
+    assert!(workloads::scale("deployments".into(), "demo".into(), "rollme".into(), -1, state()).await.is_err());
+    workloads::set_paused("demo".into(), "rollme".into(), true, state()).await.unwrap();
     assert_eq!(status().await["paused"], true);
-    workloads::set_paused("demo".into(), "web".into(), false, state()).await.unwrap();
+    workloads::set_paused("demo".into(), "rollme".into(), false, state()).await.unwrap();
     assert_eq!(status().await["paused"], false);
 
     // Logs of the previous (crashed) run.
-    let (ch, logs) = channel();
-    streams::stream_logs("demo".into(), "broken".into(), None, None, Some(true), ch, state()).await.unwrap();
-    wait_for(&logs, "previous logs", |m| m.iter().any(|m| m["type"] == "end")).await;
-    assert!(logs.lock().unwrap().iter().any(|m| m["data"] == "boom"), "{:?}", logs.lock().unwrap());
+    // The kubelet can briefly lack the previous run's logs while the container restarts.
+    eventually("previous logs", || async {
+        let (ch, logs) = channel();
+        streams::stream_logs("demo".into(), "broken".into(), None, None, Some(true), ch, state()).await.unwrap();
+        wait_for(&logs, "previous logs end", |m| m.iter().any(|m| m["type"] == "end")).await;
+        logs.lock().unwrap().iter().any(|m| m["data"] == "boom")
+    })
+    .await;
 
     // Logs of every replica, tagged with their pod.
     let (ch, merged) = channel();
@@ -706,6 +711,167 @@ async fn workload_actions_against_real_cluster() {
     let uid = pods.get("broken").await.unwrap().metadata.uid.unwrap();
     let events = serde_json::to_value(workloads::object_events(Some("demo".into()), uid, state()).await.unwrap()).unwrap();
     assert!(events.as_array().unwrap().iter().any(|e| e["type"] == "Warning" && e["reason"] == "BackOff"), "{events}");
+}
+
+/// A fake Anthropic Messages API: records the request and streams a canned answer in
+/// which a fallback model takes over after the first words.
+async fn fake_anthropic() -> (String, Arc<Mutex<String>>) {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let url = format!("http://{}", listener.local_addr().unwrap());
+    let seen: Arc<Mutex<String>> = Arc::default();
+    let record = seen.clone();
+    tokio::spawn(async move {
+        let (mut socket, _) = listener.accept().await.unwrap();
+        let mut request = Vec::new();
+        let mut buf = vec![0u8; 65536];
+        // Read headers, then as many body bytes as Content-Length says.
+        loop {
+            let n = socket.read(&mut buf).await.unwrap();
+            request.extend_from_slice(&buf[..n]);
+            let text = String::from_utf8_lossy(&request).to_string();
+            if let Some(head_end) = text.find("\r\n\r\n") {
+                let length = text[..head_end].lines().find_map(|l| l.to_lowercase().strip_prefix("content-length: ").map(|v| v.trim().parse::<usize>().unwrap())).unwrap_or(0);
+                if request.len() >= head_end + 4 + length {
+                    break;
+                }
+            }
+        }
+        *record.lock().unwrap() = String::from_utf8_lossy(&request).to_string();
+        let events = [
+            r#"{"type":"message_start","message":{"model":"claude-opus-5-5"}}"#,
+            r#"{"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}"#,
+            r#"{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"partial from the first model"}}"#,
+            r#"{"type":"content_block_start","index":1,"content_block":{"type":"fallback","from":{"model":"claude-opus-5-5"},"to":{"model":"claude-opus-4-8"}}}"#,
+            r#"{"type":"content_block_delta","index":2,"delta":{"type":"text_delta","text":"**Root cause:** the container "}}"#,
+            r#"{"type":"content_block_delta","index":2,"delta":{"type":"text_delta","text":"exits with code 1."}}"#,
+            r#"{"type":"message_delta","delta":{"stop_reason":"end_turn"}}"#,
+            r#"{"type":"message_stop"}"#,
+        ];
+        let body: String = events.iter().map(|e| format!("event: x\ndata: {e}\n\n")).collect();
+        let response = format!("HTTP/1.1 200 OK\r\ncontent-type: text/event-stream\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}", body.len());
+        socket.write_all(response.as_bytes()).await.unwrap();
+    });
+    (url, seen)
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "needs a disposable cluster, see module docs"]
+async fn explain_with_claude_against_real_cluster() {
+    let context = test_context();
+    let (url, seen) = fake_anthropic().await;
+    let app = mock_app_with(Sessions::with_ai_endpoint(url, "sk-ant-test-key".into()));
+    let state = || Session::of(&app, "main");
+    cluster::connect(context, state()).await.unwrap();
+
+    let (ch, inbox) = channel();
+    ai::ai_explain("pods".into(), Some("demo".into()), "limited".into(), ch, state()).await.unwrap();
+    wait_for(&inbox, "done", |m| m.iter().any(|m| m["type"] == "done" || m["type"] == "error")).await;
+    let messages = inbox.lock().unwrap().clone();
+    let done = messages.iter().find(|m| m["type"] == "done").unwrap_or_else(|| panic!("{messages:?}"));
+    assert_eq!(done["model"], "claude-opus-4-8");
+    assert_eq!(done["refused"], false);
+    // Text after the fallback restart is what the UI keeps.
+    let restart = messages.iter().position(|m| m["type"] == "restart").expect("restart on fallback");
+    let kept: String = messages[restart..].iter().filter(|m| m["type"] == "text").map(|m| m["text"].as_str().unwrap()).collect();
+    assert_eq!(kept, "**Root cause:** the container exits with code 1.");
+
+    let request = seen.lock().unwrap().clone();
+    let lower = request.to_lowercase();
+    assert!(lower.contains("x-api-key: sk-ant-test-key"), "{request}");
+    assert!(lower.contains("anthropic-version: 2026-10-21"));
+    assert!(lower.contains("anthropic-beta: server-side-fallback-2026-07-01"));
+    let body: Value = serde_json::from_str(&request[request.find("\r\n\r\n").unwrap() + 4..]).unwrap();
+    assert_eq!(body["model"], "claude-opus-5-5");
+    assert_eq!(body["fallbacks"], "default");
+    assert_eq!(body["stream"], true);
+    let prompt = body["messages"][0]["content"].as_str().unwrap();
+    assert!(prompt.contains("API_TOKEN") && prompt.contains("<redacted>"), "env names stay, values go");
+    assert!(!request.contains("do-not-send-this"), "secret env value leaked");
+    assert!(prompt.contains("## Events"));
+
+    // Secrets are never sent.
+    let (ch, _) = channel();
+    let refused = ai::ai_explain("secrets".into(), Some("demo".into()), "anything".into(), ch, state()).await.unwrap_err();
+    assert!(refused.contains("never sends Secrets"));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "needs a disposable cluster, see module docs"]
+async fn diagnostics_against_real_cluster() {
+    let context = test_context();
+    let app = mock_app();
+    let state = || Session::of(&app, "main");
+    cluster::connect(context, state()).await.unwrap();
+
+    // Problems: crash loops, OOM kills and bad images, worst first, only from the selection.
+    let problems = || async { serde_json::to_value(diagnostics::cluster_problems(vec!["demo".into()], state()).await.unwrap()).unwrap() };
+    eventually("problems", || async {
+        let p = problems().await;
+        let has = |name: &str, reason: &str| p.as_array().unwrap().iter().any(|x| x["name"].as_str().unwrap().starts_with(name) && x["reason"] == reason);
+        // A crash loop shows as CrashLoopBackOff while waiting and as the exit reason between restarts.
+        (has("broken", "CrashLoopBackOff") || has("broken", "Error")) && has("bad-image-", "ImagePullBackOff")
+            && p.as_array().unwrap().iter().any(|x| x["name"] == "oom" && (x["reason"] == "OOMKilled" || x["message"].as_str().unwrap().contains("OOMKilled")))
+    })
+    .await;
+    let p = problems().await;
+    assert!(p.as_array().unwrap().iter().all(|x| x["namespace"] == "demo" || x["kindKey"] == "nodes"));
+    assert_eq!(p[0]["severity"], "critical", "critical first: {p}");
+    assert!(!p.as_array().unwrap().iter().any(|x| x["name"].as_str().unwrap().starts_with("web-")), "healthy pods are not problems");
+
+    // Relations.
+    let related = |kind: &str, ns: Option<&str>, name: &str| {
+        let (kind, ns, name) = (kind.to_owned(), ns.map(str::to_owned), name.to_owned());
+        let s = state();
+        async move { serde_json::to_value(diagnostics::related(kind, ns, name, s).await.unwrap()).unwrap() }
+    };
+    let group = |groups: &Value, relation: &str| groups.as_array().unwrap().iter().find(|g| g["relation"] == relation).map(|g| g["items"].clone()).unwrap_or(Value::Null);
+    let pods: kube::Api<k8s_openapi::api::core::v1::Pod> = kube::Api::namespaced(state().connection().await.unwrap().client, "demo");
+    let web_pod = pods.list(&kube::api::ListParams::default().labels("app=web")).await.unwrap().items[0].clone();
+    let g = related("pods", Some("demo"), web_pod.metadata.name.as_deref().unwrap()).await;
+    assert_eq!(group(&g, "Owned by")[0]["name"], "web", "{g}");
+    assert_eq!(group(&g, "Exposed by")[0]["name"], "web");
+    assert_eq!(group(&g, "Runs on")[0]["kindKey"], "nodes");
+    // chatty is only read by other tests; web's pods get deleted and replaced by them.
+    let g = related("deployments", Some("demo"), "chatty").await;
+    assert_eq!(group(&g, "Pods").as_array().unwrap().len(), 2, "{g}");
+    let g = related("services", Some("demo"), "web").await;
+    assert!(group(&g, "Routes to").as_array().unwrap().len() >= 3, "{g}");
+
+    // Node summary, cordon, drain. An earlier failed run may have left the worker cordoned.
+    let worker = "kubedeck-test-worker".to_owned();
+    nodes::cordon(worker.clone(), false, state()).await.unwrap();
+    eventually("drain-me running on the worker", || async {
+        pods.list(&kube::api::ListParams::default().labels("app=drain-me")).await.unwrap().items.iter().any(|p| {
+            p.metadata.deletion_timestamp.is_none() && p.status.as_ref().and_then(|s| s.phase.as_deref()) == Some("Running")
+        })
+    })
+    .await;
+    let summary = serde_json::to_value(nodes::node_summary(worker.clone(), state()).await.unwrap()).unwrap();
+    assert!(summary["cpuAllocatableMillis"].as_f64().unwrap() > 0.0 && summary["pods"].as_u64().unwrap() > 0, "{summary}");
+    assert!(summary["conditions"].as_array().unwrap().iter().all(|c| c["bad"] == false), "{summary}");
+    let g = related("nodes", None, &worker).await;
+    assert!(group(&g, "Pods").as_array().unwrap().iter().any(|p| p["name"].as_str().unwrap().starts_with("drain-me-")));
+
+    let dry = serde_json::to_value(nodes::drain(worker.clone(), None, true, state()).await.unwrap()).unwrap();
+    assert!(dry["evicted"].as_array().unwrap().iter().any(|p| p.as_str().unwrap().starts_with("demo/drain-me-")), "{dry}");
+    assert!(dry["skipped"].as_array().unwrap().iter().any(|s| s[1].as_str().unwrap().contains("DaemonSet")), "{dry}");
+    assert_eq!(serde_json::to_value(nodes::node_summary(worker.clone(), state()).await.unwrap()).unwrap()["unschedulable"], false, "dry run must not cordon");
+
+    let before = pods.list(&kube::api::ListParams::default().labels("app=drain-me")).await.unwrap().items.into_iter().find(|p| p.metadata.deletion_timestamp.is_none()).unwrap().metadata.uid;
+    let real = serde_json::to_value(nodes::drain(worker.clone(), Some("app=drain-me".into()), false, state()).await.unwrap()).unwrap();
+    assert_eq!(real["evicted"].as_array().unwrap().len(), 1, "{real}");
+    assert_eq!(serde_json::to_value(nodes::node_summary(worker.clone(), state()).await.unwrap()).unwrap()["unschedulable"], true);
+    eventually("evicted pod replaced", || async {
+        pods.list(&kube::api::ListParams::default().labels("app=drain-me")).await.unwrap().items.iter().any(|p| p.metadata.uid != before)
+    })
+    .await;
+    nodes::cordon(worker.clone(), false, state()).await.unwrap();
+    assert_eq!(serde_json::to_value(nodes::node_summary(worker, state()).await.unwrap()).unwrap()["unschedulable"], false);
+
+    // Node history from Prometheus.
+    let history = serde_json::to_value(pod_insights::node_history("kubedeck-test-control-plane".into(), 15, state()).await.unwrap()).unwrap();
+    assert!(!history["cpu"][0]["points"].as_array().unwrap().is_empty(), "{history}");
+    assert!(!history["memory"][0]["points"].as_array().unwrap().is_empty());
 }
 
 fn crate_is_production(context: &str) -> bool {

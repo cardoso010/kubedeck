@@ -48,6 +48,7 @@ const BUILTINS: &[Builtin] = &[
     Builtin { key: "ingresses", label: "Ingresses", group: "networking.k8s.io", version: "v1", kind: "Ingress", namespaced: true, columns: &["Class", "Hosts"] },
     Builtin { key: "configmaps", label: "ConfigMaps", group: "", version: "v1", kind: "ConfigMap", namespaced: true, columns: &["Keys"] },
     Builtin { key: "secrets", label: "Secrets", group: "", version: "v1", kind: "Secret", namespaced: true, columns: &["Type", "Keys"] },
+    Builtin { key: "persistentvolumeclaims", label: "PersistentVolumeClaims", group: "", version: "v1", kind: "PersistentVolumeClaim", namespaced: true, columns: &["Status", "Capacity", "Storage class"] },
     Builtin { key: "events", label: "Events", group: "", version: "v1", kind: "Event", namespaced: true, columns: &["Type", "Reason", "Object", "Message"] },
     Builtin { key: "nodes", label: "Nodes", group: "", version: "v1", kind: "Node", namespaced: false, columns: &["Status", "Roles", "Version"] },
     Builtin { key: "namespaces", label: "Namespaces", group: "", version: "v1", kind: "Namespace", namespaced: false, columns: &["Status"] },
@@ -217,6 +218,7 @@ pub fn summarize(def: &KindDef, obj: &DynamicObject) -> Row {
             vec![ready.to_owned(), roles, s(d, "/status/nodeInfo/kubeletVersion")]
         }
         "namespaces" => vec![s(d, "/status/phase")],
+        "persistentvolumeclaims" => vec![s(d, "/status/phase"), s(d, "/status/capacity/storage"), s(d, "/spec/storageClassName")],
         _ => {
             // Custom resources: printer column paths are relative to the whole object,
             // and `data` holds everything but metadata.

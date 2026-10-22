@@ -1,10 +1,13 @@
 use tauri::Manager;
 
+mod ai;
 mod cluster;
+mod diagnostics;
 mod helm;
 mod helm_charts;
 mod kinds;
 mod metrics;
+mod nodes;
 mod pod_insights;
 mod portforward;
 mod resources;
@@ -92,10 +95,20 @@ pub fn run() {
             pod_insights::pod_usage,
             pod_insights::prometheus_target,
             pod_insights::pod_history,
+            pod_insights::node_history,
+            diagnostics::cluster_problems,
+            diagnostics::related,
+            nodes::node_summary,
+            nodes::cordon,
+            nodes::drain,
             updater::check_for_update,
             updater::install_update,
             windows::open_window,
             windows::write_text_file,
+            ai::ai_status,
+            ai::ai_set_key,
+            ai::ai_clear_key,
+            ai::ai_explain,
         ])
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::Destroyed = event {

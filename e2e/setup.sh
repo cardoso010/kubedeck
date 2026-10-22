@@ -17,8 +17,26 @@ if [[ "${1:-}" == "--delete" ]]; then
   exit 0
 fi
 
-kind get clusters | grep -qx "$CLUSTER" || kind create cluster --name "$CLUSTER" --kubeconfig "$KUBECONFIG" --wait 120s
+# Two nodes, so draining one can be tested without disturbing everything else.
+if ! kind get clusters | grep -qx "$CLUSTER"; then
+  kind create cluster --name "$CLUSTER" --kubeconfig "$KUBECONFIG" --wait 120s --config - <<'KIND'
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+nodes:
+  - role: control-plane
+  - role: worker
+KIND
+fi
 kind export kubeconfig --name "$CLUSTER" --kubeconfig "$KUBECONFIG" >/dev/null
+WORKER="$CLUSTER-worker"
+if ! kubectl get node "$WORKER" >/dev/null 2>&1; then
+  echo "This cluster has no worker node; recreate it: e2e/setup.sh --delete && e2e/setup.sh" >&2
+  exit 1
+fi
+# A test that failed mid-drain may have left the worker cordoned.
+kubectl uncordon "$WORKER" >/dev/null
+# Let workloads run on the control plane too, so a drained worker leaves room elsewhere.
+kubectl taint nodes "$CLUSTER-control-plane" node-role.kubernetes.io/control-plane:NoSchedule- >/dev/null 2>&1 || true
 
 kubectl create namespace demo --dry-run=client -o yaml | kubectl apply -f -
 kubectl -n demo get deployment web >/dev/null 2>&1 || kubectl -n demo create deployment web --image=nginx:1.27-alpine --replicas=3
@@ -26,8 +44,37 @@ kubectl -n demo get service web >/dev/null 2>&1 || kubectl -n demo expose deploy
 kubectl -n demo get configmap app-config >/dev/null 2>&1 || kubectl -n demo create configmap app-config --from-literal=LOG_LEVEL=debug --from-literal=FEATURE_X=true
 kubectl -n demo get pod ticker >/dev/null 2>&1 || kubectl -n demo run ticker --image=busybox:1.36 -- sh -c 'i=0; while true; do i=$((i+1)); echo "tick $i $(date)"; sleep 1; done'
 kubectl -n demo get pod broken >/dev/null 2>&1 || kubectl -n demo run broken --image=busybox:1.36 -- sh -c 'echo boom; exit 1'
+# Restarted, scaled and rolled back by the workload test (nothing else uses it).
+kubectl -n demo get deployment rollme >/dev/null 2>&1 || kubectl -n demo create deployment rollme --image=nginx:1.27-alpine --replicas=2
 # Two replicas that log their own name, for merged workload logs.
 kubectl -n demo get deployment chatty >/dev/null 2>&1 || kubectl -n demo create deployment chatty --image=busybox:1.36 --replicas=2 -- sh -c 'while true; do echo "hello from $(hostname)"; sleep 2; done'
+# Pinned to the worker, for the drain test (which evicts only this).
+kubectl -n demo get deployment drain-me >/dev/null 2>&1 || kubectl -n demo apply -f - <<POD
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: drain-me }
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: drain-me } }
+  template:
+    metadata: { labels: { app: drain-me } }
+    spec:
+      nodeSelector: { kubernetes.io/hostname: $WORKER }
+      containers: [{ name: app, image: "busybox:1.36", command: ["sleep", "infinity"] }]
+POD
+# Problems for the Problems view: out of memory, and an image that does not exist.
+kubectl -n demo get pod oom >/dev/null 2>&1 || kubectl -n demo apply -f - <<'POD'
+apiVersion: v1
+kind: Pod
+metadata: { name: oom }
+spec:
+  containers:
+    - name: app
+      image: busybox:1.36
+      command: ["sh", "-c", "head -c 300m /dev/zero | tail"]
+      resources: { limits: { memory: 32Mi } }
+POD
+kubectl -n demo get deployment bad-image >/dev/null 2>&1 || kubectl -n demo create deployment bad-image --image=registry.invalid/kubedeck/nope:1
 # A pod with requests and limits, for the usage-vs-limits view.
 kubectl -n demo get pod limited >/dev/null 2>&1 || kubectl -n demo apply -f - <<'POD'
 apiVersion: v1
@@ -39,6 +86,8 @@ spec:
     - name: app
       image: busybox:1.36
       command: ["sh", "-c", "while true; do :; done"]
+      env:
+        - { name: API_TOKEN, value: do-not-send-this }
       resources:
         requests: { cpu: 10m, memory: 16Mi }
         limits: { cpu: 50m, memory: 64Mi }
@@ -86,6 +135,8 @@ fi
 
 kubectl -n demo rollout status deployment/web --timeout=180s
 kubectl -n demo rollout status deployment/chatty --timeout=180s
+kubectl -n demo rollout status deployment/drain-me --timeout=180s
+kubectl -n demo rollout status deployment/rollme --timeout=180s
 kubectl -n demo2 rollout status deployment/worker --timeout=180s
 kubectl -n kube-system rollout status deployment/metrics-server --timeout=180s
 echo "Waiting for the first metrics..."

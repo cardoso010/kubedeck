@@ -264,6 +264,51 @@ pub async fn pod_history(namespace: String, pod: String, minutes: u64, state: Se
     })
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NodeHistory {
+    source: String,
+    cpu: Vec<Series>,
+    memory: Vec<Series>,
+}
+
+/// CPU (cores) and memory (working set) of a whole node over the last `minutes`, from the
+/// root cgroup. Different Prometheus setups name the node in different labels; try each.
+#[tauri::command]
+pub async fn node_history(name: String, minutes: u64, state: Session) -> CmdResult<NodeHistory> {
+    let (client, target) = prometheus(&state).await?;
+    let target = target.ok_or("No Prometheus found in this cluster")?;
+    let minutes = minutes.clamp(5, 7 * 24 * 60);
+    let step = (minutes * 60 / 120).max(15);
+    let window = format!("{}s", (step * 4).max(60));
+    let end = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_err(err)?.as_secs();
+    let start = end - minutes * 60;
+    let either = |metric: &str, rate: bool| {
+        ["node", "instance", "kubernetes_io_hostname"]
+            .iter()
+            .map(|label| {
+                let sel = format!(r#"{metric}{{id="/",{label}="{name}"}}"#);
+                if rate { format!("sum(rate({sel}[{window}]))") } else { format!("sum({sel})") }
+            })
+            .collect::<Vec<_>>()
+            .join(" or ")
+    };
+    let range = |q: String| {
+        let (client, target) = (client.clone(), target.clone());
+        async move {
+            let params = [("query", q), ("start", start.to_string()), ("end", end.to_string()), ("step", step.to_string())];
+            prom_get(&client, &target, "/api/v1/query_range", &params).await
+        }
+    };
+    let (cpu, memory) = tokio::join!(range(either("container_cpu_usage_seconds_total", true)), range(either("container_memory_working_set_bytes", false)));
+    let named = |data: Value, label: &str| {
+        let mut list = series(&data);
+        list.iter_mut().for_each(|s| s.name = label.to_owned());
+        list
+    };
+    Ok(NodeHistory { source: target.label(), cpu: named(cpu?, "node"), memory: named(memory?, "node") })
+}
+
 /// Reads a Prometheus matrix result.
 fn series(data: &Value) -> Vec<Series> {
     let mut out: Vec<Series> = data["result"]

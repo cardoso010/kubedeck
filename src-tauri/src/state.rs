@@ -62,6 +62,8 @@ pub struct AppState {
     /// Extra environment for helm. Empty in the app; tests point helm's repository config
     /// at a temporary directory so they never touch the user's repositories.
     pub helm_env: Vec<(String, String)>,
+    /// Anthropic API base URL and key override; tests point it at a local fake server.
+    pub ai_endpoint: Option<(String, String)>,
     next_id: AtomicU64,
 }
 
@@ -111,6 +113,8 @@ pub struct Sessions {
     map: Mutex<HashMap<String, Arc<AppState>>>,
     /// Copied into every new session (see `AppState::helm_env`).
     pub helm_env: Vec<(String, String)>,
+    /// Anthropic API base URL and key override; tests point it at a local fake server.
+    pub ai_endpoint: Option<(String, String)>,
 }
 
 impl Sessions {
@@ -120,12 +124,18 @@ impl Sessions {
         Sessions { helm_env, ..Default::default() }
     }
 
+    /// Sessions whose Claude requests go to `base_url` with `key` (a fake server in tests).
+    #[cfg(test)]
+    pub fn with_ai_endpoint(base_url: String, key: String) -> Self {
+        Sessions { ai_endpoint: Some((base_url, key)), ..Default::default() }
+    }
+
     pub fn get(&self, label: &str) -> Arc<AppState> {
         self.map
             .lock()
             .unwrap()
             .entry(label.to_owned())
-            .or_insert_with(|| Arc::new(AppState { helm_env: self.helm_env.clone(), ..Default::default() }))
+            .or_insert_with(|| Arc::new(AppState { helm_env: self.helm_env.clone(), ai_endpoint: self.ai_endpoint.clone(), ..Default::default() }))
             .clone()
     }
 
