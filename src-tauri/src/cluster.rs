@@ -66,7 +66,7 @@ pub async fn connect(context: String, state: Session) -> CmdResult<Connected> {
     all_kinds.extend(custom_kinds(&client).await);
     let kinds = Arc::new(all_kinds);
 
-    *state.conn.write().await = Some(Connection { client, context: context.clone(), default_namespace: default_namespace.clone(), kinds });
+    *state.conn.write().await = Some(Connection { client, context: context.clone(), default_namespace: default_namespace.clone(), kinds, prometheus: Default::default() });
     Ok(Connected { context, server_version: version.git_version, default_namespace })
 }
 

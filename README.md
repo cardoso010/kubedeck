@@ -8,10 +8,12 @@ Cliente desktop de Kubernetes, no estilo do Lens: **Tauri 2 + Rust** (`kube-rs`)
 
 | | |
 |---|---|
-| ![Paleta de comandos](docs/screenshots/command-palette.png) | ![Releases Helm no tema Grafite](docs/screenshots/helm-graphite.png) |
-| **Paleta de comandos (⌘K):** busca aproximada por tipos, CRDs, recursos, clusters, namespaces, temas e ações. | **Helm no tema Grafite:** releases, histórico com rollback, upgrade e instalação de charts. |
-| ![Editor de YAML no tema Claro](docs/screenshots/yaml-light.png) | ![Tela inicial](docs/screenshots/welcome.png) |
-| **YAML no tema Claro:** edição com Monaco, protegida contra sobrescrever mudanças de outra pessoa, e port forward por porta. | **Tela inicial:** clusters fixados primeiro, produção sinalizada. |
+| ![Métricas de um pod](docs/screenshots/pod-metrics.png) | ![Paleta de comandos](docs/screenshots/command-palette.png) |
+| **Métricas do pod:** uso de CPU e memória contra requests e limits, restarts, última parada (OOMKilled em destaque) e histórico do Prometheus com rede e throttling. | **Paleta de comandos (⌘K):** busca aproximada por tipos, CRDs, recursos, clusters, namespaces, temas e ações. |
+| ![Releases Helm no tema Grafite](docs/screenshots/helm-graphite.png) | ![Editor de YAML no tema Claro](docs/screenshots/yaml-light.png) |
+| **Helm no tema Grafite:** releases, histórico com rollback, upgrade e instalação de charts. | **YAML no tema Claro:** edição com Monaco, protegida contra sobrescrever mudanças de outra pessoa, e port forward por porta. |
+| ![Tela inicial](docs/screenshots/welcome.png) | |
+| **Tela inicial:** clusters fixados primeiro, produção sinalizada. | |
 
 As imagens usam os dados de exemplo da interface em modo navegador. Para refazê-las depois de mudar a interface, rode `npm run dev` e, em outro terminal, `npm run screenshots` (usa o Google Chrome instalado na máquina).
 
@@ -48,6 +50,7 @@ O app ainda não é assinado com Developer ID nem notarizado. O script de instal
 - Lista em tempo real (*watch*) Pods, Deployments, StatefulSets, DaemonSets, Jobs, CronJobs, Services, Ingresses, ConfigMaps, Secrets, Events, Nodes e Namespaces, com filtro e tabela virtualizada.
 - **Custom Resources:** ao conectar, o app lê os CRDs do cluster e os mostra na barra lateral, agrupados por API group e com busca. As colunas são as mesmas do `kubectl get` (`additionalPrinterColumns`).
 - **Métricas:** colunas de CPU e memória em Pods e Nodes, com a porcentagem do *allocatable* nos nodes, quando o cluster tem metrics-server. Sem ele, as colunas simplesmente não aparecem.
+- **Aba Metrics do pod** (a primeira da gaveta): por container, CPU e memória atuais contra requests e limits, restarts, estado e o motivo da última parada (OOMKilled em vermelho). Se o cluster tiver **Prometheus**, mostra o histórico (15 min a 7 dias) de CPU, memória, rede e *throttling* de CPU, com as linhas de request e limit. O app encontra o Prometheus sozinho pelos nomes de serviço usuais e o consulta pelo proxy do API server, com as suas próprias credenciais: sem port forward e sem configuração. Para apontar outro, use `KUBEDECK_PROMETHEUS=namespace/servico:porta`. Sem Prometheus, os gráficos de CPU e memória são ao vivo (a cada 10 s) desde a abertura da aba.
 - Painel de detalhes:
   - **YAML** no Monaco, salvo com `replace`. O `resourceVersion` impede sobrescrever mudanças feitas por outra pessoa.
   - **Logs** em streaming com follow e filtro.
@@ -73,7 +76,7 @@ As convenções do código e os cuidados para trabalhar no projeto (inclusive co
 
 ## Testing
 
-Os testes de ponta a ponta rodam contra um cluster **kind descartável**. Eles editam um ConfigMap, apagam um pod e fazem rollback e uninstall de releases Helm, então nunca aponte para um cluster compartilhado. O script cria o cluster com todos os fixtures (workloads em dois namespaces, release Helm, CRD de exemplo e metrics-server) num kubeconfig separado, `.kind-kubeconfig`, sem tocar no `~/.kube/config`:
+Os testes de ponta a ponta rodam contra um cluster **kind descartável**. Eles editam um ConfigMap, apagam um pod e fazem rollback e uninstall de releases Helm, então nunca aponte para um cluster compartilhado. O script cria o cluster com todos os fixtures (workloads em dois namespaces, um pod com requests e limits, release Helm, CRD de exemplo, metrics-server e um Prometheus mínimo) num kubeconfig separado, `.kind-kubeconfig`, sem tocar no `~/.kube/config`:
 
 ```bash
 npm run binaries
@@ -116,6 +119,7 @@ src-tauri/src/
   helm.rs         releases via o Helm embutido
   helm_charts.rs  repositórios, busca de charts, install e upgrade
   metrics.rs      CPU e memória via metrics-server
+  pod_insights.rs métricas de um pod: uso contra requests/limits e histórico via Prometheus
   updater.rs      atualização automática a partir das releases privadas do GitHub
   windows.rs      janelas novas
   state.rs        uma sessão por janela: conexão e streams ativos (watch/logs/exec/port forward por id)

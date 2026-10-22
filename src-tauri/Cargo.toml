@@ -31,6 +31,8 @@ anyhow = "1"
 tauri-plugin-updater = "2"
 reqwest = { version = "0.13", features = ["json"] }
 rustls = { version = "0.23", default-features = false, features = ["aws_lc_rs"] }
+http = "1"
+form_urlencoded = "1"
 
 
 # Read the optimization guideline for more details: https://tauri.app/concept/size/#cargo-configuration

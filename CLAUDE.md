@@ -37,7 +37,7 @@ Rust (`src-tauri/src/`), one module per feature; every `#[tauri::command]` is re
 - `cluster.rs` — kubeconfig contexts, `connect` (also loads CRDs), namespaces.
 - `kinds.rs` — built-in kinds + CRD-derived kinds; `summarize` turns any object into a table `Row`; `json_path` evaluates CRD printer columns.
 - `resources.rs` — generic watch/get/replace/delete over `DynamicObject`.
-- `streams.rs` (logs, exec), `portforward.rs`, `helm.rs` (releases; shells out to the bundled `helm`), `helm_charts.rs` (repos, search, install/upgrade), `metrics.rs` (metrics-server), `updater.rs` (self-update from private GitHub releases), `windows.rs` (new windows).
+- `streams.rs` (logs, exec), `portforward.rs`, `helm.rs` (releases; shells out to the bundled `helm`), `helm_charts.rs` (repos, search, install/upgrade), `metrics.rs` (metrics-server, table columns), `pod_insights.rs` (pod drawer metrics: usage vs requests/limits, Prometheus detection and history through the API server service proxy), `updater.rs` (self-update from private GitHub releases), `windows.rs` (new windows).
 - `e2e_test.rs` — end-to-end tests that call the real commands through `tauri::test::mock_builder`; `Session::of(&app, "main")` gives a window's session, and `Sessions::with_helm_env` isolates helm's repository config.
 
 UI (`src/`): `api.ts` holds a typed wrapper for every command; components in `src/components/`; `useStream.ts` owns stream lifecycles; `dev-mock.ts` mirrors the commands for browser-only work.
@@ -51,6 +51,7 @@ Layout: `Rail` (sections from `sections.ts`, pinned clusters from `pins.ts`, the
 - **Streaming** (watch, logs, exec): the command spawns a task, sends events over a `tauri::ipc::Channel`, registers it with `AppState::track` (or the exec/forward maps) and returns an id. The UI must stop it with `stop_stream(id)`; use `useStream` rather than hand-rolled effects. `connect` stops everything.
 - **Serde**: structs sent to the UI use `#[serde(rename_all = "camelCase")]`; tagged enums use `#[serde(tag = "type")]` (or `"status"`). Keep `api.ts` types in sync.
 - **New command checklist**: Rust fn + register in `lib.rs` + wrapper in `api.ts` + case in `dev-mock.ts` + e2e coverage in `e2e_test.rs`.
+- Prometheus is reached with `client.request_text` on `/api/v1/namespaces/<ns>/services/<svc>:<port>/proxy/...` (the user's own RBAC), never a port forward. Detection runs once per connection (`Connection::prometheus`); `KUBEDECK_PROMETHEUS=ns/svc:port` overrides it. Charts are `components/LineChart.tsx` (plain SVG, `--chart-*` tokens).
 - Anything that shells out to helm goes through `helm::helm` (cluster commands, adds `--kube-context`) or `helm::helm_local` (repos/search), so the session's helm environment applies.
 - Secret values never go into table rows (`summarize` counts keys only).
 - **Styling**: use only the theme tokens from the top of `App.css` (`--bg*`, `--line*`, `--text*`, `--accent*`, `--ok/--warn/--bad`, `--font-ui/--font-mono`, `--radius*`); never hard-code colors, or a theme will break. A new theme is one `[data-theme]` block plus an entry in `theme.ts` (with Monaco and xterm colors). Icons come from `@tabler/icons-react`; fonts are bundled (`@fontsource-variable/*`), never loaded from a CDN.

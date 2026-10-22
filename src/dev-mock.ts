@@ -183,6 +183,41 @@ async function invoke(cmd: string, args: Record<string, any>): Promise<unknown> 
       return { status: "available", version: "0.3.0", notes: "Sample release notes", date: null };
     case "plugin:app|version":
       return "0.2.0";
+    case "pod_usage": {
+      const multi = args.pod.startsWith("api-");
+      const mk = (name: string, cpu: number, mem: number, extra: object = {}) => ({
+        name, cpuMillis: cpu, memoryBytes: mem * 1024 ** 2, cpuRequestMillis: 100, cpuLimitMillis: 250,
+        memoryRequestBytes: 128 * 1024 ** 2, memoryLimitBytes: 256 * 1024 ** 2, restarts: 0, ready: true, state: "running", lastTermination: null, ...extra,
+      });
+      const containers = multi
+        ? [mk("api", 113 + Math.random() * 20, 69), mk("envoy", 18 + Math.random() * 4, 41, { cpuLimitMillis: null, memoryLimitBytes: null })]
+        : args.pod === "broken"
+          ? [mk("broken", 0, 0, { restarts: 7, ready: false, state: "waiting: CrashLoopBackOff", lastTermination: `OOMKilled (exit 137) at ${ago(240)}` })]
+          : [mk(args.pod.split("-")[0], 150 + Math.random() * 40, 190 + Math.random() * 10, { restarts: 1, lastTermination: `OOMKilled (exit 137) at ${ago(9000)}` })];
+      return { metricsServer: true, containers };
+    }
+    case "prometheus_target":
+      return "monitoring/prometheus-server:80";
+    case "pod_history": {
+      const end = Date.now() / 1000;
+      const n = 120;
+      const step = (args.minutes * 60) / n;
+      const wave = (base: number, amp: number, phase: number, noise: number) =>
+        Array.from({ length: n }, (_, i) => [end - (n - i) * step, Math.max(0, base + amp * Math.sin(i / 9 + phase) + (Math.sin(i * 12.9898 + phase) * 43758.5453 % 1) * noise)] as [number, number]);
+      const multi = args.pod.startsWith("api-");
+      const names = multi ? ["api", "envoy"] : [args.pod.split("-")[0]];
+      return {
+        source: "monitoring/prometheus-server:80",
+        stepSeconds: step,
+        cpu: names.map((name, k) => ({ name, points: wave(k ? 0.02 : 0.16, k ? 0.005 : 0.07, k, k ? 0.004 : 0.03) })),
+        memory: names.map((name, k) => ({ name, points: wave((k ? 41 : 185) * 1024 ** 2, (k ? 2 : 22) * 1024 ** 2, k + 1, 3 * 1024 ** 2) })),
+        network: [
+          { name: "receive", points: wave(42_000, 18_000, 0.5, 6000) },
+          { name: "transmit", points: wave(18_000, 9000, 1.7, 3000) },
+        ],
+        throttling: names.map((name, k) => ({ name, points: wave(k ? 0 : 0.12, k ? 0 : 0.1, 2, 0.04) })),
+      };
+    }
     case "pod_metrics":
       return (ROWS.pods ?? []).filter((r) => !args.namespaces?.length || args.namespaces.includes(r.namespace)).map((r, i) => ({ namespace: r.namespace, name: r.name, cpuMillis: 2 + i * 37, memoryBytes: (6 + i * 21) * 1024 * 1024, cpuAllocatableMillis: null, memoryAllocatableBytes: null }));
     case "node_metrics":

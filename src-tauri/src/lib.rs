@@ -5,6 +5,7 @@ mod helm;
 mod helm_charts;
 mod kinds;
 mod metrics;
+mod pod_insights;
 mod portforward;
 mod resources;
 mod state;
@@ -78,6 +79,9 @@ pub fn run() {
             helm_charts::helm_upgrade,
             metrics::pod_metrics,
             metrics::node_metrics,
+            pod_insights::pod_usage,
+            pod_insights::prometheus_target,
+            pod_insights::pod_history,
             updater::check_for_update,
             updater::install_update,
             windows::open_window,

@@ -211,6 +211,57 @@ export const checkForUpdate = () => invoke<UpdateStatus>("check_for_update");
 /** Downloads, verifies and installs the pending update; the app restarts when it succeeds. */
 export const installUpdate = () => invoke<void>("install_update");
 
+export interface ContainerUsage {
+  name: string;
+  cpuMillis: number | null;
+  memoryBytes: number | null;
+  cpuRequestMillis: number | null;
+  cpuLimitMillis: number | null;
+  memoryRequestBytes: number | null;
+  memoryLimitBytes: number | null;
+  restarts: number;
+  ready: boolean;
+  state: string;
+  lastTermination: string | null;
+}
+
+export interface PodUsage {
+  metricsServer: boolean;
+  containers: ContainerUsage[];
+}
+
+/** [unix seconds, value] pairs. */
+export type Point = [number, number];
+
+export interface Series {
+  name: string;
+  points: Point[];
+}
+
+export interface PodHistory {
+  source: string;
+  stepSeconds: number;
+  /** Cores. */
+  cpu: Series[];
+  /** Working-set bytes. */
+  memory: Series[];
+  /** Bytes per second ("receive", "transmit"). */
+  network: Series[];
+  /** Fraction of CPU periods throttled, 0..1. */
+  throttling: Series[];
+}
+
+export const podUsage = (namespace: string, pod: string) => invoke<PodUsage>("pod_usage", { namespace, pod });
+/** "namespace/service:port" of the cluster's Prometheus, or null when there is none. */
+export const prometheusTarget = () => invoke<string | null>("prometheus_target");
+export const podHistory = (namespace: string, pod: string, minutes: number) => invoke<PodHistory>("pod_history", { namespace, pod, minutes });
+
+export function formatRate(bytesPerSecond: number): string {
+  if (bytesPerSecond >= 1024 * 1024) return `${(bytesPerSecond / 1024 / 1024).toFixed(1)} MiB/s`;
+  if (bytesPerSecond >= 1024) return `${(bytesPerSecond / 1024).toFixed(1)} KiB/s`;
+  return `${Math.round(bytesPerSecond)} B/s`;
+}
+
 /** Errors from Rust commands arrive as plain strings. */
 export const errorText = (e: unknown) => (typeof e === "string" ? e : e instanceof Error ? e.message : JSON.stringify(e));
 

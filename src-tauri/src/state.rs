@@ -27,6 +27,8 @@ pub struct Connection {
     pub default_namespace: String,
     /// Built-in kinds followed by the cluster's custom resources.
     pub kinds: Arc<Vec<KindDef>>,
+    /// Where this cluster's Prometheus answers, found on first use (None: not found).
+    pub prometheus: Arc<tokio::sync::OnceCell<Option<crate::pod_insights::PromTarget>>>,
 }
 
 impl Connection {

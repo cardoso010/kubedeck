@@ -15,7 +15,7 @@ use tauri::Manager;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 use crate::state::{Session, Sessions};
-use crate::{cluster, helm, helm_charts, metrics, portforward, resources, streams};
+use crate::{cluster, helm, helm_charts, metrics, pod_insights, portforward, resources, streams};
 
 type Inbox = Arc<Mutex<Vec<Value>>>;
 
@@ -500,6 +500,55 @@ async fn windows_are_independent_sessions() {
     tokio::time::sleep(Duration::from_millis(200)).await;
     assert!(tokio::net::TcpStream::connect(("127.0.0.1", port)).await.is_err(), "B's listener should be closed");
     assert!(Session::of(&app, "window-1").connection().await.is_err(), "a reopened label starts fresh");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "needs a disposable cluster, see module docs"]
+async fn pod_metrics_against_real_cluster() {
+    let context = test_context();
+    let app = mock_app();
+    let state = || Session::of(&app, "main");
+    cluster::connect(context, state()).await.unwrap();
+    let usage = |ns: &str, pod: &str| {
+        let (ns, pod) = (ns.to_owned(), pod.to_owned());
+        let s = state();
+        async move { serde_json::to_value(pod_insights::pod_usage(ns, pod, s).await.unwrap()).unwrap() }
+    };
+
+    // Current usage with requests and limits from the spec.
+    let limited = usage("demo", "limited").await;
+    assert_eq!(limited["metricsServer"], true, "{limited}");
+    let app_container = &limited["containers"][0];
+    assert_eq!(app_container["name"], "app");
+    assert_eq!(app_container["cpuRequestMillis"], 10.0);
+    assert_eq!(app_container["cpuLimitMillis"], 50.0);
+    assert_eq!(app_container["memoryRequestBytes"], 16.0 * 1024.0 * 1024.0);
+    assert_eq!(app_container["memoryLimitBytes"], 64.0 * 1024.0 * 1024.0);
+    assert!(app_container["cpuMillis"].as_f64().is_some(), "{app_container}");
+    assert_eq!(app_container["state"], "running");
+
+    // Restarts and why the last run ended.
+    let broken = usage("demo", "broken").await;
+    let c = &broken["containers"][0];
+    assert!(c["restarts"].as_i64().unwrap() > 0, "{c}");
+    assert!(c["lastTermination"].as_str().unwrap().starts_with("Error (exit 1)"), "{c}");
+
+    // History from Prometheus, found through the API server proxy.
+    let target = pod_insights::prometheus_target(state()).await.unwrap();
+    assert_eq!(target.as_deref(), Some("monitoring/prometheus-server:80"));
+    let history = serde_json::to_value(pod_insights::pod_history("demo".into(), "limited".into(), 15, state()).await.unwrap()).unwrap();
+    assert_eq!(history["source"], "monitoring/prometheus-server:80");
+    let named = |key: &str, name: &str| history[key].as_array().unwrap().iter().find(|s| s["name"] == name).map(|s| s["points"].as_array().unwrap().len()).unwrap_or(0);
+    assert!(named("cpu", "app") > 0, "cpu: {}", history["cpu"]);
+    assert!(named("memory", "app") > 0, "memory: {}", history["memory"]);
+    assert!(named("network", "receive") > 0 && named("network", "transmit") > 0, "network: {}", history["network"]);
+    // A busy loop under a 50m limit gets throttled.
+    let throttled = history["throttling"][0]["points"].as_array().map(|p| p.iter().any(|v| v[1].as_f64().unwrap() > 0.1)).unwrap_or(false);
+    assert!(throttled, "throttling: {}", history["throttling"]);
+
+    // A pod without samples gives empty charts, not an error.
+    let empty = serde_json::to_value(pod_insights::pod_history("demo".into(), "no-such-pod".into(), 15, state()).await.unwrap()).unwrap();
+    assert!(empty["cpu"].as_array().unwrap().is_empty());
 }
 
 fn crate_is_production(context: &str) -> bool {

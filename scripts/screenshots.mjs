@@ -46,6 +46,17 @@ await scene("pods-logs", { theme: "terminal" }, async (page) => {
   await page.waitForTimeout(3500); // let a few log lines stream in
 });
 
+await scene("pod-metrics", { theme: "terminal" }, async (page) => {
+  await page.locator(".table-row", { hasText: "web-7c6cdd646-2zjfg" }).click();
+  await page.waitForSelector(".chart svg");
+  await page.getByRole("button", { name: "6h", exact: true }).click();
+  await page.waitForTimeout(800);
+  // Show the hover readout on the CPU chart.
+  const chart = page.locator(".chart svg").first();
+  const box = await chart.boundingBox();
+  await page.mouse.move(box.x + box.width * 0.62, box.y + box.height / 2);
+});
+
 await scene("command-palette", { theme: "terminal" }, async (page) => {
   // Headless Chrome keeps Cmd/Ctrl+K for itself; open the palette with its button.
   await page.locator(".search-trigger").click();

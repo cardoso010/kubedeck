@@ -2444,7 +2444,9 @@ name = "kubedeck"
 version = "0.3.0"
 dependencies = [
  "anyhow",
+ "form_urlencoded",
  "futures",
+ "http",
  "k8s-openapi",
  "kube",
  "reqwest",

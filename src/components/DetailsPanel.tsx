@@ -5,6 +5,7 @@ import YamlEditor from "./YamlEditor";
 import LogsView from "./LogsView";
 import TerminalView from "./TerminalView";
 import PortForwardButtons from "./PortForwardButtons";
+import PodMetrics from "./PodMetrics";
 
 interface Props {
   kind: KindInfo;
@@ -15,12 +16,14 @@ interface Props {
   onClose: () => void;
 }
 
-type Tab = "yaml" | "logs" | "terminal";
+type Tab = "metrics" | "yaml" | "logs" | "terminal";
 
 export default function DetailsPanel({ kind, row, target, context, production, onClose }: Props) {
   const isPod = kind.key === "pods";
-  const [tab, setTab] = useState<Tab>(isPod ? "logs" : "yaml");
-  const [container, setContainer] = useState(row.containers[0] ?? null);
+  const [tab, setTab] = useState<Tab>(isPod ? "metrics" : "yaml");
+  // null: every container on the metrics tab, the first one for logs and the terminal.
+  const [container, setContainer] = useState<string | null>(null);
+  const oneContainer = container ?? row.containers[0] ?? null;
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -53,6 +56,11 @@ export default function DetailsPanel({ kind, row, target, context, production, o
       </header>
       <nav className="tabs">
         {isPod && (
+          <button className={tab === "metrics" ? "active" : ""} onClick={() => setTab("metrics")}>
+            Metrics
+          </button>
+        )}
+        {isPod && (
           <button className={tab === "logs" ? "active" : ""} onClick={() => setTab("logs")}>
             Logs
           </button>
@@ -66,7 +74,8 @@ export default function DetailsPanel({ kind, row, target, context, production, o
           YAML
         </button>
         {isPod && tab !== "yaml" && row.containers.length > 1 && (
-          <select className="container-select" value={container ?? ""} onChange={(e) => setContainer(e.target.value)}>
+          <select className="container-select" value={tab === "metrics" ? (container ?? "") : (container ?? row.containers[0])} onChange={(e) => setContainer(e.target.value || null)}>
+            {tab === "metrics" && <option value="">All containers</option>}
             {row.containers.map((c) => (
               <option key={c}>{c}</option>
             ))}
@@ -79,8 +88,9 @@ export default function DetailsPanel({ kind, row, target, context, production, o
       {error && <div className="error-bar">{error}</div>}
       <div className="details-body">
         {tab === "yaml" && <YamlEditor target={target} production={production} />}
-        {tab === "logs" && row.namespace && <LogsView key={container} namespace={row.namespace} pod={row.name} container={container} />}
-        {tab === "terminal" && row.namespace && <TerminalView key={container} namespace={row.namespace} pod={row.name} container={container} />}
+        {tab === "metrics" && row.namespace && <PodMetrics namespace={row.namespace} pod={row.name} container={container} />}
+        {tab === "logs" && row.namespace && <LogsView key={oneContainer} namespace={row.namespace} pod={row.name} container={oneContainer} />}
+        {tab === "terminal" && row.namespace && <TerminalView key={oneContainer} namespace={row.namespace} pod={row.name} container={oneContainer} />}
       </div>
       {confirmDelete && (
         <ConfirmDialog
