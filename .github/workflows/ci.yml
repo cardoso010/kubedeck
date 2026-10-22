@@ -16,11 +16,13 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      # The runner's apt mirror is sometimes very slow: skip recommended packages, retry
-      # failed downloads, and fail this step on its own instead of eating the job timeout.
+      # The runner's default apt mirror (azure.archive.ubuntu.com) is sometimes extremely
+      # slow, so prefer the main Ubuntu archive and keep Azure as a fallback. Skip
+      # recommended packages and fail this step on its own instead of eating the job timeout.
       - name: Tauri system dependencies
         timeout-minutes: 20
         run: |
+          printf 'http://archive.ubuntu.com/ubuntu/\tpriority:1\nhttp://azure.archive.ubuntu.com/ubuntu/\tpriority:2\n' | sudo tee /etc/apt/apt-mirrors.txt
           sudo apt-get -o Acquire::Retries=5 update
           sudo apt-get -o Acquire::Retries=5 install -y --no-install-recommends libwebkit2gtk-4.1-dev librsvg2-dev
 
