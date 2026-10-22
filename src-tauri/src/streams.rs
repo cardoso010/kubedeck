@@ -142,6 +142,8 @@ pub async fn exec_start(
     on_event: Channel<StreamMsg>,
     state: Session,
 ) -> CmdResult<u64> {
+    // A shell can change anything inside the container.
+    state.writable()?;
     let api: Api<Pod> = Api::namespaced(state.connection().await?.client, &namespace);
     let mut params = AttachParams::interactive_tty();
     if let Some(c) = container {

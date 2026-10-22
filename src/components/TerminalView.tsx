@@ -3,8 +3,14 @@ import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { errorText, execInput, execResize, execStart, stopStream } from "../api";
 import { useCurrentTheme } from "../theme";
+import { useReadOnly } from "../readOnly";
 
-export default function TerminalView({ namespace, pod, container }: { namespace: string; pod: string; container: string | null }) {
+export default function TerminalView(props: { namespace: string; pod: string; container: string | null }) {
+  if (useReadOnly()) return <div className="empty">Read-only mode: a shell could change the container. Unlock the cluster to open one.</div>;
+  return <Shell {...props} />;
+}
+
+function Shell({ namespace, pod, container }: { namespace: string; pod: string; container: string | null }) {
   const host = useRef<HTMLDivElement>(null);
   const terminal = useRef<Terminal | null>(null);
   const theme = useCurrentTheme();

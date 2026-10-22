@@ -94,7 +94,7 @@ async fn backend_against_real_cluster() {
     let web = row("web-");
 
     // YAML read / replace / conflict detection
-    let yaml = resources::get_yaml("configmaps".into(), opt("demo"), "app-config".into(), state()).await.unwrap();
+    let yaml = resources::get_yaml("configmaps".into(), opt("demo"), "app-config".into(), None, state()).await.unwrap();
     assert!(!yaml.contains("managedFields"), "{yaml}");
     // Flip LOG_LEVEL whatever it is now (people edit it by hand while trying the app).
     let (from, to) = if yaml.contains("LOG_LEVEL: debug") { ("LOG_LEVEL: debug", "LOG_LEVEL: info") } else { ("LOG_LEVEL: info", "LOG_LEVEL: debug") };
@@ -274,7 +274,7 @@ async fn custom_resources_and_metrics_against_real_cluster() {
     let sprocket = rows.as_array().unwrap().iter().find(|r| r["name"] == "sprocket").expect("sprocket widget").clone();
     assert_eq!(sprocket["cells"], serde_json::json!(["large"]));
     resources::stop_stream(id, state());
-    let yaml = resources::get_yaml("widgets.kubedeck.dev".into(), opt("demo"), "sprocket".into(), state()).await.unwrap();
+    let yaml = resources::get_yaml("widgets.kubedeck.dev".into(), opt("demo"), "sprocket".into(), None, state()).await.unwrap();
     assert!(yaml.contains("kind: Widget") && yaml.contains("color: blue"), "{yaml}");
 
     // Metrics from metrics-server.
@@ -877,4 +877,50 @@ async fn diagnostics_against_real_cluster() {
 fn crate_is_production(context: &str) -> bool {
     let lower = context.to_lowercase();
     ["prd", "prod", "production"].iter().any(|p| lower.contains(p))
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "needs a disposable cluster, see module docs"]
+async fn read_only_secrets_and_login_against_real_cluster() {
+    let context = test_context();
+    let app = mock_app();
+    let state = || Session::of(&app, "readonly");
+    cluster::connect(context, state()).await.unwrap();
+
+    // Read-only: every write is refused before it reaches the cluster; reads still work.
+    cluster::set_read_only(true, state());
+    let refused = |r: Result<(), String>| assert_eq!(r.unwrap_err(), crate::state::READ_ONLY);
+    refused(resources::delete_resource("pods".into(), opt("demo"), "ticker".into(), state()).await);
+    refused(workloads::scale("deployments".into(), "demo".into(), "web".into(), 0, state()).await);
+    refused(workloads::rollout_restart("deployments".into(), "demo".into(), "web".into(), state()).await);
+    refused(nodes::cordon("kubedeck-test-worker".into(), true, state()).await);
+    refused(nodes::drain("kubedeck-test-worker".into(), None, false, state()).await.map(|_| ()));
+    refused(helm::helm_uninstall("demo".into(), "hello".into(), state()).await.map(|_| ()));
+    let yaml = resources::get_yaml("configmaps".into(), opt("demo"), "app-config".into(), None, state()).await.unwrap();
+    refused(resources::replace_yaml("configmaps".into(), opt("demo"), "app-config".into(), yaml, state()).await.map(|_| ()));
+    let (ch, _) = channel();
+    refused(streams::exec_start("demo".into(), "ticker".into(), None, 80, 24, ch, state()).await.map(|_| ()));
+    assert!(nodes::drain("kubedeck-test-worker".into(), None, true, state()).await.is_ok(), "a dry run only reads");
+    let pods = resources::get_yaml("pods".into(), opt("demo"), "ticker".into(), None, state()).await;
+    assert!(pods.is_ok(), "reads work in read-only mode");
+    // The lock belongs to this window only.
+    assert!(!Session::of(&app, "other").read_only.load(std::sync::atomic::Ordering::Relaxed));
+    cluster::set_read_only(false, state());
+
+    // Secrets: masked unless revealed, values one by one.
+    let masked = resources::get_yaml("secrets".into(), opt("demo"), "app-secret".into(), None, state()).await.unwrap();
+    assert!(masked.contains(crate::secrets::MASK) && !masked.contains("aHVudGVyMg=="), "{masked}");
+    let shown = resources::get_yaml("secrets".into(), opt("demo"), "app-secret".into(), Some(true), state()).await.unwrap();
+    assert!(shown.contains("aHVudGVyMg=="), "{shown}");
+    // Saving the masked YAML by mistake fails instead of wiping the values.
+    assert!(resources::replace_yaml("secrets".into(), opt("demo"), "app-secret".into(), masked, state()).await.is_err());
+    let keys = serde_json::to_value(crate::secrets::secret_keys("demo".into(), "app-secret".into(), state()).await.unwrap()).unwrap();
+    assert_eq!(keys, serde_json::json!([{ "key": "password", "bytes": 7 }, { "key": "user", "bytes": 5 }]));
+    let value = serde_json::to_value(crate::secrets::secret_value("demo".into(), "app-secret".into(), "password".into(), state()).await.unwrap()).unwrap();
+    assert_eq!(value, serde_json::json!({ "text": "hunter2", "base64": "aHVudGVyMg==" }));
+
+    // Login command: output on success, the error and output on failure.
+    assert_eq!(cluster::run_login("echo renewed".into()).await.unwrap(), "renewed");
+    let failed = cluster::run_login("echo nope >&2; exit 3".into()).await.unwrap_err();
+    assert!(failed.contains("nope") && failed.contains('3'), "{failed}");
 }

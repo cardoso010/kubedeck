@@ -138,11 +138,14 @@ pub fn stop_stream(id: u64, state: Session) {
 }
 
 #[tauri::command]
-pub async fn get_yaml(kind_key: String, namespace: Option<String>, name: String, state: Session) -> CmdResult<String> {
+pub async fn get_yaml(kind_key: String, namespace: Option<String>, name: String, reveal: Option<bool>, state: Session) -> CmdResult<String> {
     let (_, api) = api_for(&state, &kind_key, namespace.as_deref()).await?;
     let mut obj = api.get(&name).await.map_err(err)?;
     // Same noise `kubectl edit` hides; it also cannot be sent back on replace.
     obj.metadata.managed_fields = None;
+    if kind_key == "secrets" && reveal != Some(true) {
+        crate::secrets::mask(&mut obj);
+    }
     serde_yaml::to_string(&obj).map_err(err)
 }
 
@@ -156,6 +159,7 @@ pub async fn replace_yaml(
     yaml: String,
     state: Session,
 ) -> CmdResult<String> {
+    state.writable()?;
     let (_, api) = api_for(&state, &kind_key, namespace.as_deref()).await?;
     let mut obj: DynamicObject = serde_yaml::from_str(&yaml).map_err(|e| format!("Invalid YAML: {e}"))?;
     if obj.metadata.name.as_deref() != Some(name.as_str()) {
@@ -169,6 +173,7 @@ pub async fn replace_yaml(
 
 #[tauri::command]
 pub async fn delete_resource(kind_key: String, namespace: Option<String>, name: String, state: Session) -> CmdResult<()> {
+    state.writable()?;
     let (_, api) = api_for(&state, &kind_key, namespace.as_deref()).await?;
     api.delete(&name, &DeleteParams::default()).await.map_err(err)?;
     Ok(())

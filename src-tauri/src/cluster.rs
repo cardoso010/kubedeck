@@ -176,3 +176,41 @@ users:
         assert_eq!(auth_summary(&kubeconfig, "plain"), None);
     }
 }
+
+/// Turns read-only mode on or off for this window (see `AppState::read_only`).
+#[tauri::command]
+pub fn set_read_only(read_only: bool, state: Session) {
+    state.read_only.store(read_only, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// Runs the user's login command (e.g. `aws sso login --profile prod`) so expired
+/// credentials can be renewed from the app. It may open a browser and wait for it, so it
+/// gets five minutes. Returns the end of its output.
+#[tauri::command]
+pub async fn run_login(command: String) -> CmdResult<String> {
+    let command = command.trim();
+    if command.is_empty() {
+        return Err("No login command set".into());
+    }
+    #[cfg(windows)]
+    let mut cmd = tokio::process::Command::new("cmd");
+    #[cfg(windows)]
+    cmd.args(["/C", command]);
+    #[cfg(not(windows))]
+    let mut cmd = tokio::process::Command::new("sh");
+    #[cfg(not(windows))]
+    cmd.args(["-c", command]);
+    cmd.stdin(std::process::Stdio::null()).kill_on_drop(true);
+    let output = tokio::time::timeout(std::time::Duration::from_secs(300), cmd.output())
+        .await
+        .map_err(|_| "The login command did not finish within 5 minutes".to_owned())?
+        .map_err(|e| format!("Could not run the login command: {e}"))?;
+    let mut text = String::from_utf8_lossy(&output.stdout).into_owned();
+    text.push_str(&String::from_utf8_lossy(&output.stderr));
+    let tail: String = text.trim().chars().rev().take(2000).collect::<Vec<_>>().into_iter().rev().collect();
+    if output.status.success() {
+        Ok(tail)
+    } else {
+        Err(format!("The login command failed ({}):\n{tail}", output.status))
+    }
+}

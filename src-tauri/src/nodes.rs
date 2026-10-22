@@ -119,6 +119,7 @@ pub async fn node_summary(name: String, state: Session) -> CmdResult<NodeSummary
 /// `kubectl cordon` / `uncordon`.
 #[tauri::command]
 pub async fn cordon(name: String, unschedulable: bool, state: Session) -> CmdResult<()> {
+    state.writable()?;
     let api: Api<Node> = Api::all(state.connection().await?.client);
     api.patch(&name, &PatchParams::default(), &Patch::Merge(&json!({ "spec": { "unschedulable": unschedulable } })))
         .await
@@ -143,6 +144,9 @@ pub struct DrainReport {
 /// `pod_selector` limits it to matching pods; `dry_run` only reports.
 #[tauri::command]
 pub async fn drain(name: String, pod_selector: Option<String>, dry_run: bool, state: Session) -> CmdResult<DrainReport> {
+    if !dry_run {
+        state.writable()?;
+    }
     let client = state.connection().await?.client;
     if !dry_run {
         Api::<Node>::all(client.clone())

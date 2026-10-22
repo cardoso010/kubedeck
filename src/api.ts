@@ -59,6 +59,10 @@ export interface Target {
 
 export const listContexts = () => invoke<Contexts>("list_contexts");
 export const connect = (context: string) => invoke<Connected>("connect", { context });
+export const setReadOnly = (readOnly: boolean) => invoke<void>("set_read_only", { readOnly });
+export const runLogin = (command: string) => invoke<string>("run_login", { command });
+export const secretKeys = (namespace: string, name: string) => invoke<{ key: string; bytes: number }[]>("secret_keys", { namespace, name });
+export const secretValue = (namespace: string, name: string, key: string) => invoke<{ text: string | null; base64: string }>("secret_value", { namespace, name, key });
 export const contextAuth = (context: string) => invoke<Connected["auth"]>("context_auth", { context });
 export const listNamespaces = () => invoke<string[]>("list_namespaces");
 export const listKinds = () => invoke<KindInfo[]>("list_kinds");
@@ -71,7 +75,8 @@ export function watchResources(kindKey: string, namespaces: string[], onMessage:
   return invoke<number>("watch_resources", { kindKey, namespaces, onEvent });
 }
 
-export const getYaml = (t: Target) => invoke<string>("get_yaml", { ...t });
+/** Secrets come with their values masked unless `reveal`. */
+export const getYaml = (t: Target, reveal = false) => invoke<string>("get_yaml", { ...t, reveal });
 export const replaceYaml = (t: Target, yaml: string) => invoke<string>("replace_yaml", { ...t, yaml });
 export const deleteResource = (t: Target) => invoke<void>("delete_resource", { ...t });
 

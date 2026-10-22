@@ -116,6 +116,9 @@ pub async fn helm_upgrade(request: ChartAction, state: Session) -> CmdResult<Str
 }
 
 async fn chart_action(verb: &str, r: ChartAction, state: &AppState) -> CmdResult<String> {
+    if !r.dry_run {
+        state.writable()?;
+    }
     let values_file = std::env::temp_dir().join(format!("kubedeck-values-{}-{}.yaml", std::process::id(), state.next_id()));
     std::fs::write(&values_file, &r.values).map_err(err)?;
     let values_path = values_file.to_string_lossy().into_owned();

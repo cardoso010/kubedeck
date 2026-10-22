@@ -3,6 +3,7 @@ import { IconLock, IconLockOpen, IconTruckDelivery } from "@tabler/icons-react";
 import { cordon, drain, errorText, formatCpu, formatMemory, nodeHistory, nodeSummary, prometheusTarget, type DrainReport, type NodeHistory, type NodeSummary } from "../api";
 import LineChart from "./LineChart";
 import ConfirmDialog from "./ConfirmDialog";
+import { useReadOnly } from "../readOnly";
 
 interface Props {
   name: string;
@@ -21,6 +22,7 @@ export default function NodeOverview({ name, production, context }: Props) {
   const [result, setResult] = useState<DrainReport | null>(null);
   const [busy, setBusy] = useState(false);
   const [confirmCordon, setConfirmCordon] = useState(false);
+  const readOnly = useReadOnly();
 
   const load = () => nodeSummary(name).then((s) => (setSummary(s), setError(null)), (e) => setError(errorText(e)));
   useEffect(() => {
@@ -58,10 +60,10 @@ export default function NodeOverview({ name, production, context }: Props) {
       <div className="node-actions">
         {s.unschedulable ? <span className="warn">Cordoned: no new pods are scheduled here.</span> : <span className="faint">Schedulable</span>}
         <span className="spacer" />
-        <button disabled={busy} onClick={() => (s.unschedulable ? void act(() => cordon(name, false)) : setConfirmCordon(true))}>
+        <button disabled={busy || readOnly} onClick={() => (s.unschedulable ? void act(() => cordon(name, false)) : setConfirmCordon(true))}>
           {s.unschedulable ? <IconLockOpen size={14} /> : <IconLock size={14} />} {s.unschedulable ? "Uncordon" : "Cordon"}
         </button>
-        <button disabled={busy} onClick={() => void act(async () => setPreview(await drain(name, null, true)))}>
+        <button disabled={busy || readOnly} onClick={() => void act(async () => setPreview(await drain(name, null, true)))}>
           <IconTruckDelivery size={14} /> Drain…
         </button>
       </div>

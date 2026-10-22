@@ -22,6 +22,7 @@ async fn dynamic_api(state: &Session, kind_key: &str, namespace: &str) -> CmdRes
 /// `kubectl rollout restart`: bumps a pod-template annotation so every pod is replaced.
 #[tauri::command]
 pub async fn rollout_restart(kind_key: String, namespace: String, name: String, state: Session) -> CmdResult<()> {
+    state.writable()?;
     if !RESTARTABLE.contains(&kind_key.as_str()) {
         return Err(format!("{kind_key} cannot be restarted"));
     }
@@ -38,6 +39,7 @@ pub async fn rollout_restart(kind_key: String, namespace: String, name: String, 
 
 #[tauri::command]
 pub async fn scale(kind_key: String, namespace: String, name: String, replicas: i32, state: Session) -> CmdResult<()> {
+    state.writable()?;
     if !SCALABLE.contains(&kind_key.as_str()) {
         return Err(format!("{kind_key} cannot be scaled"));
     }
@@ -56,6 +58,7 @@ pub async fn scale(kind_key: String, namespace: String, name: String, replicas: 
 /// `kubectl rollout pause|resume` for deployments.
 #[tauri::command]
 pub async fn set_paused(namespace: String, name: String, paused: bool, state: Session) -> CmdResult<()> {
+    state.writable()?;
     let api: Api<Deployment> = Api::namespaced(state.connection().await?.client, &namespace);
     api.patch(&name, &PatchParams::default(), &Patch::Merge(&json!({ "spec": { "paused": paused } })))
         .await
@@ -163,6 +166,7 @@ pub async fn rollout_status(namespace: String, name: String, state: Session) -> 
 /// deployment controller rolls out as a new revision.
 #[tauri::command]
 pub async fn rollback(namespace: String, name: String, revision: i64, state: Session) -> CmdResult<()> {
+    state.writable()?;
     let client = state.connection().await?.client;
     let api: Api<Deployment> = Api::namespaced(client.clone(), &namespace);
     let deployment = api.get(&name).await.map_err(|e| kube_err(&e))?;

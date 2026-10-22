@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { IconAlertTriangle, IconAppWindow, IconHexagons, IconLayersSubtract, IconPackage, IconPalette, IconPin, IconServer2, IconWorld } from "@tabler/icons-react";
+import { IconAlertTriangle, IconAppWindow, IconLock, IconLockOpen, IconHexagons, IconLayersSubtract, IconPackage, IconPalette, IconPin, IconServer2, IconWorld } from "@tabler/icons-react";
 import * as api from "./api";
 import type { Connected, Contexts, KindInfo, Row, Target } from "./api";
 import { useStream } from "./useStream";
@@ -8,6 +8,8 @@ import { METRIC_COLUMNS, useMetrics } from "./useMetrics";
 import { usePins, clusterColor } from "./pins";
 import { FORWARDS, HELM, PROBLEMS, SECTIONS, sectionOf, type SectionId } from "./sections";
 import { ThemeContext, THEMES, useTheme } from "./theme";
+import { lockedByDefault, ReadOnlyContext, saveLoginCommand, savedLoginCommand, setLockedByDefault, UNLOCK_MINUTES } from "./readOnly";
+import ConfirmDialog from "./components/ConfirmDialog";
 import ResourceTable from "./components/ResourceTable";
 import DetailsPanel from "./components/DetailsPanel";
 import HelmView from "./components/HelmView";
@@ -56,6 +58,13 @@ export default function App() {
   const [rowsKind, setRowsKind] = useState<string | null>(null);
   /** An object to select once its kind's rows arrive (from Problems or Related). */
   const [pending, setPending] = useState<{ kindKey: string; namespace: string | null; name: string } | null>(null);
+  /** Read-only mode of this window (enforced by the backend). */
+  const [locked, setLocked] = useState(false);
+  /** When a temporary unlock ends. */
+  const [unlockedUntil, setUnlockedUntil] = useState<number | null>(null);
+  const [confirmUnlock, setConfirmUnlock] = useState(false);
+  const [lockPrefs, setLockPrefs] = useState(0);
+  const [clock, setClock] = useState(Date.now());
   const [problems, setProblems] = useState<api.Problem[] | null>(null);
   const [problemsError, setProblemsError] = useState<string | null>(null);
   const [watchError, setWatchError] = useState<string | null>(null);
@@ -86,6 +95,13 @@ export default function App() {
    */
   async function choose(context: string, { force = false, quiet = false } = {}) {
     if (context === conn?.context && !force) return;
+    if (context !== conn?.context) {
+      // Lock before connecting, so a production window is never writable, even briefly.
+      const lock = lockedByDefault(context);
+      await api.setReadOnly(lock).catch(() => {});
+      setLocked(lock);
+      setUnlockedUntil(null);
+    }
     if (!quiet) {
       setConnecting(true);
       setError(null);
@@ -212,6 +228,33 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [conn, allNsKey, view === PROBLEMS]);
 
+  async function applyLock(next: boolean, until: number | null = null) {
+    try {
+      await api.setReadOnly(next);
+      setLocked(next);
+      setUnlockedUntil(until);
+      setClock(Date.now());
+    } catch (e) {
+      setError(api.errorText(e));
+    }
+  }
+
+  function toggleLock() {
+    if (!conn) return;
+    if (!locked) void applyLock(true);
+    // Clusters locked by default unlock for a while only; others until locked again.
+    else if (lockedByDefault(conn.context)) setConfirmUnlock(true);
+    else void applyLock(false);
+  }
+
+  useEffect(() => {
+    if (unlockedUntil === null) return;
+    const relock = setTimeout(() => void applyLock(true), Math.max(0, unlockedUntil - Date.now()));
+    const tick = setInterval(() => setClock(Date.now()), 15_000);
+    return () => (clearTimeout(relock), clearInterval(tick));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [unlockedUntil]);
+
   /** Opens an object's kind, widening the namespace selection if needed, and selects it. */
   function goTo(kindKey: string, namespace: string | null, name: string) {
     if (!kinds.some((k) => k.key === kindKey)) return;
@@ -280,6 +323,26 @@ export default function App() {
       }
       list.push({ id: "action:install", group: "Actions", title: "Install a Helm chart", icon: <IconPackage size={16} />, run: () => (openView(HELM), setHelmInstallRequest((n) => n + 1)) });
       list.push({
+        id: "action:lock",
+        group: "Actions",
+        title: locked ? "Unlock this window (leave read-only mode)" : "Lock this window (read-only mode)",
+        icon: locked ? <IconLockOpen size={16} /> : <IconLock size={16} />,
+        run: toggleLock,
+      });
+      const byDefault = lockedByDefault(conn.context);
+      list.push({
+        id: "action:lock-default",
+        group: "Actions",
+        title: byDefault ? "Stop opening this cluster read-only" : "Always open this cluster read-only",
+        subtitle: api.shortContextName(conn.context),
+        icon: <IconLock size={16} />,
+        run: () => {
+          setLockedByDefault(conn.context, !byDefault);
+          setLockPrefs((n) => n + 1);
+          if (!byDefault && !locked) void applyLock(true);
+        },
+      });
+      list.push({
         id: "action:pin",
         group: "Actions",
         title: pins.includes(conn.context) ? "Unpin this cluster from the rail" : "Pin this cluster to the rail",
@@ -299,12 +362,13 @@ export default function App() {
     }
     return list;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [conn, kinds, contexts, namespaces, rowList, kind?.label, pins, openView, problems]);
+  }, [conn, kinds, contexts, namespaces, rowList, kind?.label, pins, openView, problems, locked, lockPrefs]);
 
   const viewLabel = view === PROBLEMS ? "Problems" : view === HELM ? "Helm releases" : view === FORWARDS ? "Port forwards" : (kind?.label ?? "");
 
   return (
     <ThemeContext.Provider value={theme}>
+      <ReadOnlyContext.Provider value={!!conn && locked}>
       <div className={`shell ${prod ? "prod" : ""}`}>
         <Rail
           section={section}
@@ -336,6 +400,8 @@ export default function App() {
             onNamespaces={chooseNamespaces}
             viewLabel={conn ? viewLabel : ""}
             onOpenPalette={() => setPaletteOpen(true)}
+            lock={conn ? { locked, minutesLeft: unlockedUntil === null ? null : Math.max(1, Math.ceil((unlockedUntil - clock) / 60_000)) } : null}
+            onToggleLock={toggleLock}
           />
           {conn && <KindTabs section={section} kinds={kinds} active={view} recentCustom={recentCustom} onSelect={openView} />}
           {authProblem && <AuthBanner problem={authProblem} auth={authProblem.auth ?? conn?.auth ?? null} onRetry={() => void choose(authProblem.context, { force: true, quiet: !!conn })} />}
@@ -386,13 +452,36 @@ export default function App() {
           ) : null}
         </div>
         {paletteOpen && <CommandPalette commands={commands} onClose={() => setPaletteOpen(false)} />}
+        {confirmUnlock && conn && (
+          <ConfirmDialog
+            title={`Unlock ${api.shortContextName(conn.context)}?`}
+            message={`For the next ${UNLOCK_MINUTES} minutes this window can edit, delete, scale, drain and open shells on ${conn.context}. It locks again by itself.`}
+            confirmLabel={`Unlock for ${UNLOCK_MINUTES} minutes`}
+            onConfirm={() => (setConfirmUnlock(false), void applyLock(false, Date.now() + UNLOCK_MINUTES * 60_000))}
+            onCancel={() => setConfirmUnlock(false)}
+          />
+        )}
       </div>
+      </ReadOnlyContext.Provider>
     </ThemeContext.Provider>
   );
 }
 
 function AuthBanner({ problem, auth, onRetry }: { problem: { context: string; tries: number }; auth: Connected["auth"]; onRetry: () => void }) {
   const [retrying, setRetrying] = useState(false);
+  const [command, setCommand] = useState(() => savedLoginCommand(problem.context) ?? (auth?.awsProfile ? `aws sso login --profile ${auth.awsProfile}` : ""));
+  const [login, setLogin] = useState<{ state: "running" | "ok" | "failed"; output: string } | null>(null);
+  async function runLogin() {
+    saveLoginCommand(problem.context, command);
+    setLogin({ state: "running", output: "" });
+    try {
+      const output = await api.runLogin(command);
+      setLogin({ state: "ok", output });
+      onRetry();
+    } catch (e) {
+      setLogin({ state: "failed", output: api.errorText(e) });
+    }
+  }
   const retry = () => {
     setRetrying(true);
     onRetry();
@@ -415,6 +504,14 @@ function AuthBanner({ problem, auth, onRetry }: { problem: { context: string; tr
           <>Update the credentials in your kubeconfig.</>
         )}{" "}
         <span className="faint">kubedeck retries every 20s and recovers by itself once they work again.</span>
+        <div className="auth-login">
+          <input value={command} onChange={(e) => setCommand(e.target.value)} placeholder="Login command, e.g. aws sso login --profile prod" spellCheck={false} aria-label="Login command" />
+          <button disabled={!command.trim() || login?.state === "running"} onClick={() => void runLogin()} title="Runs this command on your machine (it may open the browser), then reconnects">
+            {login?.state === "running" ? "Waiting for login…" : "Run login"}
+          </button>
+        </div>
+        {login?.state === "ok" && <div className="ok auth-output">Login finished. Reconnecting…</div>}
+        {login?.state === "failed" && <pre className="bad auth-output">{login.output}</pre>}
       </div>
       <button className="primary" disabled={retrying} onClick={retry}>
         {retrying ? "Reconnecting…" : "Reconnect now"}

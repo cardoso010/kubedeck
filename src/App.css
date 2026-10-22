@@ -520,3 +520,19 @@ button.toggle.active { color: var(--accent); border-color: var(--accent); backgr
 .key-setup p { margin: 0; line-height: 1.5; font-size: 12px; }
 .key-setup input { width: 100%; }
 .explain-body :not(pre) > code { background: var(--bg-2); padding: 1px 4px; border-radius: 3px; color: var(--text); }
+
+/* ---------- Read-only, secrets, login ---------- */
+
+.secret-data { padding: 10px 14px; display: flex; flex-direction: column; gap: 10px; overflow-y: auto; }
+.secret-row { display: flex; flex-direction: column; gap: 4px; }
+.secret-head { display: flex; align-items: center; gap: 8px; font-size: 12px; }
+.secret-value { margin: 0; padding: 7px 10px; background: var(--bg-sunken); border: 1px solid var(--line); border-radius: var(--radius); font-family: var(--mono); font-size: 12px; white-space: pre-wrap; word-break: break-all; max-height: 220px; overflow-y: auto; }
+.secret-value.hidden { color: var(--text-3); letter-spacing: 0.2em; }
+.lock-chip { display: inline-flex; align-items: center; gap: 5px; padding: 3px 8px; font-size: 11px; border-radius: 999px; }
+.lock-chip.locked { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 45%, transparent); }
+.lock-chip.unlocked { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 55%, transparent); }
+.lock-chip.open { color: var(--text-3); }
+.details-lock { font-size: 11px; color: var(--ok); display: inline-flex; align-items: center; gap: 4px; }
+.auth-login { display: flex; align-items: center; gap: 6px; margin-top: 8px; }
+.auth-login input { flex: 1; min-width: 260px; font-family: var(--mono); font-size: 12px; }
+.auth-output { margin: 8px 0 0; max-height: 120px; overflow-y: auto; font-size: 11px; white-space: pre-wrap; color: var(--text-2); }

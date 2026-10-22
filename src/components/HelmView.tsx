@@ -6,6 +6,7 @@ import ResourceTable from "./ResourceTable";
 import ConfirmDialog from "./ConfirmDialog";
 import ChartForm from "./ChartForm";
 import InstallChartDialog from "./InstallChartDialog";
+import { useReadOnly } from "../readOnly";
 
 const KIND: KindInfo = { key: "helm", label: "Helm Releases", namespaced: true, columns: ["Revision", "Status", "Chart", "App version"] };
 const POLL_MS = 10_000;
@@ -122,6 +123,7 @@ function HelmPanel({
   const [details, setDetails] = useState<HelmDetails | null>(null);
   const [status, setStatus] = useState<{ kind: "ok" | "error"; text: string } | null>(null);
   const [busy, setBusy] = useState(false);
+  const readOnly = useReadOnly();
   const [pending, setPending] = useState<Pending | null>(null);
 
   const load = () => helmDetails(release.namespace, release.name).then(setDetails, (e) => setStatus({ kind: "error", text: errorText(e) }));
@@ -170,7 +172,7 @@ function HelmPanel({
           </span>
         </div>
         <div className="details-actions">
-          <button className="danger" disabled={busy} onClick={() => setPending({ action: "uninstall" })}>
+          <button className="danger" disabled={busy || readOnly} onClick={() => setPending({ action: "uninstall" })}>
             Uninstall
           </button>
           <button onClick={onClose} aria-label="Close">
@@ -228,7 +230,7 @@ function HelmPanel({
                 <div title={h.description}>{h.description}</div>
                 <div>
                   {i > 0 && (
-                    <button disabled={busy} onClick={() => setPending({ action: "rollback", revision: h.revision })}>
+                    <button disabled={busy || readOnly} onClick={() => setPending({ action: "rollback", revision: h.revision })}>
                       Roll back
                     </button>
                   )}

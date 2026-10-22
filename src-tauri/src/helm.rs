@@ -157,11 +157,13 @@ pub async fn helm_details(namespace: String, name: String, state: Session) -> Cm
 
 #[tauri::command]
 pub async fn helm_rollback(namespace: String, name: String, revision: u32, state: Session) -> CmdResult<String> {
+    state.writable()?;
     helm(&state, &["rollback", &name, &revision.to_string(), "--namespace", &namespace, "--wait", "--timeout", "5m"]).await
 }
 
 #[tauri::command]
 pub async fn helm_uninstall(namespace: String, name: String, state: Session) -> CmdResult<String> {
+    state.writable()?;
     helm(&state, &["uninstall", &name, "--namespace", &namespace]).await
 }
 

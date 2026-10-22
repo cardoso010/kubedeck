@@ -43,6 +43,7 @@ const ROWS: Record<string, Row[]> = {
     { uid: "d2", name: "api", namespace: "demo", created: ago(86400 * 3), cells: ["1/1", "1", "1"], containers: [], ports: [], replicas: 1, paused: false },
   ],
   services: [{ uid: "s1", name: "web", namespace: "demo", created: ago(3600), cells: ["ClusterIP", "10.96.12.4", "80/TCP"], containers: [], ports: [80] }],
+  secrets: [{ uid: "sec1", name: "app-secret", namespace: "demo", created: ago(3600), cells: ["Opaque", "2"], containers: [], ports: [] }],
   configmaps: [{ uid: "c1", name: "app-config", namespace: "demo", created: ago(3600), cells: ["2"], containers: [], ports: [] }],
 };
 
@@ -52,6 +53,7 @@ const KINDS = [
   { key: "deployments", label: "Deployments", namespaced: true, columns: ["Ready", "Up-to-date", "Available"] },
   { key: "services", label: "Services", namespaced: true, columns: ["Type", "Cluster IP", "Ports"] },
   { key: "configmaps", label: "ConfigMaps", namespaced: true, columns: ["Keys"] },
+  { key: "secrets", label: "Secrets", namespaced: true, columns: ["Type", "Keys"] },
   { key: "nodes", label: "Nodes", namespaced: false, columns: ["Status", "Roles", "Version"] },
 ];
 
@@ -100,6 +102,7 @@ data:
 `;
 
 let connected = false;
+let loggedIn = !location.search.includes("expired");
 const CUSTOM_KINDS = [
   { key: "widgets.kubedeck.dev", label: "Widget", namespaced: true, columns: ["Size"], group: "kubedeck.dev" },
   { key: "certificates.cert-manager.io", label: "Certificate", namespaced: true, columns: ["Ready", "Secret"], group: "cert-manager.io" },
@@ -133,6 +136,8 @@ async function invoke(cmd: string, args: Record<string, any>): Promise<unknown> 
         ],
       };
     case "connect":
+      // ?expired: the production context rejects the credentials until "Run login".
+      if (args.context.includes("eks") && !loggedIn) throw "Unauthorized (401): the cluster rejected your credentials. They have probably expired.";
       connected = true;
       return { context: args.context, serverVersion: "v1.37.0", defaultNamespace: "demo", auth: args.context.includes("eks") ? { command: "aws eks get-token --cluster-name shop-prd", awsProfile: "prod" } : null };
     case "context_auth":
@@ -152,6 +157,10 @@ async function invoke(cmd: string, args: Record<string, any>): Promise<unknown> 
       return id;
     }
     case "get_yaml":
+      if (args.kindKey === "secrets") {
+        const v = (plain: string) => (args.reveal ? btoa(plain) : "<hidden: reveal to see or edit>");
+        return `apiVersion: v1\nkind: Secret\nmetadata:\n  name: ${args.name}\n  namespace: demo\ntype: Opaque\ndata:\n  password: ${v("hunter2")}\n  user: ${v("admin")}\n`;
+      }
       return args.kindKey === "pods" ? POD_YAML.replace(/web-7c6cdd646-2zjfg/g, args.name) : YAML.replace(/app-config/g, args.name);
     case "replace_yaml":
       return args.yaml;
@@ -283,6 +292,16 @@ async function invoke(cmd: string, args: Record<string, any>): Promise<unknown> 
       }, 30));
       return id;
     }
+    case "set_read_only":
+      return null;
+    case "run_login":
+      await new Promise((r) => setTimeout(r, 1200));
+      loggedIn = true;
+      return "Successfully logged into Start URL: https://example.awsapps.com/start";
+    case "secret_keys":
+      return [{ key: "password", bytes: 7 }, { key: "user", bytes: 5 }];
+    case "secret_value":
+      return { text: args.key === "password" ? "hunter2" : "admin", base64: "" };
     case "rollout_restart":
     case "scale":
     case "set_paused":

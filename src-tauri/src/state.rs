@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::ops::Deref;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
 use kube::Client;
@@ -15,6 +15,8 @@ use crate::streams::ExecHandle;
 
 /// Commands return plain strings as errors so the UI can show them directly.
 pub type CmdResult<T> = Result<T, String>;
+
+pub const READ_ONLY: &str = "Read-only mode: this window does not change the cluster. Unlock it to make changes.";
 
 pub fn err(e: impl std::fmt::Display) -> String {
     e.to_string()
@@ -64,12 +66,23 @@ pub struct AppState {
     pub helm_env: Vec<(String, String)>,
     /// Anthropic API base URL and key override; tests point it at a local fake server.
     pub ai_endpoint: Option<(String, String)>,
+    /// Commands that change the cluster are refused while set. The UI sets it per cluster
+    /// (production clusters start locked) before connecting.
+    pub read_only: AtomicBool,
     next_id: AtomicU64,
 }
 
 impl AppState {
     pub fn next_id(&self) -> u64 {
         self.next_id.fetch_add(1, Ordering::Relaxed) + 1
+    }
+
+    /// Fails while the window is in read-only mode; called first by every command that writes.
+    pub fn writable(&self) -> CmdResult<()> {
+        if self.read_only.load(Ordering::Relaxed) {
+            return Err(READ_ONLY.into());
+        }
+        Ok(())
     }
 
     pub async fn connection(&self) -> CmdResult<Connection> {

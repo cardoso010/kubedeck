@@ -11,6 +11,7 @@ mod nodes;
 mod pod_insights;
 mod portforward;
 mod resources;
+mod secrets;
 mod state;
 mod streams;
 mod updater;
@@ -58,6 +59,10 @@ pub fn run() {
             cluster::connect,
             cluster::context_auth,
             cluster::list_namespaces,
+            cluster::set_read_only,
+            cluster::run_login,
+            secrets::secret_keys,
+            secrets::secret_value,
             resources::list_kinds,
             resources::watch_resources,
             resources::stop_stream,

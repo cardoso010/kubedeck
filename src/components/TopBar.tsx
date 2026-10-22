@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { IconChevronDown, IconPin, IconPinnedFilled, IconSearch } from "@tabler/icons-react";
+import { IconChevronDown, IconLock, IconLockOpen, IconPin, IconPinnedFilled, IconSearch } from "@tabler/icons-react";
 import { isProduction, openWindow, shortContextName, type ContextInfo } from "../api";
 import { clusterColor } from "../pins";
 import NamespacePicker from "./NamespacePicker";
@@ -19,6 +19,9 @@ interface Props {
   onNamespaces: (selected: string[]) => void;
   viewLabel: string;
   onOpenPalette: () => void;
+  /** Read-only state of the window, null when not connected. */
+  lock: { locked: boolean; minutesLeft: number | null } | null;
+  onToggleLock: () => void;
 }
 
 /** Breadcrumb bar: cluster › namespaces › view, plus the command palette trigger. */
@@ -40,6 +43,20 @@ export default function TopBar(p: Props) {
       <span className="crumb crumb-static">{p.viewLabel}</span>
 
       <div className="topbar-right">
+        {p.lock &&
+          (p.lock.locked ? (
+            <button className="lock-chip locked" onClick={p.onToggleLock} title="Changes to this cluster are refused. Click to unlock.">
+              <IconLock size={12} /> read-only
+            </button>
+          ) : p.lock.minutesLeft !== null ? (
+            <button className="lock-chip unlocked" onClick={p.onToggleLock} title="Click to lock again now">
+              <IconLockOpen size={12} /> unlocked · {p.lock.minutesLeft}m
+            </button>
+          ) : (
+            <button className="lock-chip open" onClick={p.onToggleLock} title="Lock: refuse every change to this cluster from this window">
+              <IconLockOpen size={12} />
+            </button>
+          ))}
         {prod && <span className="prod-badge">production</span>}
         {p.serverVersion && <span className="faint mono">{p.serverVersion}</span>}
         <button className="search-trigger" onClick={p.onOpenPalette}>

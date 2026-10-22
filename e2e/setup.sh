@@ -42,6 +42,7 @@ kubectl create namespace demo --dry-run=client -o yaml | kubectl apply -f -
 kubectl -n demo get deployment web >/dev/null 2>&1 || kubectl -n demo create deployment web --image=nginx:1.27-alpine --replicas=3
 kubectl -n demo get service web >/dev/null 2>&1 || kubectl -n demo expose deployment web --port=80
 kubectl -n demo get configmap app-config >/dev/null 2>&1 || kubectl -n demo create configmap app-config --from-literal=LOG_LEVEL=debug --from-literal=FEATURE_X=true
+kubectl -n demo get secret app-secret >/dev/null 2>&1 || kubectl -n demo create secret generic app-secret --from-literal=password=hunter2 --from-literal=user=admin
 kubectl -n demo get pod ticker >/dev/null 2>&1 || kubectl -n demo run ticker --image=busybox:1.36 -- sh -c 'i=0; while true; do i=$((i+1)); echo "tick $i $(date)"; sleep 1; done'
 kubectl -n demo get pod broken >/dev/null 2>&1 || kubectl -n demo run broken --image=busybox:1.36 -- sh -c 'echo boom; exit 1'
 # Restarted, scaled and rolled back by the workload test (nothing else uses it).
