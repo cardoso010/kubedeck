@@ -6,6 +6,8 @@ import ResourceTable from "./components/ResourceTable";
 import DetailsPanel from "./components/DetailsPanel";
 import HelmView from "./components/HelmView";
 import PortForwardsView from "./components/PortForwardsView";
+import KindNav from "./components/KindNav";
+import { METRIC_COLUMNS, useMetrics } from "./useMetrics";
 
 const ALL = "__all__";
 /** Views in the sidebar that are not Kubernetes kinds. */
@@ -37,6 +39,10 @@ export default function App() {
     setSelected(null);
     try {
       const c = await api.connect(context);
+      // The new cluster may have different custom resources.
+      const k = await api.listKinds();
+      setKinds(k);
+      setKindKey((key) => (key === HELM || key === FORWARDS || k.some((x) => x.key === key) ? key : "pods"));
       setConn(c);
       const ns = await api.listNamespaces();
       setNamespaces(ns);
@@ -51,6 +57,7 @@ export default function App() {
   const kind = kinds.find((k) => k.key === kindKey);
   const ns = kind?.namespaced && namespace !== ALL ? namespace : null;
   const selectedNamespace = namespace !== ALL ? namespace : null;
+  const metricCells = useMetrics(kindKey, ns, conn);
 
   useStream(
     conn && kind
@@ -117,20 +124,16 @@ export default function App() {
             ))}
           </select>
         </label>
-        <nav className="kinds">
-          {kinds.map((k) => (
-            <button key={k.key} className={k.key === kindKey ? "active" : ""} disabled={!conn} onClick={() => setKindKey(k.key)}>
-              {k.label}
-            </button>
-          ))}
-          <div className="nav-separator" />
-          <button className={kindKey === HELM ? "active" : ""} disabled={!conn} onClick={() => setKindKey(HELM)}>
-            Helm Releases
-          </button>
-          <button className={kindKey === FORWARDS ? "active" : ""} disabled={!conn} onClick={() => setKindKey(FORWARDS)}>
-            Port Forwards
-          </button>
-        </nav>
+        <KindNav
+          kinds={kinds}
+          active={kindKey}
+          disabled={!conn}
+          onSelect={setKindKey}
+          extras={[
+            { key: HELM, label: "Helm Releases" },
+            { key: FORWARDS, label: "Port Forwards" },
+          ]}
+        />
         {conn && (
           <div className="conn-info">
             {conn.serverVersion}
@@ -162,6 +165,7 @@ export default function App() {
               showNamespace={kind.namespaced && ns === null}
               selectedUid={selectedRow?.uid ?? null}
               onSelect={setSelected}
+              extra={metricCells && { columns: METRIC_COLUMNS, cells: metricCells }}
             />
             {selectedRow && target && (
               <DetailsPanel

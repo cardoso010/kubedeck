@@ -115,3 +115,12 @@ a { color: var(--accent); }
 .simple-row.head { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; border-bottom-color: var(--border); }
 .simple-row > div { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .simple-row button { padding: 2px 8px; }
+
+.nav-heading { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; padding: 10px 8px 4px; }
+.nav-filter { margin: 2px 4px 6px; }
+.nav-group { display: flex; flex-direction: column; }
+.kinds .nav-group-title { color: var(--muted); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.kinds .nav-group-title .chevron { display: inline-block; width: 12px; }
+.kinds .nav-group > button:not(.nav-group-title) { padding-left: 22px; }
+.nav-empty { padding: 4px 8px; }
+.metric { color: #9fb3d1; font-variant-numeric: tabular-nums; }

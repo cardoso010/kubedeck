@@ -13,11 +13,13 @@ interface Props {
   showNamespace: boolean;
   selectedUid: string | null;
   onSelect: (row: Row) => void;
+  /** Extra columns computed outside the row (e.g. live metrics), shown before the age. */
+  extra?: { columns: string[]; cells: (row: Row) => string[] } | null;
 }
 
 const ROW_HEIGHT = 30;
 
-export default function ResourceTable({ kind, rows, loading, error, errorPrefix = "Watch error (retrying)", ageLabel = "Age", showNamespace, selectedUid, onSelect }: Props) {
+export default function ResourceTable({ kind, rows, loading, error, errorPrefix = "Watch error (retrying)", ageLabel = "Age", showNamespace, selectedUid, onSelect, extra }: Props) {
   const [filter, setFilter] = useState("");
   const [now, setNow] = useState(Date.now());
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -41,7 +43,7 @@ export default function ResourceTable({ kind, rows, loading, error, errorPrefix 
     overscan: 20,
   });
 
-  const columns = [...(showNamespace ? ["Namespace"] : []), ...kind.columns, ageLabel];
+  const columns = [...(showNamespace ? ["Namespace"] : []), ...kind.columns, ...(extra?.columns ?? []), ageLabel];
   const template = `minmax(220px, 2fr) ${columns.map((c) => (c === "Message" ? "minmax(200px, 3fr)" : "minmax(80px, 1fr)")).join(" ")}`;
 
   return (
@@ -77,6 +79,11 @@ export default function ResourceTable({ kind, rows, loading, error, errorPrefix 
                 {showNamespace && <div>{r.namespace}</div>}
                 {r.cells.map((c, i) => (
                   <div key={i} title={c} className={statusClass(kind.columns[i], c)}>
+                    {c}
+                  </div>
+                ))}
+                {extra?.cells(r).map((c, i) => (
+                  <div key={`x${i}`} className="metric">
                     {c}
                   </div>
                 ))}

@@ -20,22 +20,25 @@ pub enum WatchMsg {
     Error { message: String },
 }
 
+/// Built-in kinds before connecting; built-ins plus the cluster's custom resources after.
 #[tauri::command]
-pub fn list_kinds() -> Vec<KindInfo> {
-    kinds::infos()
-}
-
-fn kind(key: &str) -> CmdResult<&'static KindDef> {
-    kinds::find(key).ok_or_else(|| format!("Unknown kind: {key}"))
-}
-
-async fn api_for(state: &AppState, def: &KindDef, namespace: Option<&str>) -> CmdResult<Api<DynamicObject>> {
-    let client = state.connection().await?.client;
-    let ar = def.api_resource();
-    Ok(match (def.namespaced, namespace) {
-        (true, Some(ns)) => Api::namespaced_with(client, ns, &ar),
-        _ => Api::all_with(client, &ar),
+pub async fn list_kinds(state: State<'_, AppState>) -> CmdResult<Vec<KindInfo>> {
+    Ok(match state.conn.read().await.as_ref() {
+        Some(conn) => conn.kinds.iter().map(KindInfo::from).collect(),
+        None => kinds::builtins().iter().map(KindInfo::from).collect(),
     })
+}
+
+/// The kind definition and an API handle for it, scoped to `namespace` when the kind is namespaced.
+async fn api_for(state: &AppState, kind_key: &str, namespace: Option<&str>) -> CmdResult<(KindDef, Api<DynamicObject>)> {
+    let conn = state.connection().await?;
+    let def = conn.kind(kind_key)?;
+    let ar = def.api_resource();
+    let api = match (def.namespaced, namespace) {
+        (true, Some(ns)) => Api::namespaced_with(conn.client, ns, &ar),
+        _ => Api::all_with(conn.client, &ar),
+    };
+    Ok((def, api))
 }
 
 /// Starts a watch and returns its stream id; stop it with `stop_stream`.
@@ -47,8 +50,7 @@ pub async fn watch_resources(
     on_event: Channel<WatchMsg>,
     state: State<'_, AppState>,
 ) -> CmdResult<u64> {
-    let def = kind(&kind_key)?;
-    let api = api_for(&state, def, namespace.as_deref()).await?;
+    let (def, api) = api_for(&state, &kind_key, namespace.as_deref()).await?;
     let id = state.next_id();
 
     let task = tauri::async_runtime::spawn(async move {
@@ -61,11 +63,11 @@ pub async fn watch_resources(
                     continue;
                 }
                 Ok(watcher::Event::InitApply(obj)) => {
-                    initial.push(kinds::summarize(def, &obj));
+                    initial.push(kinds::summarize(&def, &obj));
                     continue;
                 }
                 Ok(watcher::Event::InitDone) => WatchMsg::Snapshot { rows: std::mem::take(&mut initial) },
-                Ok(watcher::Event::Apply(obj)) => WatchMsg::Upsert { row: kinds::summarize(def, &obj) },
+                Ok(watcher::Event::Apply(obj)) => WatchMsg::Upsert { row: kinds::summarize(&def, &obj) },
                 Ok(watcher::Event::Delete(obj)) => WatchMsg::Delete { uid: obj.metadata.uid.unwrap_or_default() },
                 // The backoff keeps the watch alive; the UI just shows the latest error.
                 Err(e) => WatchMsg::Error { message: e.to_string() },
@@ -86,8 +88,7 @@ pub fn stop_stream(id: u64, state: State<'_, AppState>) {
 
 #[tauri::command]
 pub async fn get_yaml(kind_key: String, namespace: Option<String>, name: String, state: State<'_, AppState>) -> CmdResult<String> {
-    let def = kind(&kind_key)?;
-    let api = api_for(&state, def, namespace.as_deref()).await?;
+    let (_, api) = api_for(&state, &kind_key, namespace.as_deref()).await?;
     let mut obj = api.get(&name).await.map_err(err)?;
     // Same noise `kubectl edit` hides; it also cannot be sent back on replace.
     obj.metadata.managed_fields = None;
@@ -104,8 +105,7 @@ pub async fn replace_yaml(
     yaml: String,
     state: State<'_, AppState>,
 ) -> CmdResult<String> {
-    let def = kind(&kind_key)?;
-    let api = api_for(&state, def, namespace.as_deref()).await?;
+    let (_, api) = api_for(&state, &kind_key, namespace.as_deref()).await?;
     let mut obj: DynamicObject = serde_yaml::from_str(&yaml).map_err(|e| format!("Invalid YAML: {e}"))?;
     if obj.metadata.name.as_deref() != Some(name.as_str()) {
         return Err("Changing metadata.name is not supported; create a new resource instead".into());
@@ -118,8 +118,7 @@ pub async fn replace_yaml(
 
 #[tauri::command]
 pub async fn delete_resource(kind_key: String, namespace: Option<String>, name: String, state: State<'_, AppState>) -> CmdResult<()> {
-    let def = kind(&kind_key)?;
-    let api = api_for(&state, def, namespace.as_deref()).await?;
+    let (_, api) = api_for(&state, &kind_key, namespace.as_deref()).await?;
     api.delete(&name, &DeleteParams::default()).await.map_err(err)?;
     Ok(())
 }

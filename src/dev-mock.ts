@@ -63,6 +63,15 @@ data:
   LOG_LEVEL: debug
 `;
 
+let connected = false;
+const CUSTOM_KINDS = [
+  { key: "widgets.kubedeck.dev", label: "Widget", namespaced: true, columns: ["Size"], group: "kubedeck.dev" },
+  { key: "certificates.cert-manager.io", label: "Certificate", namespaced: true, columns: ["Ready", "Secret"], group: "cert-manager.io" },
+  { key: "issuers.cert-manager.io", label: "Issuer", namespaced: true, columns: ["Ready"], group: "cert-manager.io" },
+  { key: "nodepools.karpenter.sh", label: "NodePool", namespaced: false, columns: ["Nodes", "Ready"], group: "karpenter.sh" },
+];
+ROWS["widgets.kubedeck.dev"] = [{ uid: "w1", name: "sprocket", namespace: "demo", created: ago(400), cells: ["large"], containers: [], ports: [] }];
+ROWS.nodes = [{ uid: "n1", name: "kubedeck-test-control-plane", namespace: null, created: ago(86400), cells: ["Ready", "control-plane", "v1.37.0"], containers: [], ports: [] }];
 const forwards: any[] = [];
 const HISTORY = [
   { revision: 3, updated: ago(600), status: "deployed", chart: "hello-0.1.0", appVersion: "1.16.0", description: "Rollback to 1" },
@@ -78,7 +87,7 @@ async function invoke(cmd: string, args: Record<string, any>): Promise<unknown> 
   const channel = args?.onEvent?.id as number | undefined;
   switch (cmd) {
     case "list_kinds":
-      return KINDS;
+      return connected ? [...KINDS, ...CUSTOM_KINDS] : KINDS;
     case "list_contexts":
       return {
         current: "kind-kubedeck-test",
@@ -88,6 +97,7 @@ async function invoke(cmd: string, args: Record<string, any>): Promise<unknown> 
         ],
       };
     case "connect":
+      connected = true;
       return { context: args.context, serverVersion: "v1.37.0", defaultNamespace: "demo" };
     case "list_namespaces":
       return ["default", "demo", "kube-system"];
@@ -125,6 +135,10 @@ async function invoke(cmd: string, args: Record<string, any>): Promise<unknown> 
       forwards.push(f);
       return f;
     }
+    case "pod_metrics":
+      return (ROWS.pods ?? []).map((r, i) => ({ namespace: r.namespace, name: r.name, cpuMillis: 2 + i * 37, memoryBytes: (6 + i * 21) * 1024 * 1024, cpuAllocatableMillis: null, memoryAllocatableBytes: null }));
+    case "node_metrics":
+      return [{ namespace: null, name: "kubedeck-test-control-plane", cpuMillis: 412, memoryBytes: 1.8 * 1024 ** 3, cpuAllocatableMillis: 8000, memoryAllocatableBytes: 7.6 * 1024 ** 3 }];
     case "list_port_forwards":
       return forwards;
     case "helm_list":

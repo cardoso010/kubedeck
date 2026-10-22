@@ -1,8 +1,7 @@
 //! End-to-end test of the backend commands against a real, disposable cluster.
 //!
-//! Needs a cluster with the `demo` namespace and `hello` Helm release from README.md
-//! ("Testing"), then:
-//!   KUBECONFIG=../.kind-kubeconfig KUBEDECK_E2E_CONTEXT=kind-kubedeck-test cargo test -- --ignored
+//! Needs the kind cluster from `e2e/setup.sh`, then (see README.md, "Testing"):
+//!   KUBECONFIG=../.kind-kubeconfig KUBEDECK_E2E_CONTEXT=kind-kubedeck-test cargo test -- --include-ignored
 //! Never point it at a shared cluster: it edits a ConfigMap, deletes a pod and rolls back
 //! and uninstalls Helm releases.
 
@@ -15,7 +14,7 @@ use tauri::Manager;
 
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
-use crate::{cluster, helm, portforward, resources, state::AppState, streams};
+use crate::{cluster, helm, metrics, portforward, resources, state::AppState, streams};
 
 type Inbox = Arc<Mutex<Vec<Value>>>;
 
@@ -125,10 +124,20 @@ async fn backend_against_real_cluster() {
     let (ch, term) = channel();
     let exec_id = streams::exec_start("demo".into(), "ticker".into(), opt("ticker"), 100, 30, ch, state()).await.unwrap();
     streams::exec_resize(exec_id, 120, 40, state()).unwrap();
-    streams::exec_input(exec_id, "echo kubedeck-$((40+2)); stty size\r".into(), state()).unwrap();
+    streams::exec_input(exec_id, "echo kubedeck-$((40+2))\r".into(), state()).unwrap();
     let output = |m: &[Value]| m.iter().filter(|m| m["type"] == "data").map(|m| m["data"].as_str().unwrap().to_owned()).collect::<String>();
     wait_for(&term, "exec output", |m| output(m).contains("kubedeck-42")).await;
-    wait_for(&term, "tty resize", |m| output(m).contains("40 120")).await;
+    // The resize travels on its own channel, so ask until the shell sees the new size.
+    let mut resized = false;
+    for _ in 0..20 {
+        streams::exec_input(exec_id, "stty size\r".into(), state()).unwrap();
+        tokio::time::sleep(Duration::from_millis(250)).await;
+        if output(&term.lock().unwrap()).contains("40 120") {
+            resized = true;
+            break;
+        }
+    }
+    assert!(resized, "tty resize not applied: {}", output(&term.lock().unwrap()));
     streams::exec_input(exec_id, "exit\r".into(), state()).unwrap();
     wait_for(&term, "exec end", |m| m.iter().any(|m| m["type"] == "end")).await;
     resources::stop_stream(exec_id, state());
@@ -232,6 +241,45 @@ async fn helm_against_real_cluster() {
     // CLI errors come back readable.
     let missing = helm::helm_details("demo".into(), "nope".into(), state()).await.err().unwrap();
     assert!(missing.contains("not found"), "{missing}");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "needs a disposable cluster, see module docs"]
+async fn custom_resources_and_metrics_against_real_cluster() {
+    let context = test_context();
+    let app = mock_app();
+    let state = || app.state::<AppState>();
+
+    // Before connecting only built-ins are offered; after, the cluster's CRDs too.
+    let before = serde_json::to_value(resources::list_kinds(state()).await.unwrap()).unwrap();
+    assert!(before.as_array().unwrap().iter().all(|k| k["group"].is_null()));
+    cluster::connect(context, state()).await.unwrap();
+    let kinds = serde_json::to_value(resources::list_kinds(state()).await.unwrap()).unwrap();
+    let widget = kinds.as_array().unwrap().iter().find(|k| k["key"] == "widgets.kubedeck.dev").expect("Widget CRD (e2e/setup.sh)").clone();
+    assert_eq!(widget["group"], "kubedeck.dev");
+    assert_eq!(widget["columns"], serde_json::json!(["Size"]), "priority>0 and Age columns are hidden");
+
+    // Custom resources are watched like any kind, with printer columns as cells.
+    let (ch, inbox) = channel();
+    let id = resources::watch_resources("widgets.kubedeck.dev".into(), opt("demo"), ch, state()).await.unwrap();
+    wait_for(&inbox, "widget snapshot", |m| m.iter().any(|m| m["type"] == "snapshot")).await;
+    let rows = inbox.lock().unwrap().iter().find(|m| m["type"] == "snapshot").unwrap()["rows"].clone();
+    let sprocket = rows.as_array().unwrap().iter().find(|r| r["name"] == "sprocket").expect("sprocket widget").clone();
+    assert_eq!(sprocket["cells"], serde_json::json!(["large"]));
+    resources::stop_stream(id, state());
+    let yaml = resources::get_yaml("widgets.kubedeck.dev".into(), opt("demo"), "sprocket".into(), state()).await.unwrap();
+    assert!(yaml.contains("kind: Widget") && yaml.contains("color: blue"), "{yaml}");
+
+    // Metrics from metrics-server.
+    let pods = serde_json::to_value(metrics::pod_metrics(opt("demo"), state()).await.unwrap()).unwrap();
+    let ticker = pods.as_array().unwrap().iter().find(|p| p["name"] == "ticker").expect("ticker metrics").clone();
+    assert_eq!(ticker["namespace"], "demo");
+    assert!(ticker["memoryBytes"].as_f64().unwrap() > 0.0, "{ticker}");
+    let nodes = serde_json::to_value(metrics::node_metrics(state()).await.unwrap()).unwrap();
+    let node = &nodes[0];
+    assert!(node["cpuMillis"].as_f64().unwrap() > 0.0, "{node}");
+    assert!(node["cpuAllocatableMillis"].as_f64().unwrap() >= 1000.0, "{node}");
+    assert!(node["memoryAllocatableBytes"].as_f64().unwrap() > node["memoryBytes"].as_f64().unwrap());
 }
 
 fn crate_is_production(context: &str) -> bool {

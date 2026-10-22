@@ -1,11 +1,12 @@
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use kube::Client;
 use tauri::async_runtime::JoinHandle;
 use tokio::sync::RwLock;
 
+use crate::kinds::KindDef;
 use crate::portforward::Forward;
 use crate::streams::ExecHandle;
 
@@ -21,6 +22,14 @@ pub struct Connection {
     pub client: Client,
     pub context: String,
     pub default_namespace: String,
+    /// Built-in kinds followed by the cluster's custom resources.
+    pub kinds: Arc<Vec<KindDef>>,
+}
+
+impl Connection {
+    pub fn kind(&self, key: &str) -> CmdResult<KindDef> {
+        self.kinds.iter().find(|k| k.key == key).cloned().ok_or_else(|| format!("Unknown kind: {key}"))
+    }
 }
 
 #[derive(Default)]

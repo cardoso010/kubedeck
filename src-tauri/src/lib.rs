@@ -1,6 +1,7 @@
 mod cluster;
 mod helm;
 mod kinds;
+mod metrics;
 mod portforward;
 mod resources;
 mod state;
@@ -50,6 +51,8 @@ pub fn run() {
             helm::helm_details,
             helm::helm_rollback,
             helm::helm_uninstall,
+            metrics::pod_metrics,
+            metrics::node_metrics,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -23,6 +23,8 @@ export interface KindInfo {
   label: string;
   namespaced: boolean;
   columns: string[];
+  /** API group of a custom resource; null for built-in kinds. */
+  group?: string | null;
 }
 
 export interface Row {
@@ -133,6 +135,29 @@ export const helmList = (namespace: string | null) => invoke<HelmRelease[]>("hel
 export const helmDetails = (namespace: string, name: string) => invoke<HelmDetails>("helm_details", { namespace, name });
 export const helmRollback = (namespace: string, name: string, revision: number) => invoke<string>("helm_rollback", { namespace, name, revision });
 export const helmUninstall = (namespace: string, name: string) => invoke<string>("helm_uninstall", { namespace, name });
+
+export interface Usage {
+  namespace: string | null;
+  name: string;
+  cpuMillis: number;
+  memoryBytes: number;
+  cpuAllocatableMillis: number | null;
+  memoryAllocatableBytes: number | null;
+}
+
+export const podMetrics = (namespace: string | null) => invoke<Usage[]>("pod_metrics", { namespace });
+export const nodeMetrics = () => invoke<Usage[]>("node_metrics");
+/** Error the backend returns when the cluster has no metrics-server. */
+export const METRICS_UNAVAILABLE = "metrics-unavailable";
+
+export function formatCpu(millis: number): string {
+  return millis >= 1000 ? `${(millis / 1000).toFixed(2)}` : `${Math.round(millis)}m`;
+}
+
+export function formatMemory(bytes: number): string {
+  const mi = bytes / 1024 / 1024;
+  return mi >= 1024 ? `${(mi / 1024).toFixed(2)}Gi` : `${Math.round(mi)}Mi`;
+}
 
 /** Errors from Rust commands arrive as plain strings. */
 export const errorText = (e: unknown) => (typeof e === "string" ? e : e instanceof Error ? e.message : JSON.stringify(e));
