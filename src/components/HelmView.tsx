@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
 import Editor from "@monaco-editor/react";
-import { errorText, helmDetails, helmList, helmRollback, helmUninstall, type HelmDetails, type HelmRelease, type KindInfo, type Row } from "../api";
+import { errorText, helmDetails, helmList, helmRollback, helmSearch, helmUninstall, splitChart, type HelmDetails, type HelmRelease, type KindInfo, type Row } from "../api";
 import ResourceTable from "./ResourceTable";
 import ConfirmDialog from "./ConfirmDialog";
+import ChartForm from "./ChartForm";
+import InstallChartDialog from "./InstallChartDialog";
 
 const KIND: KindInfo = { key: "helm", label: "Helm Releases", namespaced: true, columns: ["Revision", "Status", "Chart", "App version"] };
 const POLL_MS = 10_000;
@@ -18,8 +20,19 @@ const toRow = (r: HelmRelease): Row => ({
 });
 
 /** Helm has no watch API, so releases are polled. */
-export default function HelmView({ namespaces, production, context }: { namespaces: string[]; production: boolean; context: string }) {
+interface Props {
+  /** Selected namespaces; empty means all. */
+  namespaces: string[];
+  /** Every namespace of the cluster, offered as install targets. */
+  allNamespaces: string[];
+  defaultNamespace: string;
+  production: boolean;
+  context: string;
+}
+
+export default function HelmView({ namespaces, allNamespaces, defaultNamespace, production, context }: Props) {
   const [releases, setReleases] = useState<HelmRelease[] | null>(null);
+  const [installing, setInstalling] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
 
@@ -53,7 +66,22 @@ export default function HelmView({ namespaces, production, context }: { namespac
         showNamespace={namespaces.length !== 1}
         selectedUid={selected}
         onSelect={(r) => setSelected(r.uid)}
+        actions={
+          <button className="primary" onClick={() => setInstalling(true)}>
+            Install chart
+          </button>
+        }
       />
+      {installing && (
+        <InstallChartDialog
+          namespaces={allNamespaces}
+          defaultNamespace={namespaces.length === 1 ? namespaces[0] : defaultNamespace}
+          production={production}
+          context={context}
+          onInstalled={refresh}
+          onClose={() => setInstalling(false)}
+        />
+      )}
       {release && (
         <HelmPanel
           key={`${release.namespace}/${release.name}`}
@@ -68,7 +96,7 @@ export default function HelmView({ namespaces, production, context }: { namespac
   );
 }
 
-type Tab = "values" | "manifest" | "notes" | "history";
+type Tab = "values" | "manifest" | "notes" | "history" | "upgrade";
 type Pending = { action: "rollback"; revision: number } | { action: "uninstall" };
 
 function HelmPanel({
@@ -122,6 +150,7 @@ function HelmPanel({
     ["manifest", "Manifest"],
     ["notes", "Notes"],
     ["history", "History"],
+    ["upgrade", "Upgrade"],
   ];
 
   return (
@@ -159,6 +188,19 @@ function HelmPanel({
           <ReadOnlyCode text={details.values || "# Installed with the chart's default values."} language="yaml" />
         ) : tab === "manifest" ? (
           <ReadOnlyCode text={details.manifest} language="yaml" />
+        ) : tab === "upgrade" ? (
+          <UpgradeTab
+            release={release}
+            values={details.values}
+            production={production}
+            context={context}
+            onDone={async () => {
+              setStatus({ kind: "ok", text: "Upgraded." });
+              setTab("history");
+              await load();
+              onChanged();
+            }}
+          />
         ) : tab === "notes" ? (
           <pre className="logs-body">{details.notes || "This chart has no notes."}</pre>
         ) : (
@@ -205,6 +247,33 @@ function HelmPanel({
         />
       )}
     </section>
+  );
+}
+
+/** Finds which configured repository provides the release's chart, to prefill the upgrade. */
+function UpgradeTab({ release, values, production, context, onDone }: { release: HelmRelease; values: string; production: boolean; context: string; onDone: () => void }) {
+  const { name: chartName, version } = splitChart(release.chart);
+  const [chartRef, setChartRef] = useState<string | null>(null);
+
+  useEffect(() => {
+    helmSearch(chartName).then(
+      (charts) => setChartRef(charts.find((c) => c.name.endsWith(`/${chartName}`))?.name ?? chartName),
+      () => setChartRef(chartName),
+    );
+  }, [chartName]);
+
+  if (chartRef === null) return <div className="empty">Looking up {chartName} in your repositories…</div>;
+  return (
+    <ChartForm
+      mode="upgrade"
+      chart={chartRef}
+      version={version}
+      release={{ name: release.name, namespace: release.namespace }}
+      values={values}
+      production={production}
+      context={context}
+      onDone={onDone}
+    />
   );
 }
 

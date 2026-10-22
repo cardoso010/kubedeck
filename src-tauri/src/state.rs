@@ -39,6 +39,9 @@ pub struct AppState {
     pub tasks: Mutex<HashMap<u64, JoinHandle<()>>>,
     pub execs: Mutex<HashMap<u64, ExecHandle>>,
     pub forwards: Mutex<HashMap<u64, Forward>>,
+    /// Extra environment for helm. Empty in the app; tests point helm's repository config
+    /// at a temporary directory so they never touch the user's repositories.
+    pub helm_env: Vec<(String, String)>,
     next_id: AtomicU64,
 }
 

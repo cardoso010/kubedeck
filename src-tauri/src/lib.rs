@@ -1,5 +1,6 @@
 mod cluster;
 mod helm;
+mod helm_charts;
 mod kinds;
 mod metrics;
 mod portforward;
@@ -62,6 +63,15 @@ pub fn run() {
             helm::helm_details,
             helm::helm_rollback,
             helm::helm_uninstall,
+            helm_charts::helm_repo_list,
+            helm_charts::helm_repo_add,
+            helm_charts::helm_repo_remove,
+            helm_charts::helm_repo_update,
+            helm_charts::helm_search,
+            helm_charts::helm_chart_versions,
+            helm_charts::helm_show_values,
+            helm_charts::helm_install,
+            helm_charts::helm_upgrade,
             metrics::pod_metrics,
             metrics::node_metrics,
             updater::check_for_update,

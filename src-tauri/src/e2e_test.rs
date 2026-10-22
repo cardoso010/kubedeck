@@ -14,7 +14,7 @@ use tauri::Manager;
 
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
-use crate::{cluster, helm, metrics, portforward, resources, state::AppState, streams};
+use crate::{cluster, helm, helm_charts, metrics, portforward, resources, state::AppState, streams};
 
 type Inbox = Arc<Mutex<Vec<Value>>>;
 
@@ -51,9 +51,13 @@ fn test_context() -> String {
 }
 
 fn mock_app() -> tauri::App<tauri::test::MockRuntime> {
+    mock_app_with(AppState::default())
+}
+
+fn mock_app_with(state: AppState) -> tauri::App<tauri::test::MockRuntime> {
     crate::install_crypto_provider();
     tauri::test::mock_builder()
-        .manage(AppState::default())
+        .manage(state)
         .build(tauri::test::mock_context(tauri::test::noop_assets()))
         .unwrap()
 }
@@ -333,6 +337,134 @@ async fn several_namespaces_against_real_cluster() {
     let releases = serde_json::to_value(helm::helm_list(vec!["demo".into(), "demo2".into()], state()).await.unwrap()).unwrap();
     assert!(releases.as_array().unwrap().iter().any(|r| r["name"] == "hello"));
     assert_eq!(namespaces(&releases), ["demo".to_owned()].into());
+}
+
+/// Serves the files of `dir` over HTTP on 127.0.0.1; enough for a Helm chart repository.
+async fn serve_dir(dir: std::path::PathBuf) -> u16 {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = listener.local_addr().unwrap().port();
+    tokio::spawn(async move {
+        while let Ok((mut socket, _)) = listener.accept().await {
+            let dir = dir.clone();
+            tokio::spawn(async move {
+                let mut buf = vec![0u8; 8192];
+                let n = socket.read(&mut buf).await.unwrap_or(0);
+                let request = String::from_utf8_lossy(&buf[..n]);
+                let path = request.split_whitespace().nth(1).unwrap_or("/").trim_start_matches('/').to_owned();
+                let response = match std::fs::read(dir.join(&path)) {
+                    Ok(body) => [format!("HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n", body.len()).into_bytes(), body].concat(),
+                    Err(_) => b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".to_vec(),
+                };
+                let _ = socket.write_all(&response).await;
+            });
+        }
+    });
+    port
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "needs a disposable cluster, see module docs"]
+async fn helm_charts_against_real_cluster() {
+    let context = test_context();
+    let work = std::env::temp_dir().join(format!("kubedeck-charts-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&work);
+    let repo_dir = work.join("repo");
+    std::fs::create_dir_all(&repo_dir).unwrap();
+
+    // Isolated helm config: the user's repositories are never touched.
+    let helm_env = vec![
+        ("HELM_REPOSITORY_CONFIG".to_owned(), work.join("repositories.yaml").to_string_lossy().into_owned()),
+        ("HELM_REPOSITORY_CACHE".to_owned(), work.join("cache").to_string_lossy().into_owned()),
+    ];
+    let helm_bin = std::env::var("KUBEDECK_HELM").unwrap_or_else(|_| "helm".into());
+    let run = |args: &[&str]| {
+        let out = std::process::Command::new(&helm_bin).args(args).envs(helm_env.iter().cloned()).output().unwrap();
+        assert!(out.status.success(), "helm {args:?}: {}", String::from_utf8_lossy(&out.stderr));
+    };
+
+    // A chart repository with greeter 0.1.0 and 0.2.0, served locally.
+    let chart = work.join("greeter");
+    run(&["create", chart.to_str().unwrap()]);
+    run(&["package", chart.to_str().unwrap(), "--version", "0.1.0", "-d", repo_dir.to_str().unwrap()]);
+    run(&["package", chart.to_str().unwrap(), "--version", "0.2.0", "-d", repo_dir.to_str().unwrap()]);
+    let port = serve_dir(repo_dir.clone()).await;
+    let url = format!("http://127.0.0.1:{port}");
+    run(&["repo", "index", repo_dir.to_str().unwrap(), "--url", &url]);
+
+    let mut app_state = AppState::default();
+    app_state.helm_env = helm_env.clone();
+    let app = mock_app_with(app_state);
+    let state = || app.state::<AppState>();
+    cluster::connect(context, state()).await.unwrap();
+
+    // Repositories
+    assert!(serde_json::to_value(helm_charts::helm_repo_list(state()).await.unwrap()).unwrap().as_array().unwrap().is_empty());
+    helm_charts::helm_repo_add("e2e".into(), url.clone(), state()).await.unwrap();
+    helm_charts::helm_repo_update(state()).await.unwrap();
+    let repos = serde_json::to_value(helm_charts::helm_repo_list(state()).await.unwrap()).unwrap();
+    assert_eq!(repos[0]["name"], "e2e");
+    assert!(helm_charts::helm_repo_add("bad".into(), "http://127.0.0.1:1".into(), state()).await.is_err());
+
+    // Search, versions, default values
+    let found = serde_json::to_value(helm_charts::helm_search("greeter".into(), state()).await.unwrap()).unwrap();
+    assert_eq!(found[0]["name"], "e2e/greeter");
+    assert_eq!(found[0]["version"], "0.2.0");
+    let versions = serde_json::to_value(helm_charts::helm_chart_versions("e2e/greeter".into(), state()).await.unwrap()).unwrap();
+    let versions: Vec<&str> = versions.as_array().unwrap().iter().map(|c| c["version"].as_str().unwrap()).collect();
+    assert_eq!(versions, ["0.2.0", "0.1.0"]);
+    assert!(helm_charts::helm_chart_versions("oci://example.com/x".into(), state()).await.unwrap().is_empty());
+    let defaults = helm_charts::helm_show_values("e2e/greeter".into(), Some("0.1.0".into()), state()).await.unwrap();
+    assert!(defaults.contains("replicaCount: 1"), "{defaults}");
+
+    let action = |dry_run: bool, version: &str, values: &str| -> helm_charts::ChartAction {
+        serde_json::from_value(serde_json::json!({
+            "namespace": "demo2", "name": "greeter", "chart": "e2e/greeter",
+            "version": version, "values": values, "dryRun": dry_run
+        }))
+        .unwrap()
+    };
+    async fn release(state: tauri::State<'_, AppState>) -> Option<Value> {
+        let list = serde_json::to_value(helm::helm_list(vec!["demo2".into()], state).await.unwrap()).unwrap();
+        list.as_array().unwrap().iter().find(|r| r["name"] == "greeter").cloned()
+    }
+
+    // Dry run renders without installing.
+    let rendered = helm_charts::helm_install(action(true, "0.1.0", "replicaCount: 0\n"), state()).await.unwrap();
+    assert!(rendered.contains("kind: Deployment") && rendered.contains("replicas: 0"), "{rendered}");
+    assert!(release(state()).await.is_none());
+
+    // Install, then upgrade to the next chart version with different values.
+    helm_charts::helm_install(action(false, "0.1.0", "replicaCount: 0\n"), state()).await.unwrap();
+    let installed = release(state()).await.expect("greeter installed");
+    assert_eq!(installed["chart"], "greeter-0.1.0");
+    let err = helm_charts::helm_install(action(false, "0.1.0", ""), state()).await.unwrap_err();
+    assert!(err.contains("cannot re-use a name"), "{err}");
+
+    let upgrade_dry = helm_charts::helm_upgrade(action(true, "0.2.0", "replicaCount: 0\nservice:\n  port: 8080\n"), state()).await.unwrap();
+    assert!(upgrade_dry.contains("port: 8080"));
+    assert_eq!(release(state()).await.unwrap()["revision"], "1", "dry run must not upgrade");
+    helm_charts::helm_upgrade(action(false, "0.2.0", "replicaCount: 0\nservice:\n  port: 8080\n"), state()).await.unwrap();
+    let upgraded = release(state()).await.unwrap();
+    assert_eq!(upgraded["chart"], "greeter-0.2.0");
+    assert_eq!(upgraded["revision"], "2");
+    let details = serde_json::to_value(helm::helm_details("demo2".into(), "greeter".into(), state()).await.unwrap()).unwrap();
+    assert!(details["values"].as_str().unwrap().contains("port: 8080"));
+
+    // Install into a namespace that does not exist yet.
+    let ns = format!("kubedeck-e2e-{}", std::process::id());
+    let create: helm_charts::ChartAction = serde_json::from_value(serde_json::json!({
+        "namespace": ns, "name": "greeter", "chart": "e2e/greeter", "values": "replicaCount: 0\n", "createNamespace": true
+    }))
+    .unwrap();
+    helm_charts::helm_install(create, state()).await.unwrap();
+    helm::helm_uninstall(ns.clone(), "greeter".into(), state()).await.unwrap();
+    let namespaces: kube::Api<k8s_openapi::api::core::v1::Namespace> = kube::Api::all(state().connection().await.unwrap().client);
+    namespaces.delete(&ns, &Default::default()).await.unwrap();
+
+    // Clean up.
+    helm::helm_uninstall("demo2".into(), "greeter".into(), state()).await.unwrap();
+    helm_charts::helm_repo_remove("e2e".into(), state()).await.unwrap();
+    let _ = std::fs::remove_dir_all(&work);
 }
 
 fn crate_is_production(context: &str) -> bool {

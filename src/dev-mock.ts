@@ -158,6 +158,21 @@ async function invoke(cmd: string, args: Record<string, any>): Promise<unknown> 
       ].filter((r) => !args.namespaces?.length || args.namespaces.includes(r.namespace));
     case "helm_details":
       return { values: "replicaCount: 2\nimage:\n  tag: 1.16.0\n", manifest: "---\n# Source: hello/templates/deployment.yaml\napiVersion: apps/v1\nkind: Deployment\n", notes: "1. Get the application URL by running these commands: ...", history: HISTORY };
+    case "helm_repo_list":
+      return [{ name: "bitnami", url: "https://charts.bitnami.com/bitnami" }];
+    case "helm_search":
+      return [
+        { name: "bitnami/redis", version: "21.2.3", appVersion: "8.0.2", description: "Redis(R) is an open source, advanced key-value store." },
+        { name: "bitnami/postgresql", version: "16.7.4", appVersion: "17.5.0", description: "PostgreSQL (Postgres) is an open source object-relational database." },
+        { name: "bitnami/nginx", version: "20.0.5", appVersion: "1.28.0", description: "NGINX Open Source is a web server that can be also used as a reverse proxy." },
+      ].filter((c) => c.name.includes(args.query ?? ""));
+    case "helm_chart_versions":
+      return ["21.2.3", "21.2.2", "21.1.0"].map((version) => ({ name: args.chart, version, appVersion: "8.0.2", description: "" }));
+    case "helm_show_values":
+      return "## Sample chart values\nreplicaCount: 1\nimage:\n  tag: \"\"\nresources: {}\n";
+    case "helm_install":
+    case "helm_upgrade":
+      return args.request.dryRun ? "NAME: " + args.request.name + "\n---\n# Source: chart/templates/deployment.yaml\napiVersion: apps/v1\nkind: Deployment\n" : "NOTES:\nThanks for installing.";
     case "helm_rollback":
     case "helm_uninstall":
       return "";

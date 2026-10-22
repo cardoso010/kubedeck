@@ -60,14 +60,26 @@ fn helm_binary() -> PathBuf {
     }
 }
 
-async fn helm(state: &AppState, args: &[&str]) -> CmdResult<String> {
+/// Runs helm against the connected cluster's kube context.
+pub(crate) async fn helm(state: &AppState, args: &[&str]) -> CmdResult<String> {
     let context = state.connection().await?.context;
+    run(state, args, Some(&context)).await
+}
+
+/// Runs helm commands that do not talk to a cluster (repositories, search, chart values).
+pub(crate) async fn helm_local(state: &AppState, args: &[&str]) -> CmdResult<String> {
+    run(state, args, None).await
+}
+
+async fn run(state: &AppState, args: &[&str], context: Option<&str>) -> CmdResult<String> {
     let binary = helm_binary();
     let binary_name = binary.display();
-    let output = Command::new(&binary)
-        .args(args)
-        .args(["--kube-context", &context])
-        .kill_on_drop(true)
+    let mut command = Command::new(&binary);
+    command.args(args).envs(state.helm_env.iter().map(|(k, v)| (k, v))).kill_on_drop(true);
+    if let Some(context) = context {
+        command.args(["--kube-context", context]);
+    }
+    let output = command
         .output()
         .await
         .map_err(|e| format!("Could not run {binary_name}: {e}. Install Helm or set KUBEDECK_HELM to its path."))?;

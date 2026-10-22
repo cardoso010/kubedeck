@@ -132,6 +132,47 @@ export interface HelmDetails {
   history: HelmRevision[];
 }
 
+export interface HelmRepo {
+  name: string;
+  url: string;
+}
+
+export interface HelmChart {
+  /** `repo/chart`, usable as a chart reference. */
+  name: string;
+  version: string;
+  appVersion: string;
+  description: string;
+}
+
+export interface ChartAction {
+  namespace: string;
+  /** Release name. */
+  name: string;
+  chart: string;
+  version: string | null;
+  values: string;
+  createNamespace?: boolean;
+  dryRun?: boolean;
+}
+
+export const helmRepoList = () => invoke<HelmRepo[]>("helm_repo_list");
+export const helmRepoAdd = (name: string, url: string) => invoke<void>("helm_repo_add", { name, url });
+export const helmRepoRemove = (name: string) => invoke<void>("helm_repo_remove", { name });
+export const helmRepoUpdate = () => invoke<void>("helm_repo_update");
+export const helmSearch = (query: string) => invoke<HelmChart[]>("helm_search", { query });
+export const helmChartVersions = (chart: string) => invoke<HelmChart[]>("helm_chart_versions", { chart });
+export const helmShowValues = (chart: string, version: string | null) => invoke<string>("helm_show_values", { chart, version });
+/** Returns helm's output: the rendered manifests for a dry run, the release notes otherwise. */
+export const helmInstall = (request: ChartAction) => invoke<string>("helm_install", { request });
+export const helmUpgrade = (request: ChartAction) => invoke<string>("helm_upgrade", { request });
+
+/** Splits a release's chart field ("ingress-nginx-4.11.3") into name and version. */
+export function splitChart(chart: string): { name: string; version: string | null } {
+  const m = /^(.+?)-(\d+\.\d+\.\d+.*)$/.exec(chart);
+  return m ? { name: m[1], version: m[2] } : { name: chart, version: null };
+}
+
 export const helmList = (namespaces: string[]) => invoke<HelmRelease[]>("helm_list", { namespaces });
 export const helmDetails = (namespace: string, name: string) => invoke<HelmDetails>("helm_details", { namespace, name });
 export const helmRollback = (namespace: string, name: string, revision: number) => invoke<string>("helm_rollback", { namespace, name, revision });

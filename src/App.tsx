@@ -176,7 +176,14 @@ export default function App() {
           <div className="empty">{connecting ? "Connecting…" : "Choose a cluster context to start."}</div>
         ) : kindKey === HELM ? (
           <div className="workspace">
-            <HelmView key={conn.context} namespaces={selectedNs} production={prod} context={conn.context} />
+            <HelmView
+              key={conn.context}
+              namespaces={selectedNs}
+              allNamespaces={namespaces}
+              defaultNamespace={conn.defaultNamespace}
+              production={prod}
+              context={conn.context}
+            />
           </div>
         ) : kindKey === FORWARDS ? (
           <div className="workspace">

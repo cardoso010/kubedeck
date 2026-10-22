@@ -67,7 +67,8 @@ input:focus, select:focus { outline: 1px solid var(--accent); }
 .table-toolbar { display: flex; align-items: center; gap: 10px; padding: 10px 14px; border-bottom: 1px solid var(--border); }
 .table-toolbar h2 { margin: 0; font-size: 15px; }
 .table-toolbar .count { color: var(--muted); }
-.table-toolbar input { margin-left: auto; width: 260px; }
+.table-actions { margin-left: auto; display: flex; align-items: center; gap: 8px; }
+.table-actions input { width: 260px; }
 .table-head, .table-row { display: grid; gap: 10px; padding: 0 14px; align-items: center; }
 .table-head { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; padding-top: 6px; padding-bottom: 6px; border-bottom: 1px solid var(--border); }
 .table-body { flex: 1; overflow: auto; min-height: 0; }
@@ -143,3 +144,28 @@ a { color: var(--accent); }
 .ns-empty { padding: 4px; }
 button.link { background: none; border: none; padding: 0; color: var(--accent); font-size: inherit; }
 .field .ns-picker-menu input[type="checkbox"] { width: auto; flex: none; padding: 0; }
+
+.modal-large { width: min(1200px, 94vw); height: min(820px, 90vh); padding: 0; gap: 0; }
+.modal-header { display: flex; align-items: center; justify-content: space-between; padding: 12px 16px; border-bottom: 1px solid var(--border); }
+.install-layout { flex: 1; display: grid; grid-template-columns: 340px 1fr; min-height: 0; }
+.install-search { border-right: 1px solid var(--border); padding: 12px; display: flex; flex-direction: column; gap: 8px; min-height: 0; }
+.chart-results { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 4px; min-height: 0; }
+.chart-result { text-align: left; display: flex; flex-direction: column; gap: 2px; background: transparent; }
+.chart-result.active { border-color: var(--accent); background: #1b2a45; }
+.chart-result-desc { font-size: 11px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.install-form { display: flex; flex-direction: column; min-height: 0; }
+.repo-manager { display: flex; flex-direction: column; gap: 6px; padding-bottom: 8px; border-bottom: 1px solid var(--border); }
+.repo-manager .yaml-toolbar { padding: 0; }
+.repo-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 12px; }
+.repo-row .muted { font-size: 11px; word-break: break-all; }
+.repo-add { display: grid; grid-template-columns: 80px 1fr auto; gap: 4px; }
+
+.chart-form { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+.chart-form-fields { display: grid; grid-template-columns: 2fr 1fr 1fr 1fr; gap: 10px; padding: 12px 14px 4px; align-items: end; }
+.chart-form-fields .checkbox { grid-column: 1 / -1; }
+.chart-form-values { flex: 1; display: flex; flex-direction: column; min-height: 200px; }
+.chart-output { max-height: 40%; display: flex; flex-direction: column; border-top: 1px solid var(--border); min-height: 0; }
+.chart-output pre { margin: 0; padding: 8px 14px; overflow: auto; font: 12px/1.45 Menlo, monospace; white-space: pre-wrap; }
+.chart-output.error pre { color: #ffb4ae; }
+.chart-output .modal-actions { padding: 8px 14px; }
+.chart-form-actions { display: flex; justify-content: flex-end; align-items: center; gap: 8px; padding: 10px 14px; border-top: 1px solid var(--border); }

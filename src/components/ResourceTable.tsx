@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { age, type KindInfo, type Row } from "../api";
 
@@ -15,11 +15,13 @@ interface Props {
   onSelect: (row: Row) => void;
   /** Extra columns computed outside the row (e.g. live metrics), shown before the age. */
   extra?: { columns: string[]; cells: (row: Row) => string[] } | null;
+  /** Buttons shown in the table header, next to the filter. */
+  actions?: ReactNode;
 }
 
 const ROW_HEIGHT = 30;
 
-export default function ResourceTable({ kind, rows, loading, error, errorPrefix = "Watch error (retrying)", ageLabel = "Age", showNamespace, selectedUid, onSelect, extra }: Props) {
+export default function ResourceTable({ kind, rows, loading, error, errorPrefix = "Watch error (retrying)", ageLabel = "Age", showNamespace, selectedUid, onSelect, extra, actions }: Props) {
   const [filter, setFilter] = useState("");
   const [now, setNow] = useState(Date.now());
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -51,7 +53,10 @@ export default function ResourceTable({ kind, rows, loading, error, errorPrefix 
       <header className="table-toolbar">
         <h2>{kind.label}</h2>
         <span className="count">{loading ? "loading…" : `${visible.length}${visible.length !== rows.length ? ` of ${rows.length}` : ""}`}</span>
-        <input placeholder="Filter…" value={filter} onChange={(e) => setFilter(e.target.value)} />
+        <div className="table-actions">
+          {actions}
+          <input placeholder="Filter…" value={filter} onChange={(e) => setFilter(e.target.value)} />
+        </div>
       </header>
       {error && (
         <div className="error-bar">
