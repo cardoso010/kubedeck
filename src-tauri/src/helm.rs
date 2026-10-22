@@ -1,6 +1,10 @@
 //! Helm releases, through the `helm` CLI with the connected kube context.
 //!
-//! The binary is `$KUBEDECK_HELM` if set, otherwise `helm` from PATH.
+//! The binary is `$KUBEDECK_HELM` if set, otherwise the copy bundled next to the app
+//! executable (Tauri `externalBin`, fetched by scripts/fetch-helm.mjs), otherwise `helm`
+//! from PATH.
+
+use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 use tauri::State;
@@ -43,16 +47,30 @@ pub struct ReleaseDetails {
     history: Vec<Revision>,
 }
 
+fn helm_binary() -> PathBuf {
+    if let Some(path) = std::env::var_os("KUBEDECK_HELM") {
+        return path.into();
+    }
+    let bundled = std::env::current_exe()
+        .ok()
+        .and_then(|exe| exe.parent().map(|dir| dir.join(if cfg!(windows) { "helm.exe" } else { "helm" })));
+    match bundled {
+        Some(path) if path.is_file() => path,
+        _ => "helm".into(),
+    }
+}
+
 async fn helm(state: &AppState, args: &[&str]) -> CmdResult<String> {
     let context = state.connection().await?.context;
-    let binary = std::env::var("KUBEDECK_HELM").unwrap_or_else(|_| "helm".into());
+    let binary = helm_binary();
+    let binary_name = binary.display();
     let output = Command::new(&binary)
         .args(args)
         .args(["--kube-context", &context])
         .kill_on_drop(true)
         .output()
         .await
-        .map_err(|e| format!("Could not run {binary}: {e}. Install Helm or set KUBEDECK_HELM to its path."))?;
+        .map_err(|e| format!("Could not run {binary_name}: {e}. Install Helm or set KUBEDECK_HELM to its path."))?;
     if output.status.success() {
         Ok(String::from_utf8_lossy(&output.stdout).into_owned())
     } else {

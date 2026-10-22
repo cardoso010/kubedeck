@@ -12,7 +12,7 @@ Cliente desktop de Kubernetes, no estilo do Lens: **Tauri 2 + Rust** (`kube-rs`)
   - **Terminal** (exec com TTY e resize) no container escolhido.
   - **Delete**.
   - **Port forward** de pods e services. Cada porta TCP vira um botão. O service escolhe um pod pronto a cada conexão, então continua funcionando quando os pods são trocados. A tela **Port Forwards** lista os túneis ativos, com o número de conexões e o último erro.
-- **Helm Releases:** lista os releases (por namespace ou todos) e mostra valores, manifest, notas e histórico, com **rollback** para uma revisão anterior e **uninstall**. Usa o binário `helm` do `PATH`, ou o caminho definido em `KUBEDECK_HELM`, sempre com o mesmo kubeconfig e contexto do app.
+- **Helm Releases:** lista os releases (por namespace ou todos) e mostra valores, manifest, notas e histórico, com **rollback** para uma revisão anterior e **uninstall**. O app traz o próprio Helm (3.22.1) embutido como sidecar, então funciona sem nada instalado na máquina. Ele usa sempre o mesmo kubeconfig e contexto do app. Para usar outro binário, defina `KUBEDECK_HELM` com o caminho dele.
 - **Proteção de produção:** contextos com `prd`/`prod`/`production` no nome mostram uma faixa vermelha. Salvar, apagar, fazer rollback ou uninstall nesses contextos exige digitar o nome do recurso.
 
 ## Rodar
@@ -20,8 +20,10 @@ Cliente desktop de Kubernetes, no estilo do Lens: **Tauri 2 + Rust** (`kube-rs`)
 ```bash
 npm install
 npm run tauri dev        # app nativo com hot reload
-npm run tauri build      # gera src-tauri/target/release/bundle/macos/kubedeck.app (~11 MB)
+npm run tauri build      # gera src-tauri/target/release/bundle/macos/kubedeck.app (~69 MB, 56 MB são o Helm)
 ```
+
+Antes do `dev` e do `build`, `npm run binaries` baixa o Helm para `src-tauri/binaries/` (fora do git) e confere o SHA-256 fixado em `scripts/fetch-helm.mjs`. Para usar o `cargo` direto (`cargo check`, `cargo test`), rode `npm run binaries` uma vez antes. Para atualizar o Helm, troque a versão e os hashes nesse script, copiando-os das notas do release no GitHub.
 
 `npm run dev` num navegador comum abre só a interface, com dados de exemplo (`src/dev-mock.ts`).
 
@@ -39,7 +41,8 @@ kubectl -n demo create configmap app-config --from-literal=LOG_LEVEL=debug --fro
 kubectl -n demo run ticker --image=busybox:1.36 -- sh -c 'i=0; while true; do i=$((i+1)); echo "tick $i"; sleep 1; done'
 kubectl -n demo run broken --image=busybox:1.36 -- sh -c 'echo boom; exit 1'
 helm create /tmp/hello && helm install hello /tmp/hello -n demo --wait && helm upgrade hello /tmp/hello -n demo --set replicaCount=2 --wait
-cd src-tauri && KUBEDECK_E2E_CONTEXT=kind-kubedeck-test cargo test -- --include-ignored
+npm run binaries
+cd src-tauri && KUBEDECK_HELM=$PWD/binaries/helm-$(rustc -vV | sed -n 's/host: //p') KUBEDECK_E2E_CONTEXT=kind-kubedeck-test cargo test -- --include-ignored
 ```
 
 ## Arquitetura
@@ -63,7 +66,6 @@ Os eventos de watch, logs e terminal vão do Rust para a interface por `tauri::i
 
 ## Próximos passos
 
-- Embutir `helm` no app como sidecar do Tauri, para não depender da instalação local
 - Instalar e atualizar charts (repositórios e valores)
 - CRDs via discovery da API, em vez da lista fixa em `kinds.rs`
 - Métricas (metrics-server/Prometheus) nos pods e nodes
