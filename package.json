@@ -9,7 +9,8 @@
     "binaries": "node scripts/fetch-helm.mjs",
     "preview": "vite preview",
     "tauri": "tauri",
-    "release": "node scripts/release.mjs"
+    "release": "node scripts/release.mjs",
+    "screenshots": "node scripts/screenshots.mjs"
   },
   "dependencies": {
     "@fontsource-variable/inter": "^5.3.0",
@@ -30,6 +31,7 @@
     "@types/react": "^19.1.8",
     "@types/react-dom": "^19.1.6",
     "@vitejs/plugin-react": "^6.0.2",
+    "playwright-core": "^1.64.1",
     "typescript": "~6.0.3",
     "vite": "^8.0.16"
   }

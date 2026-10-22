@@ -15,6 +15,7 @@ Kubernetes desktop client (Lens-like). Tauri 2 app: Rust backend in `src-tauri/`
 npm install
 npm run tauri dev                 # native app with hot reload (fetches the Helm sidecar first)
 npm run dev                       # UI only in a browser, with sample data from src/dev-mock.ts
+npm run screenshots               # with npm run dev running: regenerate docs/screenshots (README images)
 npm run binaries                  # fetch the Helm sidecar; needed once before plain cargo commands
 npx tsc --noEmit                  # typecheck UI
 cd src-tauri && cargo clippy --all-targets -- -D warnings
@@ -53,6 +54,7 @@ Layout: `Rail` (sections from `sections.ts`, pinned clusters from `pins.ts`, the
 - Anything that shells out to helm goes through `helm::helm` (cluster commands, adds `--kube-context`) or `helm::helm_local` (repos/search), so the session's helm environment applies.
 - Secret values never go into table rows (`summarize` counts keys only).
 - **Styling**: use only the theme tokens from the top of `App.css` (`--bg*`, `--line*`, `--text*`, `--accent*`, `--ok/--warn/--bad`, `--font-ui/--font-mono`, `--radius*`); never hard-code colors, or a theme will break. A new theme is one `[data-theme]` block plus an entry in `theme.ts` (with Monaco and xterm colors). Icons come from `@tabler/icons-react`; fonts are bundled (`@fontsource-variable/*`), never loaded from a CDN.
+- After visible UI changes, regenerate the README images with `npm run screenshots` (scenes are in `scripts/screenshots.mjs`; keep `dev-mock.ts` realistic enough to photograph).
 - New global actions belong in the command palette (`commands` in `App.tsx`) as well as wherever they have a button.
 - Comments explain *why* (constraints, API quirks), not what the code does. Match the surrounding density.
 - Rust edition 2024; prefer let-chains where clippy suggests them.

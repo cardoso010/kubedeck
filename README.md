@@ -2,6 +2,19 @@
 
 Cliente desktop de Kubernetes, no estilo do Lens: **Tauri 2 + Rust** (`kube-rs`) no backend e **React + TypeScript** na interface.
 
+![Pods de dois namespaces com os logs de um pod na gaveta de detalhes, no tema Terminal](docs/screenshots/pods-logs.png)
+
+## Telas
+
+| | |
+|---|---|
+| ![Paleta de comandos](docs/screenshots/command-palette.png) | ![Releases Helm no tema Grafite](docs/screenshots/helm-graphite.png) |
+| **Paleta de comandos (⌘K):** busca aproximada por tipos, CRDs, recursos, clusters, namespaces, temas e ações. | **Helm no tema Grafite:** releases, histórico com rollback, upgrade e instalação de charts. |
+| ![Editor de YAML no tema Claro](docs/screenshots/yaml-light.png) | ![Tela inicial](docs/screenshots/welcome.png) |
+| **YAML no tema Claro:** edição com Monaco, protegida contra sobrescrever mudanças de outra pessoa, e port forward por porta. | **Tela inicial:** clusters fixados primeiro, produção sinalizada. |
+
+As imagens usam os dados de exemplo da interface em modo navegador. Para refazê-las depois de mudar a interface, rode `npm run dev` e, em outro terminal, `npm run screenshots` (usa o Google Chrome instalado na máquina).
+
 ## Instalar
 
 O repositório é privado, então a instalação usa o GitHub CLI logado com uma conta que tenha acesso a ele.
@@ -51,6 +64,7 @@ npm install
 npm run tauri dev        # app nativo com hot reload
 npm run tauri build      # gera src-tauri/target/release/bundle/macos/kubedeck.app
 npm run dev              # só a interface, num navegador, com dados de exemplo (src/dev-mock.ts)
+npm run screenshots      # com o npm run dev rodando: refaz as imagens de docs/screenshots
 ```
 
 Antes do `dev` e do `build`, `npm run binaries` baixa o Helm para `src-tauri/binaries/` (fora do git) e confere o SHA-256 fixado em `scripts/fetch-helm.mjs`. Para usar o `cargo` direto (`cargo check`, `cargo test`), rode `npm run binaries` uma vez antes. Para atualizar o Helm, troque a versão e os hashes nesse script, copiando-os das notas do release no GitHub.
@@ -112,7 +126,8 @@ src/
   theme.ts        temas, cores do editor e do terminal
   sections.ts     seções do trilho
   components/     trilho, barra superior, abas, paleta ⌘K, tabela, gaveta de detalhes, Helm, port forwards
-scripts/          fetch-helm, release, latest-json, install (sh e ps1)
+scripts/          fetch-helm, release, latest-json, install (sh e ps1), screenshots
+docs/screenshots/ imagens do README
 e2e/              cluster kind e fixtures dos testes de ponta a ponta
 ```
 

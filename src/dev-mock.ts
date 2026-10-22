@@ -55,6 +55,39 @@ const KINDS = [
   { key: "nodes", label: "Nodes", namespaced: false, columns: ["Status", "Roles", "Version"] },
 ];
 
+const POD_YAML = `apiVersion: v1
+kind: Pod
+metadata:
+  name: web-7c6cdd646-2zjfg
+  namespace: demo
+  labels:
+    app: web
+    pod-template-hash: 7c6cdd646
+  ownerReferences:
+    - apiVersion: apps/v1
+      kind: ReplicaSet
+      name: web-7c6cdd646
+spec:
+  containers:
+    - name: web
+      image: nginx:1.27-alpine
+      ports:
+        - containerPort: 80
+          protocol: TCP
+      resources:
+        requests:
+          cpu: 50m
+          memory: 64Mi
+  nodeName: kubedeck-test-control-plane
+status:
+  phase: Running
+  podIP: 10.244.0.12
+  containerStatuses:
+    - name: web
+      ready: true
+      restartCount: 0
+`;
+
 const YAML = `apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -112,7 +145,7 @@ async function invoke(cmd: string, args: Record<string, any>): Promise<unknown> 
       return id;
     }
     case "get_yaml":
-      return YAML.replace(/app-config/g, args.name);
+      return args.kindKey === "pods" ? POD_YAML.replace(/web-7c6cdd646-2zjfg/g, args.name) : YAML.replace(/app-config/g, args.name);
     case "replace_yaml":
       return args.yaml;
     case "delete_resource":
