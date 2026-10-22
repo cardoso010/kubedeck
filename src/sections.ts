@@ -1,9 +1,9 @@
 // Sidebar rail sections. Built-in kinds are grouped by purpose; every CRD lives under
-// "custom"; Helm and port forwards are views of their own.
-import { IconAdjustmentsHorizontal, IconBox, IconNetwork, IconPackage, IconPlugConnected, IconPuzzle, IconServer2, type Icon } from "@tabler/icons-react";
+// "custom"; problems, Helm and port forwards are views of their own.
+import { IconAdjustmentsHorizontal, IconAlertTriangle, IconBox, IconNetwork, IconPackage, IconPlugConnected, IconPuzzle, IconServer2, type Icon } from "@tabler/icons-react";
 import type { KindInfo } from "./api";
 
-export type SectionId = "workloads" | "network" | "config" | "cluster" | "custom" | "helm" | "forwards";
+export type SectionId = "problems" | "workloads" | "network" | "config" | "cluster" | "custom" | "helm" | "forwards";
 
 export interface Section {
   id: SectionId;
@@ -14,6 +14,7 @@ export interface Section {
 }
 
 export const SECTIONS: Section[] = [
+  { id: "problems", label: "Problems", icon: IconAlertTriangle },
   { id: "workloads", label: "Workloads", icon: IconBox, kinds: ["pods", "deployments", "statefulsets", "daemonsets", "jobs", "cronjobs"] },
   { id: "network", label: "Network", icon: IconNetwork, kinds: ["services", "ingresses"] },
   { id: "config", label: "Config", icon: IconAdjustmentsHorizontal, kinds: ["configmaps", "secrets", "persistentvolumeclaims"] },
@@ -26,8 +27,10 @@ export const SECTIONS: Section[] = [
 /** View keys that are not Kubernetes kinds. */
 export const HELM = "helm";
 export const FORWARDS = "port-forwards";
+export const PROBLEMS = "problems";
 
 export function sectionOf(viewKey: string, kinds: KindInfo[]): SectionId {
+  if (viewKey === PROBLEMS) return "problems";
   if (viewKey === HELM) return "helm";
   if (viewKey === FORWARDS) return "forwards";
   const builtin = SECTIONS.find((s) => s.kinds?.includes(viewKey));

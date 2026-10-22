@@ -1,17 +1,18 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { IconAppWindow, IconHexagons, IconLayersSubtract, IconPackage, IconPalette, IconPin, IconServer2, IconWorld } from "@tabler/icons-react";
+import { IconAlertTriangle, IconAppWindow, IconHexagons, IconLayersSubtract, IconPackage, IconPalette, IconPin, IconServer2, IconWorld } from "@tabler/icons-react";
 import * as api from "./api";
 import type { Connected, Contexts, KindInfo, Row, Target } from "./api";
 import { useStream } from "./useStream";
 import { METRIC_COLUMNS, useMetrics } from "./useMetrics";
 import { usePins, clusterColor } from "./pins";
-import { FORWARDS, HELM, SECTIONS, sectionOf, type SectionId } from "./sections";
+import { FORWARDS, HELM, PROBLEMS, SECTIONS, sectionOf, type SectionId } from "./sections";
 import { ThemeContext, THEMES, useTheme } from "./theme";
 import ResourceTable from "./components/ResourceTable";
 import DetailsPanel from "./components/DetailsPanel";
 import HelmView from "./components/HelmView";
 import PortForwardsView from "./components/PortForwardsView";
+import ProblemsView from "./components/ProblemsView";
 import Rail from "./components/Rail";
 import TopBar from "./components/TopBar";
 import KindTabs from "./components/KindTabs";
@@ -35,7 +36,7 @@ const saveNamespaces = (context: string, selected: string[]) => {
 };
 
 /** First kind of each section, used when the rail switches sections. */
-const SECTION_DEFAULT: Partial<Record<SectionId, string>> = { workloads: "pods", network: "services", config: "configmaps", cluster: "nodes", helm: HELM, forwards: FORWARDS };
+const SECTION_DEFAULT: Partial<Record<SectionId, string>> = { problems: PROBLEMS, workloads: "pods", network: "services", config: "configmaps", cluster: "nodes", helm: HELM, forwards: FORWARDS };
 
 export default function App() {
   const { theme, setTheme } = useTheme();
@@ -47,10 +48,16 @@ export default function App() {
   const [namespaces, setNamespaces] = useState<string[]>([]);
   /** Selected namespaces; empty means all of them. */
   const [selectedNs, setSelectedNs] = useState<string[]>([]);
-  /** A kind key, or HELM / FORWARDS. */
+  /** A kind key, or PROBLEMS / HELM / FORWARDS. */
   const [view, setView] = useState("pods");
   const [recentCustom, setRecentCustom] = useState<string[]>([]);
   const [rows, setRows] = useState<Map<string, Row> | null>(null);
+  /** The kind `rows` belongs to (it lags `view` for a render after switching). */
+  const [rowsKind, setRowsKind] = useState<string | null>(null);
+  /** An object to select once its kind's rows arrive (from Problems or Related). */
+  const [pending, setPending] = useState<{ kindKey: string; namespace: string | null; name: string } | null>(null);
+  const [problems, setProblems] = useState<api.Problem[] | null>(null);
+  const [problemsError, setProblemsError] = useState<string | null>(null);
   const [watchError, setWatchError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [selected, setSelected] = useState<Row | null>(null);
@@ -90,7 +97,7 @@ export default function App() {
       // The new cluster may have different custom resources.
       const k = await api.listKinds();
       setKinds(k);
-      setView((v) => (v === HELM || v === FORWARDS || k.some((x) => x.key === v) ? v : "pods"));
+      setView((v) => (v === PROBLEMS || v === HELM || v === FORWARDS || k.some((x) => x.key === v) ? v : "pods"));
       setRecentCustom((recent) => recent.filter((key) => k.some((x) => x.key === key)));
       setConn(c);
       setAuthProblem(null);
@@ -153,6 +160,7 @@ export default function App() {
     conn && kind
       ? () => {
           setRows(null);
+          setRowsKind(kind.key);
           setWatchError(null);
           setSelected(null);
           // Busy clusters send many events per second: apply them once per frame.
@@ -183,6 +191,41 @@ export default function App() {
     (e) => setWatchError(api.errorText(e)),
     [conn, kind?.key, nsKey],
   );
+
+  // Problems are checked in the background so the rail badge stays current.
+  const allNsKey = selectedNs.join(",");
+  useEffect(() => {
+    if (!conn) return;
+    let stale = false;
+    setProblems(null);
+    const load = () =>
+      api.clusterProblems(selectedNs).then(
+        (p) => !stale && (setProblems(p), setProblemsError(null)),
+        (e) => !stale && !api.isUnauthorized(api.errorText(e)) && setProblemsError(api.errorText(e)),
+      );
+    void load();
+    const timer = setInterval(load, view === PROBLEMS ? 10_000 : 30_000);
+    return () => {
+      stale = true;
+      clearInterval(timer);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [conn, allNsKey, view === PROBLEMS]);
+
+  /** Opens an object's kind, widening the namespace selection if needed, and selects it. */
+  function goTo(kindKey: string, namespace: string | null, name: string) {
+    if (!kinds.some((k) => k.key === kindKey)) return;
+    openView(kindKey);
+    if (namespace && selectedNs.length > 0 && !selectedNs.includes(namespace)) chooseNamespaces([...selectedNs, namespace]);
+    setPending({ kindKey, namespace, name });
+  }
+
+  useEffect(() => {
+    if (!pending || !rows || rowsKind !== pending.kindKey || view !== pending.kindKey) return;
+    const row = [...rows.values()].find((r) => r.name === pending.name && (r.namespace ?? null) === pending.namespace);
+    if (row) setSelected(row);
+    setPending(null);
+  }, [pending, rows, rowsKind, view]);
 
   // While the credentials are rejected, reconnect quietly every 20s: once the user renews
   // them (e.g. logs in to AWS again), the exec plugin runs again and the window recovers.
@@ -216,7 +259,8 @@ export default function App() {
     const list: Command[] = [];
     if (conn) {
       for (const s of SECTIONS) {
-        if (s.id === "helm") list.push({ id: "view:helm", group: "Go to", title: "Helm releases", icon: <IconPackage size={16} />, run: () => openView(HELM) });
+        if (s.id === "problems") list.push({ id: "view:problems", group: "Go to", title: "Problems", subtitle: problems ? `${problems.length} found` : undefined, icon: <IconAlertTriangle size={16} />, run: () => openView(PROBLEMS) });
+        else if (s.id === "helm") list.push({ id: "view:helm", group: "Go to", title: "Helm releases", icon: <IconPackage size={16} />, run: () => openView(HELM) });
         else if (s.id === "forwards") list.push({ id: "view:forwards", group: "Go to", title: "Port forwards", icon: <s.icon size={16} />, run: () => openView(FORWARDS) });
         else
           for (const key of s.kinds ?? []) {
@@ -255,9 +299,9 @@ export default function App() {
     }
     return list;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [conn, kinds, contexts, namespaces, rowList, kind?.label, pins, openView]);
+  }, [conn, kinds, contexts, namespaces, rowList, kind?.label, pins, openView, problems]);
 
-  const viewLabel = view === HELM ? "Helm releases" : view === FORWARDS ? "Port forwards" : (kind?.label ?? "");
+  const viewLabel = view === PROBLEMS ? "Problems" : view === HELM ? "Helm releases" : view === FORWARDS ? "Port forwards" : (kind?.label ?? "");
 
   return (
     <ThemeContext.Provider value={theme}>
@@ -273,6 +317,7 @@ export default function App() {
           onMoveUp={moveUp}
           theme={theme}
           onTheme={setTheme}
+          problemCount={problems?.filter((p) => p.severity === "critical").length ?? 0}
         />
         <div className="stage">
           {prod && <div className="prod-strip">Production cluster · changes affect real workloads</div>}
@@ -287,7 +332,7 @@ export default function App() {
             onTogglePin={togglePin}
             namespaces={namespaces}
             selectedNamespaces={selectedNs}
-            namespacesEnabled={view === HELM || (kind?.namespaced ?? false)}
+            namespacesEnabled={view === PROBLEMS || view === HELM || (kind?.namespaced ?? false)}
             onNamespaces={chooseNamespaces}
             viewLabel={conn ? viewLabel : ""}
             onOpenPalette={() => setPaletteOpen(true)}
@@ -298,6 +343,10 @@ export default function App() {
 
           {!conn ? (
             <Welcome contexts={contexts} pins={visiblePins} connecting={connecting} onChoose={(c) => void choose(c)} onPalette={() => setPaletteOpen(true)} />
+          ) : view === PROBLEMS ? (
+            <div className="workspace">
+              <ProblemsView problems={problems} error={problemsError} kinds={kinds} onOpen={(p) => goTo(p.kindKey, p.namespace, p.name)} />
+            </div>
           ) : view === HELM ? (
             <div className="workspace">
               <HelmView
@@ -327,7 +376,11 @@ export default function App() {
                 extra={metricCells && { columns: METRIC_COLUMNS, cells: metricCells }}
               />
               {selectedRow && target && (
-                <DetailsPanel key={selectedRow.uid} kind={kind} row={selectedRow} target={target} context={conn.context} production={prod} onClose={() => setSelected(null)} />
+                <DetailsPanel key={selectedRow.uid} kind={kind} row={selectedRow} target={target} context={conn.context} production={prod}
+                  kinds={kinds}
+                  onNavigate={(item) => goTo(item.kindKey, item.namespace, item.name)}
+                  onClose={() => setSelected(null)}
+                />
               )}
             </div>
           ) : null}

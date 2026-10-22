@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { deleteResource, errorText, type KindInfo, type Row, type Target } from "../api";
+import { deleteResource, errorText, type KindInfo, type RelatedItem, type Row, type Target } from "../api";
 import ConfirmDialog from "./ConfirmDialog";
 import YamlEditor from "./YamlEditor";
 import LogsView from "./LogsView";
@@ -9,6 +9,9 @@ import PodMetrics from "./PodMetrics";
 import EventsView from "./EventsView";
 import RolloutView from "./RolloutView";
 import WorkloadActions from "./WorkloadActions";
+import RelatedView from "./RelatedView";
+import NodeOverview from "./NodeOverview";
+import ExplainView from "./ExplainView";
 
 interface Props {
   kind: KindInfo;
@@ -16,43 +19,39 @@ interface Props {
   target: Target;
   context: string;
   production: boolean;
+  kinds: KindInfo[];
+  /** Opens another object (from the Related tab). */
+  onNavigate: (item: RelatedItem) => void;
   onClose: () => void;
 }
 
-type Tab = "metrics" | "rollout" | "logs" | "terminal" | "events" | "yaml";
+type Tab = "overview" | "metrics" | "rollout" | "logs" | "terminal" | "events" | "related" | "explain" | "yaml";
 
 /** Kinds whose pods' logs can be merged into one stream. */
 const WORKLOADS = ["deployments", "statefulsets", "daemonsets", "jobs"];
 
 function tabsFor(kindKey: string): [Tab, string][] {
-  if (kindKey === "pods")
-    return [
-      ["metrics", "Metrics"],
-      ["logs", "Logs"],
-      ["terminal", "Terminal"],
-      ["events", "Events"],
-      ["yaml", "YAML"],
-    ];
-  if (kindKey === "deployments")
-    return [
-      ["rollout", "Rollout"],
-      ["logs", "Logs"],
-      ["events", "Events"],
-      ["yaml", "YAML"],
-    ];
-  if (WORKLOADS.includes(kindKey))
-    return [
-      ["logs", "Logs"],
-      ["events", "Events"],
-      ["yaml", "YAML"],
-    ];
-  return [
-    ["events", "Events"],
-    ["yaml", "YAML"],
-  ];
+  const first: [Tab, string][] =
+    kindKey === "pods"
+      ? [
+          ["metrics", "Metrics"],
+          ["logs", "Logs"],
+          ["terminal", "Terminal"],
+        ]
+      : kindKey === "deployments"
+        ? [
+            ["rollout", "Rollout"],
+            ["logs", "Logs"],
+          ]
+        : WORKLOADS.includes(kindKey)
+          ? [["logs", "Logs"]]
+          : kindKey === "nodes"
+            ? [["overview", "Overview"]]
+            : [];
+  return [...first, ["events", "Events"], ["related", "Related"], ...(kindKey === "secrets" ? [] : [["explain", "Explain"] as [Tab, string]]), ["yaml", "YAML"]];
 }
 
-export default function DetailsPanel({ kind, row, target, context, production, onClose }: Props) {
+export default function DetailsPanel({ kind, row, target, context, production, kinds, onNavigate, onClose }: Props) {
   const isPod = kind.key === "pods";
   const tabs = tabsFor(kind.key);
   const [tab, setTab] = useState<Tab>(tabs[0][0]);
@@ -135,6 +134,9 @@ export default function DetailsPanel({ kind, row, target, context, production, o
           />
         )}
         {tab === "events" && <EventsView namespace={row.namespace} uid={row.uid} />}
+        {tab === "overview" && <NodeOverview name={row.name} production={production} context={context} />}
+        {tab === "related" && <RelatedView kindKey={kind.key} namespace={row.namespace} name={row.name} kinds={kinds} onOpen={onNavigate} />}
+        {tab === "explain" && <ExplainView kindKey={kind.key} namespace={row.namespace} name={row.name} production={production} />}
         {tab === "terminal" && row.namespace && <TerminalView key={oneContainer} namespace={row.namespace} pod={row.name} container={oneContainer} />}
       </div>
       {confirmDelete && (

@@ -219,6 +219,70 @@ async function invoke(cmd: string, args: Record<string, any>): Promise<unknown> 
       }, 350));
       return id;
     }
+    case "cluster_problems":
+      return [
+        { severity: "critical", kindKey: "pods", namespace: "demo", name: "broken", reason: "CrashLoopBackOff", message: "Container broken keeps crashing (7 restarts); last exit: Error (exit 1)", since: ago(900) },
+        { severity: "critical", kindKey: "pods", namespace: "demo", name: "web-7c6cdd646-cggh4", reason: "OOMKilled", message: "Container web ran out of memory (limit 256Mi) 2h ago", since: ago(7200) },
+        { severity: "critical", kindKey: "deployments", namespace: "demo", name: "api", reason: "Unavailable", message: "0 of 1 replicas available", since: ago(1200) },
+        { severity: "warning", kindKey: "pods", namespace: "demo", name: "migrate-29gxk", reason: "Unschedulable", message: "0/2 nodes are available: 2 Insufficient memory.", since: ago(600) },
+        { severity: "warning", kindKey: "nodes", namespace: null, name: "kubedeck-test-control-plane", reason: "MemoryPressure", message: "kubelet has insufficient memory available", since: ago(300) },
+      ].filter((p) => !args.namespaces?.length || p.namespace === null || args.namespaces.includes(p.namespace));
+    case "related":
+      return args.kindKey === "pods"
+        ? [
+            { relation: "Owned by", items: [{ kindKey: "deployments", namespace: "demo", name: "web", status: "3/3 ready" }] },
+            { relation: "Exposed by", items: [{ kindKey: "services", namespace: "demo", name: "web", status: "ClusterIP" }] },
+            { relation: "Uses", items: [{ kindKey: "configmaps", namespace: "demo", name: "app-config", status: null }] },
+            { relation: "Runs on", items: [{ kindKey: "nodes", namespace: null, name: "kubedeck-test-control-plane", status: "Ready" }] },
+          ]
+        : [{ relation: "Pods", items: (ROWS.pods ?? []).slice(0, 3).map((r) => ({ kindKey: "pods", namespace: r.namespace, name: r.name, status: r.cells[1] })) }];
+    case "node_summary":
+      return {
+        cpuCapacityMillis: 8000, cpuAllocatableMillis: 8000, cpuRequestedMillis: 2950, cpuUsageMillis: 412 + Math.random() * 80,
+        memoryCapacityBytes: 7.8 * 1024 ** 3, memoryAllocatableBytes: 7.6 * 1024 ** 3, memoryRequestedBytes: 3.1 * 1024 ** 3, memoryUsageBytes: 5.9 * 1024 ** 3,
+        pods: 23, maxPods: 110, unschedulable: false,
+        conditions: [
+          { type: "Ready", status: "True", reason: "KubeletReady", message: "kubelet is posting ready status", bad: false },
+          { type: "MemoryPressure", status: "True", reason: "KubeletHasInsufficientMemory", message: "kubelet has insufficient memory available", bad: true },
+          { type: "DiskPressure", status: "False", reason: "KubeletHasNoDiskPressure", message: "kubelet has no disk pressure", bad: false },
+          { type: "PIDPressure", status: "False", reason: "KubeletHasSufficientPID", message: "kubelet has sufficient PID available", bad: false },
+        ],
+        taints: ["node-role.kubernetes.io/control-plane=:PreferNoSchedule"],
+        info: [["Kubelet", "v1.37.0"], ["OS", "Debian GNU/Linux 12 (bookworm)"], ["Container runtime", "containerd://2.1.3"], ["Kernel", "6.10.14-linuxkit"], ["Architecture", "arm64"], ["Instance type", "m7g.2xlarge"], ["Zone", "us-east-1a"]],
+      };
+    case "node_history": {
+      const end = Date.now() / 1000;
+      const n = 120;
+      const step = (args.minutes * 60) / n;
+      const wave = (base: number, amp: number) => Array.from({ length: n }, (_, i) => [end - (n - i) * step, base + amp * Math.sin(i / 11)] as [number, number]);
+      return { source: "monitoring/prometheus-server:80", cpu: [{ name: "usage", points: wave(0.45, 0.2) }], memory: [{ name: "working set", points: wave(5.6 * 1024 ** 3, 0.4 * 1024 ** 3) }] };
+    }
+    case "cordon":
+      return null;
+    case "drain":
+      return {
+        evicted: ["demo/web-7c6cdd646-2zjfg", "demo/api-5d9f8b7c6-x2k9p", "demo2/worker-6b9c7f5d8-4xkqp"],
+        skipped: [["kube-system/kube-proxy-x7f2k", "DaemonSet pod, it would come back on this node"], ["demo/ticker", "no controller would recreate it; delete it yourself if that is fine"]],
+        failed: [],
+      };
+    case "ai_status":
+      return { configured: true, source: "keychain" };
+    case "ai_explain": {
+      const id = nextStream++;
+      const answer = "## Likely cause\n\nThe container **exits with code 1** right after starting: the logs end with `ERROR: DATABASE_URL is not set`, and the manifest has no such variable.\n\n## How to confirm\n\n```sh\nkubectl -n demo logs broken --previous\n```\n\n## Fix\n\n1. Add `DATABASE_URL` to the deployment's env (from the `db-credentials` Secret).\n2. Roll the deployment out again.\n";
+      send(channel!, { type: "context", characters: 11234 });
+      let i = 0;
+      timers.set(id, setInterval(() => {
+        if (i >= answer.length) {
+          clearInterval(timers.get(id));
+          send(channel!, { type: "done", model: "claude-opus-5-5", refused: false });
+          return;
+        }
+        send(channel!, { type: "text", text: answer.slice(i, i + 12) });
+        i += 12;
+      }, 30));
+      return id;
+    }
     case "rollout_restart":
     case "scale":
     case "set_paused":

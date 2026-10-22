@@ -125,6 +125,80 @@ export const rolloutStatus = (namespace: string, name: string) => invoke<Rollout
 export const rollback = (namespace: string, name: string, revision: number) => invoke<void>("rollback", { namespace, name, revision });
 export const objectEvents = (namespace: string | null, uid: string) => invoke<EventRow[]>("object_events", { namespace, uid });
 
+export interface Problem {
+  severity: "critical" | "warning";
+  kindKey: string;
+  namespace: string | null;
+  name: string;
+  reason: string;
+  message: string;
+  since: string | null;
+}
+
+export interface RelatedItem {
+  kindKey: string;
+  namespace: string | null;
+  name: string;
+  status: string;
+}
+
+export interface RelatedGroup {
+  relation: string;
+  items: RelatedItem[];
+}
+
+export interface NodeSummary {
+  cpuCapacityMillis: number;
+  cpuAllocatableMillis: number;
+  cpuRequestedMillis: number;
+  cpuUsageMillis: number | null;
+  memoryCapacityBytes: number;
+  memoryAllocatableBytes: number;
+  memoryRequestedBytes: number;
+  memoryUsageBytes: number | null;
+  pods: number;
+  maxPods: number;
+  unschedulable: boolean;
+  conditions: { type: string; status: string; reason: string; message: string; bad: boolean }[];
+  taints: string[];
+  info: [string, string][];
+}
+
+export interface DrainReport {
+  evicted: string[];
+  skipped: [string, string][];
+  failed: [string, string][];
+}
+
+export interface NodeHistory {
+  source: string;
+  cpu: Series[];
+  memory: Series[];
+}
+
+export type ExplainMsg =
+  | { type: "context"; characters: number }
+  | { type: "text"; text: string }
+  | { type: "restart"; model: string }
+  | { type: "done"; model: string; refused: boolean }
+  | { type: "error"; message: string };
+
+export const clusterProblems = (namespaces: string[]) => invoke<Problem[]>("cluster_problems", { namespaces });
+export const related = (kindKey: string, namespace: string | null, name: string) => invoke<RelatedGroup[]>("related", { kindKey, namespace, name });
+export const nodeSummary = (name: string) => invoke<NodeSummary>("node_summary", { name });
+export const cordon = (name: string, unschedulable: boolean) => invoke<void>("cordon", { name, unschedulable });
+export const drain = (name: string, podSelector: string | null, dryRun: boolean) => invoke<DrainReport>("drain", { name, podSelector, dryRun });
+export const nodeHistory = (name: string, minutes: number) => invoke<NodeHistory>("node_history", { name, minutes });
+
+export const aiStatus = () => invoke<{ configured: boolean; source: "environment" | "keychain" | null }>("ai_status");
+export const aiSetKey = (key: string) => invoke<void>("ai_set_key", { key });
+export const aiClearKey = () => invoke<void>("ai_clear_key");
+export function aiExplain(kindKey: string, namespace: string | null, name: string, onMessage: (m: ExplainMsg) => void) {
+  const onEvent = new Channel<ExplainMsg>();
+  onEvent.onmessage = onMessage;
+  return invoke<number>("ai_explain", { kindKey, namespace, name, onEvent });
+}
+
 /** Asks where to save `contents` and writes it there. Resolves false when cancelled. */
 export async function saveTextFile(defaultName: string, contents: string): Promise<boolean> {
   const { save } = await import("@tauri-apps/plugin-dialog");

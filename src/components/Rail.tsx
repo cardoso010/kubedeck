@@ -17,6 +17,8 @@ interface Props {
   onMoveUp: (context: string) => void;
   theme: Theme;
   onTheme: (id: ThemeId) => void;
+  /** Critical problems in the selected namespaces, shown as a badge on Problems. */
+  problemCount: number;
 }
 
 const initials = (context: string) =>
@@ -33,7 +35,7 @@ type Popover = { kind: "theme" } | { kind: "update" } | { kind: "cluster"; conte
  * The thin left rail: sections, pinned clusters, and app actions. Clusters: click switches
  * this window, ⌘/Ctrl-click opens a new window, right-click for more.
  */
-export default function Rail({ section, onSection, connected, pins, current, onSwitchCluster, onUnpin, onMoveUp, theme, onTheme }: Props) {
+export default function Rail({ section, onSection, connected, pins, current, onSwitchCluster, onUnpin, onMoveUp, theme, onTheme, problemCount }: Props) {
   const [popover, setPopover] = useState<Popover | null>(null);
   const update = useUpdate();
 
@@ -62,6 +64,7 @@ export default function Rail({ section, onSection, connected, pins, current, onS
           data-tip={s.label}
         >
           <s.icon size={18} stroke={1.6} />
+          {s.id === "problems" && problemCount > 0 && <span className="rail-count">{problemCount > 99 ? "99+" : problemCount}</span>}
         </button>
       ))}
 

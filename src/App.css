@@ -455,3 +455,68 @@ button.toggle.active { color: var(--accent); border-color: var(--accent); backgr
 .details-actions button { display: inline-flex; align-items: center; gap: 5px; }
 .scale-form { display: inline-flex; align-items: center; gap: 4px; }
 .scale-form input { width: 64px; }
+
+/* ---------- Problems, related, nodes, explain ---------- */
+
+.rail-count { position: absolute; top: 2px; right: 0; min-width: 15px; height: 15px; padding: 0 3px; border-radius: 8px; background: var(--bad); color: #fff; font-size: 9px; font-weight: 700; line-height: 15px; text-align: center; box-shadow: 0 0 0 2px var(--bg-sunken); }
+.spacer { flex: 1; }
+.modal-wide { width: min(640px, 92vw); max-height: 86vh; overflow-y: auto; }
+
+.problems-body { flex: 1; overflow-y: auto; padding: 8px 14px 16px; display: flex; flex-direction: column; gap: 14px; }
+.problems-clear { margin: 60px auto; display: flex; flex-direction: column; align-items: center; gap: 8px; color: var(--ok); text-align: center; max-width: 440px; }
+.problems-clear div:first-of-type { color: var(--text); }
+.problem-group { display: flex; flex-direction: column; gap: 2px; }
+.problem-group-title { display: flex; align-items: center; gap: 6px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; padding: 4px 2px 6px; }
+.problem { display: grid; grid-template-columns: 10px auto minmax(140px, 260px) minmax(110px, auto) 1fr auto; align-items: center; gap: 10px; text-align: left; background: transparent; border: 1px solid transparent; border-bottom-color: var(--line); border-radius: 0; padding: 7px 6px; }
+.problem:hover:not(:disabled) { background: var(--bg-2); border-color: transparent; border-bottom-color: var(--line); }
+.problem-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--mono); font-size: 12px; }
+.problem-reason { font-weight: 600; font-size: 12px; white-space: nowrap; }
+.problem-message { color: var(--text-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
+.problem-since { font-size: 11px; white-space: nowrap; }
+
+.related { padding: 10px 14px; display: flex; flex-direction: column; gap: 14px; overflow-y: auto; }
+.related-group { display: flex; flex-direction: column; gap: 2px; }
+.related-title { font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-3); padding-bottom: 4px; }
+.related-item { display: flex; align-items: center; gap: 8px; text-align: left; background: transparent; border-color: transparent; padding: 5px 6px; }
+.related-item:hover:not(:disabled) { background: var(--bg-2); border-color: transparent; }
+.related-name { font-family: var(--mono); font-size: 12px; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.related-arrow { opacity: 0; }
+.related-item:hover .related-arrow { opacity: 1; }
+
+.node-overview { padding: 10px 0 16px; display: flex; flex-direction: column; gap: 12px; overflow-y: auto; }
+.node-actions { display: flex; align-items: center; gap: 8px; padding: 0 14px; }
+.node-actions button { display: inline-flex; align-items: center; gap: 5px; }
+.capacity { display: flex; flex-direction: column; gap: 10px; padding: 0 14px; }
+.capacity-head { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; font-size: 12px; }
+.capacity-head .faint { font-size: 11px; text-align: right; }
+.capacity-bar { position: relative; height: 8px; margin-top: 5px; border-radius: 4px; background: var(--bg-2); overflow: hidden; }
+.capacity-bar span { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 4px; }
+.capacity-requested { background: color-mix(in srgb, var(--accent) 30%, transparent); }
+.capacity-used { background: var(--accent); height: 4px; top: 2px !important; }
+.capacity-used.warn { background: var(--warn); }
+.capacity-used.bad { background: var(--bad); }
+.node-section { padding: 0 14px; display: flex; flex-direction: column; gap: 4px; }
+.node-condition { display: grid; grid-template-columns: 10px 150px 50px 1fr; align-items: center; gap: 8px; font-size: 12px; }
+.node-condition-message { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.node-taint { font-size: 11px; }
+.node-info { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 16px; font-size: 12px; }
+.node-info > div { display: flex; flex-direction: column; gap: 1px; }
+.node-info .faint { font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em; }
+.drain-list { display: flex; flex-direction: column; gap: 3px; max-height: 340px; overflow-y: auto; font-size: 12px; }
+.drain-list > div:not(:first-child) { margin-top: 2px; }
+
+.explain { display: flex; flex-direction: column; min-height: 0; flex: 1; }
+.explain-toolbar { display: flex; align-items: center; gap: 10px; padding: 10px 14px; border-bottom: 1px solid var(--line); }
+.explain-toolbar button.primary { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
+.explain-note { font-size: 11px; flex: 1; }
+.explain-body { flex: 1; overflow-y: auto; padding: 4px 18px 18px; line-height: 1.55; }
+.explain-body h1, .explain-body h2, .explain-body h3 { font-size: 13px; margin: 14px 0 6px; }
+.explain-body p, .explain-body ul, .explain-body ol { margin: 6px 0; }
+.explain-body pre { background: var(--bg-sunken); border: 1px solid var(--line); border-radius: var(--radius); padding: 8px 10px; overflow-x: auto; }
+.explain-body code { font-family: var(--mono); font-size: 12px; }
+.explain-info { font-size: 11px; margin-top: 12px; }
+.key-setup { margin: 40px auto; max-width: 420px; display: flex; flex-direction: column; align-items: center; gap: 10px; text-align: center; color: var(--text-2); }
+.key-setup h3 { margin: 0; color: var(--text); }
+.key-setup p { margin: 0; line-height: 1.5; font-size: 12px; }
+.key-setup input { width: 100%; }
+.explain-body :not(pre) > code { background: var(--bg-2); padding: 1px 4px; border-radius: 3px; color: var(--text); }
