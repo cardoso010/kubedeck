@@ -12,8 +12,12 @@ Cliente desktop de Kubernetes, no estilo do Lens: **Tauri 2 + Rust** (`kube-rs`)
 | **Métricas do pod:** uso de CPU e memória contra requests e limits, restarts, última parada (OOMKilled em destaque) e histórico do Prometheus com rede e throttling. | **Paleta de comandos (⌘K):** busca aproximada por tipos, CRDs, recursos, clusters, namespaces, temas e ações. |
 | ![Releases Helm no tema Grafite](docs/screenshots/helm-graphite.png) | ![Editor de YAML no tema Claro](docs/screenshots/yaml-light.png) |
 | **Helm no tema Grafite:** releases, histórico com rollback, upgrade e instalação de charts. | **YAML no tema Claro:** edição com Monaco, protegida contra sobrescrever mudanças de outra pessoa, e port forward por porta. |
-| ![Tela inicial](docs/screenshots/welcome.png) | |
-| **Tela inicial:** clusters fixados primeiro, produção sinalizada. | |
+| ![Problemas](docs/screenshots/problems.png) | ![Explicar com o Claude](docs/screenshots/explain.png) |
+| **Problems:** tudo que parece errado nos namespaces escolhidos, do mais grave ao menos; um clique abre o objeto. | **Explain with Claude:** o Claude lê manifesto (sem segredos), eventos e logs e sugere causa e correção. |
+| ![Visão de um node](docs/screenshots/node-overview.png) | ![Rightsizing](docs/screenshots/rightsizing.png) |
+| **Node:** capacidade contra requests e uso real, histórico, condições, taints, cordon e drain com prévia. | **Rightsizing:** requests contra o uso real de cada container, com sugestão e o quanto dá para recuperar. |
+| ![Dock com logs](docs/screenshots/dock.png) | ![Tela inicial](docs/screenshots/welcome.png) |
+| **Dock:** terminais e logs que continuam abertos enquanto você navega. | **Tela inicial:** clusters fixados primeiro, produção sinalizada. |
 
 As imagens usam os dados de exemplo da interface em modo navegador. Para refazê-las depois de mudar a interface, rode `npm run dev` e, em outro terminal, `npm run screenshots` (usa o Google Chrome instalado na máquina).
 
@@ -59,6 +63,20 @@ O app ainda não é assinado com Developer ID nem notarizado. O script de instal
   - **Port forward** de pods e services. Cada porta TCP vira um botão. O service escolhe um pod pronto a cada conexão, então continua funcionando quando os pods são trocados. A tela **Port Forwards** lista os túneis ativos, com o número de conexões e o último erro.
 - **Helm Releases:** lista os releases e mostra valores, manifest, notas e histórico, com **rollback** para uma revisão anterior e **uninstall**. **Install chart** busca nos repositórios configurados (os mesmos do `helm repo list`, que podem ser gerenciados ali), escolhe a versão e abre os valores padrão do chart para editar; a aba **Upgrade** de cada release parte dos valores atuais. As duas têm *dry run* (renderiza e valida no servidor sem mudar nada) e a confirmação de produção. O app traz o próprio Helm (3.22.1) embutido como sidecar, então funciona sem nada instalado na máquina. Ele usa sempre o mesmo kubeconfig e contexto do app. Para usar outro binário, defina `KUBEDECK_HELM` com o caminho dele.
 - **Credenciais expiradas:** se o cluster recusar as credenciais (401, por exemplo quando a sessão AWS por trás do `aws eks get-token` vence), uma faixa explica o que renovar (o comando e o profile AWS do kubeconfig) e o app tenta reconectar sozinho a cada 20 s. Assim que as credenciais voltam a valer, a janela se recupera sem precisar reabrir.
+- **Workloads:** restart, scale e pause/resume de Deployments, StatefulSets e DaemonSets; aba **Rollout** com o histórico de revisões, diff entre elas e rollback; aba **Events** de cada objeto.
+- **Logs melhores:** execução anterior (`--previous`), logs juntos de todos os pods de um workload, modo JSON, busca com destaque, copiar e salvar em arquivo.
+- **Problems** (primeiro ícone do trilho, com contador de críticos): crash loops, OOMKilled, imagens que não baixam, pods pendentes ou não prontos, workloads indisponíveis, jobs com falha, PVCs pendentes e nodes com problema.
+- **Related:** dono, pods, services, ingresses, ConfigMaps/Secrets usados e node de cada objeto, todos clicáveis.
+- **Nodes:** visão com capacidade, requests e uso, histórico do Prometheus, condições e taints; **cordon/uncordon** e **drain** com prévia do que será despejado (respeita PodDisruptionBudgets; pula DaemonSets e pods estáticos).
+- **Explain with Claude:** só quando você clica. Envia à API da Anthropic o manifesto (valores de env e anotação `last-applied` removidos), os eventos e, para pods, os logs recentes; Secrets nunca são enviados. A chave fica no chaveiro do sistema (ou em `ANTHROPIC_API_KEY`).
+- **Modo somente leitura por cluster:** clusters de produção abrem travados (o backend recusa qualquer escrita, inclusive terminal). O cadeado na barra destrava por 15 minutos; ⌘K → "Always open this cluster read-only" muda o padrão de cada cluster.
+- **Secrets escondidos:** o YAML de um Secret vem mascarado até você clicar em **Reveal values**; a aba **Data** revela ou copia uma chave por vez, com confirmação em produção.
+- **Login pelo app:** a faixa de credenciais expiradas tem um campo com o comando de login (`aws sso login --profile …` por padrão, editável e lembrado por cluster) e o botão **Run login**, que roda o comando e reconecta.
+- **Dock:** "open in dock" nas abas de logs e terminal leva a sessão para abas na parte de baixo, que continuam rodando enquanto você navega.
+- **Port forwards favoritos:** a estrela numa linha de Port Forwards reabre aquele túnel sempre que o cluster é conectado.
+- **Criar a partir de YAML** (botão `+` ou ⌘K): cola um ou mais documentos, valida com dry run no servidor e cria. Ao salvar edições, um **diff** mostra exatamente o que muda antes de enviar.
+- **Notificações:** ⌘K → "Notify me when pods crash…" avisa no sistema quando aparece um crash loop, OOMKilled ou erro de imagem nos namespaces selecionados.
+- **Rightsizing:** requests e limits de cada container contra o uso real (p95 de CPU e pico de memória em 24 h pelo Prometheus, ou o uso atual pelo metrics-server), com o request sugerido e o total que dá para recuperar.
 - **Proteção de produção:** contextos com `prd`/`prod`/`production` no nome mostram uma faixa vermelha. Salvar, apagar, instalar, fazer upgrade, rollback ou uninstall nesses contextos exige digitar o nome do recurso.
 
 ## Desenvolver

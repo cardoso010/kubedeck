@@ -43,6 +43,7 @@ await scene("welcome", { theme: "terminal", connect: false }, async () => {});
 
 await scene("pods-logs", { theme: "terminal" }, async (page) => {
   await page.locator(".table-row", { hasText: "ticker" }).click();
+  await page.getByRole("button", { name: "Logs", exact: true }).click();
   await page.waitForTimeout(3500); // let a few log lines stream in
 });
 
@@ -75,6 +76,39 @@ await scene("yaml-light", { theme: "light", namespaces: ["demo"] }, async (page)
   await page.getByRole("button", { name: "YAML", exact: true }).click();
   await page.waitForSelector(".monaco-editor .view-lines");
   await page.waitForTimeout(800);
+});
+
+await scene("problems", { theme: "terminal" }, async (page) => {
+  await page.getByRole("button", { name: "Problems", exact: true }).click();
+  await page.waitForSelector(".problem");
+});
+
+await scene("explain", { theme: "terminal" }, async (page) => {
+  await page.locator(".table-row", { hasText: "broken" }).click();
+  await page.getByRole("button", { name: "Explain", exact: true }).click();
+  await page.getByRole("button", { name: "Explain with Claude" }).click();
+  await page.waitForSelector(".explain-info");
+});
+
+await scene("node-overview", { theme: "graphite" }, async (page) => {
+  await page.getByRole("button", { name: "Cluster", exact: true }).click();
+  await page.waitForSelector(".kind-tab.active >> text=Nodes");
+  await page.locator(".name-cell", { hasText: /^kubedeck-test-control-plane$/ }).click();
+  await page.waitForSelector(".capacity-bar");
+  await page.waitForSelector(".chart svg");
+});
+
+await scene("rightsizing", { theme: "terminal" }, async (page) => {
+  await page.getByRole("button", { name: "Rightsizing", exact: true }).click();
+  await page.waitForSelector(".rs-row:not(.head)");
+});
+
+await scene("dock", { theme: "terminal" }, async (page) => {
+  await page.locator(".table-row", { hasText: "ticker" }).click();
+  await page.getByRole("button", { name: "Logs", exact: true }).click();
+  await page.locator(".details-dock").click();
+  await page.locator(".table-row", { hasText: "api-5d9f8b7c6-x2k9p" }).click();
+  await page.waitForTimeout(3000);
 });
 
 await browser.close();

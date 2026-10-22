@@ -38,11 +38,12 @@ Rust (`src-tauri/src/`), one module per feature; every `#[tauri::command]` is re
 - `kinds.rs` — built-in kinds + CRD-derived kinds; `summarize` turns any object into a table `Row`; `json_path` evaluates CRD printer columns.
 - `resources.rs` — generic watch/get/replace/delete over `DynamicObject`.
 - `streams.rs` (logs, exec), `portforward.rs`, `helm.rs` (releases; shells out to the bundled `helm`), `helm_charts.rs` (repos, search, install/upgrade), `metrics.rs` (metrics-server, table columns), `pod_insights.rs` (pod drawer metrics: usage vs requests/limits, Prometheus detection and history through the API server service proxy), `updater.rs` (self-update from private GitHub releases), `windows.rs` (new windows).
+- `workloads.rs` (restart, scale, pause, rollout history and rollback, object events), `diagnostics.rs` (Problems scan and the Related graph), `nodes.rs` (node summary, cordon, drain via the eviction API), `rightsizing.rs` (requests vs Prometheus/metrics-server usage per workload container), `secrets.rs` (masking and per-key reveal), `ai.rs` (Explain with Claude: key in the system keychain, redacted context, streamed SSE).
 - `e2e_test.rs` — end-to-end tests that call the real commands through `tauri::test::mock_builder`; `Session::of(&app, "main")` gives a window's session, and `Sessions::with_helm_env` isolates helm's repository config.
 
 UI (`src/`): `api.ts` holds a typed wrapper for every command; components in `src/components/`; `useStream.ts` owns stream lifecycles; `dev-mock.ts` mirrors the commands for browser-only work.
 
-Layout: `Rail` (sections from `sections.ts`, pinned clusters from `pins.ts`, theme and update popovers) · `TopBar` (cluster / namespaces / view breadcrumb, ⌘K trigger) · `KindTabs` · `.workspace` (table + right-hand `.details` drawer) · `CommandPalette` (commands are built in `App.tsx`).
+Layout: `Rail` (sections, with the Problems badge from `sections.ts`, pinned clusters from `pins.ts`, theme and update popovers) · `TopBar` (cluster / namespaces / view breadcrumb, ⌘K trigger) · `KindTabs` · `.workspace` (table + right-hand `.details` drawer) · `Dock` (bottom terminals/logs, `dock.ts` context) · `CommandPalette` (commands are built in `App.tsx`). Per-viewer preferences live in localStorage per cluster: `readOnly.ts` (lock default, login command), `favorites.ts` (starred port forwards, restarted on connect), `notify.ts` (crash notifications, fed by the Problems polling).
 
 ## Conventions
 
@@ -54,7 +55,9 @@ Layout: `Rail` (sections from `sections.ts`, pinned clusters from `pins.ts`, the
 - Prometheus is reached with `client.request_text` on `/api/v1/namespaces/<ns>/services/<svc>:<port>/proxy/...` (the user's own RBAC), never a port forward. Detection runs once per connection (`Connection::prometheus`); `KUBEDECK_PROMETHEUS=ns/svc:port` overrides it. Charts are `components/LineChart.tsx` (plain SVG, `--chart-*` tokens).
 - Anything that shells out to helm goes through `helm::helm` (cluster commands, adds `--kube-context`) or `helm::helm_local` (repos/search), so the session's helm environment applies.
 - **Errors from the API**: map `kube::Error` with `state::kube_err` (readable, and 401s say "(401)", which the UI's `isUnauthorized` matches) and flag 401s where the UI needs to react (`WatchMsg::Error.unauthorized`). A 401 means expired/revoked credentials: the UI shows the auth banner and reconnects quietly every 20s, re-running the kubeconfig exec plugin.
-- Secret values never go into table rows (`summarize` counts keys only).
+- Secret values never go into table rows (`summarize` counts keys only), `get_yaml` masks them unless `reveal`, and `ai.rs` refuses Secrets and redacts env values. Keep it that way.
+- **Read-only mode**: every command that changes the cluster calls `state.writable()?` first (dry runs excepted). The UI locks production contexts by default (`readOnly.ts`), but the backend is what enforces it; new write commands must call it and get a line in the read-only e2e test.
+- **Claude** is called with raw HTTP from `ai.rs` (no Rust SDK): model `claude-opus-5-5`, streamed, with server-side fallback (`content_block_start` of type `fallback` restarts the text). Only on an explicit click, never automatically.
 - **Styling**: use only the theme tokens from the top of `App.css` (`--bg*`, `--line*`, `--text*`, `--accent*`, `--ok/--warn/--bad`, `--font-ui/--font-mono`, `--radius*`); never hard-code colors, or a theme will break. A new theme is one `[data-theme]` block plus an entry in `theme.ts` (with Monaco and xterm colors). Icons come from `@tabler/icons-react`; fonts are bundled (`@fontsource-variable/*`), never loaded from a CDN.
 - After visible UI changes, regenerate the README images with `npm run screenshots` (scenes are in `scripts/screenshots.mjs`; keep `dev-mock.ts` realistic enough to photograph).
 - New global actions belong in the command palette (`commands` in `App.tsx`) as well as wherever they have a button.
