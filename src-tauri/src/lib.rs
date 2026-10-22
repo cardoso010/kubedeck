@@ -12,12 +12,13 @@ mod streams;
 mod updater;
 mod windows;
 
-/// Apps started from Finder or the Dock get a minimal PATH, so kubeconfig exec plugins
-/// such as `aws eks get-token` or `gke-gcloud-auth-plugin` would not be found.
-/// Borrow the PATH of the user's login shell instead.
-#[cfg(target_os = "macos")]
+/// Apps started from Finder, the Dock or a desktop launcher get a minimal PATH, so kubeconfig
+/// exec plugins such as `aws eks get-token` or `gke-gcloud-auth-plugin` would not be found.
+/// Borrow the PATH of the user's login shell instead. (Windows apps get the user's PATH.)
+#[cfg(unix)]
 fn inherit_login_shell_path() {
-    let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".into());
+    let default_shell = if cfg!(target_os = "macos") { "/bin/zsh" } else { "/bin/sh" };
+    let shell = std::env::var("SHELL").unwrap_or_else(|_| default_shell.into());
     let output = std::process::Command::new(shell).args(["-ilc", "printf %s \"$PATH\""]).output();
     if let Ok(out) = output {
         let path = String::from_utf8_lossy(&out.stdout).trim().to_owned();
@@ -38,7 +39,7 @@ pub fn install_crypto_provider() {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     install_crypto_provider();
-    #[cfg(target_os = "macos")]
+    #[cfg(unix)]
     inherit_login_shell_path();
 
     tauri::Builder::default()

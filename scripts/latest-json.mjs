@@ -24,14 +24,19 @@ if (!release) {
   process.exit(1);
 }
 
-// Updater target keys for each architecture suffix used in asset names.
-const ARCHES = { aarch64: "darwin-aarch64", x86_64: "darwin-x86_64" };
+// Updater target -> the asset (and its .sig) the Release workflow uploads for it.
+const BUNDLES = {
+  "darwin-aarch64": "_aarch64.app.tar.gz",
+  "darwin-x86_64": "_x86_64.app.tar.gz",
+  "linux-x86_64": "_linux_x86_64.AppImage",
+  "windows-x86_64": "_windows_x86_64-setup.exe",
+};
 const platforms = {};
-for (const [arch, target] of Object.entries(ARCHES)) {
-  const bundle = release.assets.find((a) => a.name.endsWith(`_${arch}.app.tar.gz`));
-  const sig = release.assets.find((a) => a.name.endsWith(`_${arch}.app.tar.gz.sig`));
+for (const [target, suffix] of Object.entries(BUNDLES)) {
+  const bundle = release.assets.find((a) => a.name.endsWith(suffix));
+  const sig = release.assets.find((a) => a.name.endsWith(`${suffix}.sig`));
   if (!bundle || !sig) {
-    console.error(`latest-json: missing ${arch} bundle or signature in ${tag}`);
+    console.error(`latest-json: missing ${target} bundle or signature (*${suffix}) in ${tag}`);
     process.exit(1);
   }
   const signature = gh("api", "-H", "Accept: application/octet-stream", sig.url).trim();
