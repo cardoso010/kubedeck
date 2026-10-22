@@ -7,6 +7,7 @@ import DetailsPanel from "./components/DetailsPanel";
 import HelmView from "./components/HelmView";
 import PortForwardsView from "./components/PortForwardsView";
 import KindNav from "./components/KindNav";
+import UpdateNotice from "./components/UpdateNotice";
 import { METRIC_COLUMNS, useMetrics } from "./useMetrics";
 
 const ALL = "__all__";
@@ -140,6 +141,7 @@ export default function App() {
             {prod && <div className="prod-badge">PRODUCTION</div>}
           </div>
         )}
+        <UpdateNotice />
       </aside>
 
       <main className="main">

@@ -1,0 +1,84 @@
+name: Release
+
+# Started by pushing a v* tag (npm run release -- x.y.z --push).
+# Builds signed updater bundles and DMGs for both Mac architectures into a draft release,
+# then adds latest.json and publishes it, so the app only sees complete releases.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+env:
+  GH_TOKEN: ${{ github.token }}
+
+jobs:
+  draft:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Versions match the tag
+        run: node scripts/release.mjs --check "$GITHUB_REF_NAME"
+      - name: Create draft release
+        run: gh release create "$GITHUB_REF_NAME" --draft --verify-tag --title "kubedeck $GITHUB_REF_NAME" --generate-notes
+
+  build:
+    needs: draft
+    runs-on: macos-latest
+    timeout-minutes: 60
+    strategy:
+      matrix:
+        include:
+          - target: aarch64-apple-darwin
+            arch: aarch64
+          - target: x86_64-apple-darwin
+            arch: x86_64
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+          key: ${{ matrix.target }}
+
+      - run: npm ci
+
+      - name: Build
+        run: npx tauri build --target ${{ matrix.target }} --bundles app,dmg
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+
+      - name: Upload to the draft release
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          bundle="src-tauri/target/${{ matrix.target }}/release/bundle"
+          name="kubedeck_${version}_${{ matrix.arch }}"
+          mkdir out
+          cp "$bundle/macos/kubedeck.app.tar.gz" "out/$name.app.tar.gz"
+          cp "$bundle/macos/kubedeck.app.tar.gz.sig" "out/$name.app.tar.gz.sig"
+          cp "$bundle"/dmg/*.dmg "out/$name.dmg"
+          gh release upload "$GITHUB_REF_NAME" out/* --clobber
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Updater manifest
+        run: |
+          node scripts/latest-json.mjs "$GITHUB_REF_NAME" > latest.json
+          cat latest.json
+          gh release upload "$GITHUB_REF_NAME" latest.json --clobber
+      - name: Publish
+        run: gh release edit "$GITHUB_REF_NAME" --draft=false --latest

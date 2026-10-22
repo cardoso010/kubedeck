@@ -51,6 +51,7 @@ fn test_context() -> String {
 }
 
 fn mock_app() -> tauri::App<tauri::test::MockRuntime> {
+    crate::install_crypto_provider();
     tauri::test::mock_builder()
         .manage(AppState::default())
         .build(tauri::test::mock_context(tauri::test::noop_assets()))

@@ -122,7 +122,7 @@ pub async fn helm_details(namespace: String, name: String, state: State<'_, AppS
     );
     let values = values?;
     let mut history: Vec<Revision> = serde_json::from_str(&history?).map_err(|e| format!("Unexpected helm output: {e}"))?;
-    history.sort_by(|a, b| b.revision.cmp(&a.revision));
+    history.sort_by_key(|r| std::cmp::Reverse(r.revision));
     Ok(ReleaseDetails {
         // A release installed without custom values prints "null".
         values: if values.trim() == "null" { String::new() } else { values },

@@ -124,3 +124,7 @@ a { color: var(--accent); }
 .kinds .nav-group > button:not(.nav-group-title) { padding-left: 22px; }
 .nav-empty { padding: 4px 8px; }
 .metric { color: #9fb3d1; font-variant-numeric: tabular-nums; }
+
+.update-notice { border-top: 1px solid var(--border); padding: 8px 4px 0; font-size: 11px; display: flex; flex-direction: column; gap: 6px; }
+.update-available { display: flex; flex-direction: column; gap: 6px; color: var(--text); }
+.update-notice code { color: var(--text); }

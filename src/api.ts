@@ -159,6 +159,16 @@ export function formatMemory(bytes: number): string {
   return mi >= 1024 ? `${(mi / 1024).toFixed(2)}Gi` : `${Math.round(mi)}Mi`;
 }
 
+export type UpdateStatus =
+  | { status: "upToDate" }
+  | { status: "available"; version: string; notes: string | null; date: string | null }
+  | { status: "noCredentials" }
+  | { status: "error"; message: string };
+
+export const checkForUpdate = () => invoke<UpdateStatus>("check_for_update");
+/** Downloads, verifies and installs the pending update; the app restarts when it succeeds. */
+export const installUpdate = () => invoke<void>("install_update");
+
 /** Errors from Rust commands arrive as plain strings. */
 export const errorText = (e: unknown) => (typeof e === "string" ? e : e instanceof Error ? e.message : JSON.stringify(e));
 

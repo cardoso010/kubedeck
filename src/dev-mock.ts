@@ -135,6 +135,10 @@ async function invoke(cmd: string, args: Record<string, any>): Promise<unknown> 
       forwards.push(f);
       return f;
     }
+    case "check_for_update":
+      return { status: "available", version: "0.3.0", notes: "Sample release notes", date: null };
+    case "plugin:app|version":
+      return "0.2.0";
     case "pod_metrics":
       return (ROWS.pods ?? []).map((r, i) => ({ namespace: r.namespace, name: r.name, cpuMillis: 2 + i * 37, memoryBytes: (6 + i * 21) * 1024 * 1024, cpuAllocatableMillis: null, memoryAllocatableBytes: null }));
     case "node_metrics":

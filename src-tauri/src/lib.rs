@@ -6,6 +6,7 @@ mod portforward;
 mod resources;
 mod state;
 mod streams;
+mod updater;
 
 /// Apps started from Finder or the Dock get a minimal PATH, so kubeconfig exec plugins
 /// such as `aws eks get-token` or `gke-gcloud-auth-plugin` would not be found.
@@ -23,14 +24,24 @@ fn inherit_login_shell_path() {
     }
 }
 
+/// Both rustls crypto backends end up enabled (kube and reqwest use aws-lc-rs, the updater
+/// plugin pulls in ring), and then rustls cannot pick a default and panics on the first TLS
+/// connection that relies on it. Choose one explicitly.
+pub fn install_crypto_provider() {
+    let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    install_crypto_provider();
     #[cfg(target_os = "macos")]
     inherit_login_shell_path();
 
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(state::AppState::default())
+        .manage(updater::PendingUpdate::default())
         .invoke_handler(tauri::generate_handler![
             cluster::list_contexts,
             cluster::connect,
@@ -53,6 +64,8 @@ pub fn run() {
             helm::helm_uninstall,
             metrics::pod_metrics,
             metrics::node_metrics,
+            updater::check_for_update,
+            updater::install_update,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

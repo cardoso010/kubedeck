@@ -1,0 +1,60 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Tauri system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - run: npm ci
+      - run: npm run binaries
+      - run: npx tsc --noEmit
+      - run: cargo clippy --all-targets -- -D warnings
+        working-directory: src-tauri
+      - run: cargo test
+        working-directory: src-tauri
+
+      - uses: helm/kind-action@v1
+        with:
+          install_only: true
+
+      - name: Disposable test cluster
+        run: |
+          export KUBEDECK_HELM="$PWD/src-tauri/binaries/helm-x86_64-unknown-linux-gnu"
+          e2e/setup.sh
+
+      - name: End-to-end tests
+        working-directory: src-tauri
+        run: |
+          export KUBECONFIG="$GITHUB_WORKSPACE/.kind-kubeconfig"
+          export KUBEDECK_HELM="$PWD/binaries/helm-x86_64-unknown-linux-gnu"
+          export KUBEDECK_E2E_CONTEXT=kind-kubedeck-test
+          cargo test -- --include-ignored
