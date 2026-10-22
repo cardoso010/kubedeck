@@ -75,7 +75,7 @@ async fn backend_against_real_cluster() {
 
     // Watch: initial snapshot with summarized rows
     let (ch, pods) = channel();
-    let watch_id = resources::watch_resources("pods".into(), opt("demo"), ch, state()).await.unwrap();
+    let watch_id = resources::watch_resources("pods".into(), vec!["demo".into()], ch, state()).await.unwrap();
     wait_for(&pods, "pod snapshot", |m| m.iter().any(|m| m["type"] == "snapshot")).await;
     let snapshot = pods.lock().unwrap().iter().find(|m| m["type"] == "snapshot").unwrap()["rows"].clone();
     let row = |name: &str| snapshot.as_array().unwrap().iter().find(|r| r["name"].as_str().unwrap().starts_with(name)).cloned().unwrap();
@@ -206,11 +206,11 @@ async fn helm_against_real_cluster() {
     let state = || app.state::<AppState>();
     cluster::connect(context, state()).await.unwrap();
 
-    let releases = serde_json::to_value(helm::helm_list(Some("demo".into()), state()).await.unwrap()).unwrap();
+    let releases = serde_json::to_value(helm::helm_list(vec!["demo".into()], state()).await.unwrap()).unwrap();
     let hello = releases.as_array().unwrap().iter().find(|r| r["name"] == "hello").expect("hello release (see README)").clone();
     assert_eq!(hello["status"], "deployed");
     assert!(hello["updated"].as_str().unwrap().contains('T'), "{hello}");
-    let all = helm::helm_list(None, state()).await.unwrap();
+    let all = helm::helm_list(vec![], state()).await.unwrap();
     assert!(!all.is_empty());
 
     let details = serde_json::to_value(helm::helm_details("demo".into(), "hello".into(), state()).await.unwrap()).unwrap();
@@ -235,7 +235,7 @@ async fn helm_against_real_cluster() {
     assert!(run(&["create", dir.to_str().unwrap()]).status.success());
     assert!(run(&["install", "throwaway", dir.to_str().unwrap(), "-n", "demo", "--set", "replicaCount=0"]).status.success());
     helm::helm_uninstall("demo".into(), "throwaway".into(), state()).await.unwrap();
-    let names: Vec<Value> = serde_json::to_value(helm::helm_list(Some("demo".into()), state()).await.unwrap()).unwrap().as_array().unwrap().iter().map(|r| r["name"].clone()).collect();
+    let names: Vec<Value> = serde_json::to_value(helm::helm_list(vec!["demo".into()], state()).await.unwrap()).unwrap().as_array().unwrap().iter().map(|r| r["name"].clone()).collect();
     assert!(!names.contains(&Value::from("throwaway")));
     let _ = std::fs::remove_dir_all(dir);
 
@@ -262,7 +262,7 @@ async fn custom_resources_and_metrics_against_real_cluster() {
 
     // Custom resources are watched like any kind, with printer columns as cells.
     let (ch, inbox) = channel();
-    let id = resources::watch_resources("widgets.kubedeck.dev".into(), opt("demo"), ch, state()).await.unwrap();
+    let id = resources::watch_resources("widgets.kubedeck.dev".into(), vec!["demo".into()], ch, state()).await.unwrap();
     wait_for(&inbox, "widget snapshot", |m| m.iter().any(|m| m["type"] == "snapshot")).await;
     let rows = inbox.lock().unwrap().iter().find(|m| m["type"] == "snapshot").unwrap()["rows"].clone();
     let sprocket = rows.as_array().unwrap().iter().find(|r| r["name"] == "sprocket").expect("sprocket widget").clone();
@@ -272,7 +272,7 @@ async fn custom_resources_and_metrics_against_real_cluster() {
     assert!(yaml.contains("kind: Widget") && yaml.contains("color: blue"), "{yaml}");
 
     // Metrics from metrics-server.
-    let pods = serde_json::to_value(metrics::pod_metrics(opt("demo"), state()).await.unwrap()).unwrap();
+    let pods = serde_json::to_value(metrics::pod_metrics(vec!["demo".into()], state()).await.unwrap()).unwrap();
     let ticker = pods.as_array().unwrap().iter().find(|p| p["name"] == "ticker").expect("ticker metrics").clone();
     assert_eq!(ticker["namespace"], "demo");
     assert!(ticker["memoryBytes"].as_f64().unwrap() > 0.0, "{ticker}");
@@ -281,6 +281,58 @@ async fn custom_resources_and_metrics_against_real_cluster() {
     assert!(node["cpuMillis"].as_f64().unwrap() > 0.0, "{node}");
     assert!(node["cpuAllocatableMillis"].as_f64().unwrap() >= 1000.0, "{node}");
     assert!(node["memoryAllocatableBytes"].as_f64().unwrap() > node["memoryBytes"].as_f64().unwrap());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "needs a disposable cluster, see module docs"]
+async fn several_namespaces_against_real_cluster() {
+    let context = test_context();
+    let app = mock_app();
+    let state = || app.state::<AppState>();
+    cluster::connect(context, state()).await.unwrap();
+    let namespaces = |rows: &Value| -> std::collections::BTreeSet<String> {
+        rows.as_array().unwrap().iter().map(|r| r["namespace"].as_str().unwrap().to_owned()).collect()
+    };
+
+    // Pods from exactly the selected namespaces, in one snapshot.
+    let (ch, inbox) = channel();
+    let id = resources::watch_resources("pods".into(), vec!["demo".into(), "demo2".into()], ch, state()).await.unwrap();
+    wait_for(&inbox, "snapshot", |m| m.iter().any(|m| m["type"] == "snapshot")).await;
+    let snapshots: Vec<Value> = inbox.lock().unwrap().iter().filter(|m| m["type"] == "snapshot").cloned().collect();
+    assert_eq!(snapshots.len(), 1, "one combined snapshot, not one per namespace");
+    let rows = &snapshots[0]["rows"];
+    assert_eq!(namespaces(rows), ["demo".to_owned(), "demo2".to_owned()].into());
+    assert!(rows.as_array().unwrap().iter().any(|r| r["name"].as_str().unwrap().starts_with("worker-")));
+
+    // Live events from either namespace keep flowing through the merged stream.
+    let k8s: kube::Api<k8s_openapi::api::core::v1::Pod> = kube::Api::namespaced(state().connection().await.unwrap().client, "demo2");
+    let victim = k8s.list(&kube::api::ListParams::default().labels("app=worker")).await.unwrap().items[0].metadata.clone();
+    k8s.delete(victim.name.as_deref().unwrap(), &Default::default()).await.unwrap();
+    let uid = Value::from(victim.uid.unwrap());
+    wait_for(&inbox, "delete from demo2", |m| m.iter().any(|m| m["type"] == "delete" && m["uid"] == uid)).await;
+    resources::stop_stream(id, state());
+
+    // A namespace that does not exist just contributes nothing.
+    let (ch, inbox) = channel();
+    let id = resources::watch_resources("pods".into(), vec!["demo2".into(), "no-such-namespace".into()], ch, state()).await.unwrap();
+    wait_for(&inbox, "snapshot", |m| m.iter().any(|m| m["type"] == "snapshot")).await;
+    let rows = inbox.lock().unwrap().iter().find(|m| m["type"] == "snapshot").unwrap()["rows"].clone();
+    assert_eq!(namespaces(&rows), ["demo2".to_owned()].into());
+    resources::stop_stream(id, state());
+
+    // Cluster-scoped kinds ignore the selection.
+    let (ch, inbox) = channel();
+    let id = resources::watch_resources("nodes".into(), vec!["demo".into()], ch, state()).await.unwrap();
+    wait_for(&inbox, "nodes", |m| m.iter().any(|m| m["type"] == "snapshot" && !m["rows"].as_array().unwrap().is_empty())).await;
+    resources::stop_stream(id, state());
+
+    // Metrics and Helm follow the same selection.
+    let usage = serde_json::to_value(metrics::pod_metrics(vec!["demo".into(), "demo2".into()], state()).await.unwrap()).unwrap();
+    let usage_ns = namespaces(&usage);
+    assert!(usage_ns.contains("demo") && !usage_ns.contains("kube-system"), "{usage_ns:?}");
+    let releases = serde_json::to_value(helm::helm_list(vec!["demo".into(), "demo2".into()], state()).await.unwrap()).unwrap();
+    assert!(releases.as_array().unwrap().iter().any(|r| r["name"] == "hello"));
+    assert_eq!(namespaces(&releases), ["demo".to_owned()].into());
 }
 
 fn crate_is_production(context: &str) -> bool {

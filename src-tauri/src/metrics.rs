@@ -37,12 +37,21 @@ fn metrics_error(e: kube::Error) -> String {
     }
 }
 
+/// Pod usage in `namespaces` (every namespace when empty).
 #[tauri::command]
-pub async fn pod_metrics(namespace: Option<String>, state: State<'_, AppState>) -> CmdResult<Vec<Usage>> {
+pub async fn pod_metrics(namespaces: Vec<String>, state: State<'_, AppState>) -> CmdResult<Vec<Usage>> {
     let client = state.connection().await?.client;
-    let list = metrics_api(client, "pods", "PodMetrics", namespace.as_deref()).list(&ListParams::default()).await.map_err(metrics_error)?;
-    Ok(list
-        .items
+    let scopes: Vec<Option<&str>> = if namespaces.is_empty() { vec![None] } else { namespaces.iter().map(|n| Some(n.as_str())).collect() };
+    let lists = futures::future::join_all(scopes.into_iter().map(|ns| {
+        let api = metrics_api(client.clone(), "pods", "PodMetrics", ns);
+        async move { api.list(&ListParams::default()).await }
+    }))
+    .await;
+    let mut items = Vec::new();
+    for list in lists {
+        items.extend(list.map_err(metrics_error)?.items);
+    }
+    Ok(items
         .into_iter()
         .map(|m| {
             let containers = m.data["containers"].as_array().cloned().unwrap_or_default();

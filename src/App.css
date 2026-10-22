@@ -128,3 +128,18 @@ a { color: var(--accent); }
 .update-notice { border-top: 1px solid var(--border); padding: 8px 4px 0; font-size: 11px; display: flex; flex-direction: column; gap: 6px; }
 .update-available { display: flex; flex-direction: column; gap: 6px; color: var(--text); }
 .update-notice code { color: var(--text); }
+
+.ns-picker { position: relative; }
+.ns-picker-button { width: 100%; display: flex; justify-content: space-between; align-items: center; gap: 6px; text-align: left; }
+.ns-picker-button span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ns-picker-menu { position: absolute; z-index: 20; top: calc(100% + 4px); left: 0; width: 260px; max-height: 420px; display: flex; flex-direction: column; gap: 4px; padding: 6px; background: var(--panel-2); border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4); }
+.ns-options { overflow-y: auto; display: flex; flex-direction: column; }
+.ns-option { display: flex; align-items: center; gap: 6px; border-radius: 4px; padding: 0 4px; }
+.ns-option:hover { background: #222a38; }
+.ns-option.active { color: white; }
+.ns-option button, button.ns-option { flex: 1; background: transparent; border: none; text-align: left; padding: 4px 2px; }
+.ns-option input { margin: 0; }
+.ns-footer { display: flex; align-items: center; gap: 4px; padding: 4px 4px 0; border-top: 1px solid var(--border); font-size: 11px; }
+.ns-empty { padding: 4px; }
+button.link { background: none; border: none; padding: 0; color: var(--accent); font-size: inherit; }
+.field .ns-picker-menu input[type="checkbox"] { width: auto; flex: none; padding: 0; }

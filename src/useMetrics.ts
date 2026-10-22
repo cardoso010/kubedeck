@@ -10,7 +10,7 @@ const pct = (used: number, total: number | null) => (total ? ` (${Math.round((us
  * Polls pod or node metrics while the view is open. Returns null when the kind has no
  * metrics or the cluster has no metrics-server, so the table can hide the columns.
  */
-export function useMetrics(kindKey: string, namespace: string | null, connectionId: unknown) {
+export function useMetrics(kindKey: string, namespaces: string[], connectionId: unknown) {
   const [usage, setUsage] = useState<Map<string, Usage> | null>(null);
   const supported = kindKey === "pods" || kindKey === "nodes";
 
@@ -21,7 +21,7 @@ export function useMetrics(kindKey: string, namespace: string | null, connection
     let timer: ReturnType<typeof setTimeout>;
     const poll = async () => {
       try {
-        const list = kindKey === "pods" ? await podMetrics(namespace) : await nodeMetrics();
+        const list = kindKey === "pods" ? await podMetrics(namespaces) : await nodeMetrics();
         if (stopped) return;
         setUsage(new Map(list.map((u) => [`${u.namespace ?? ""}/${u.name}`, u])));
       } catch (e) {
@@ -35,7 +35,8 @@ export function useMetrics(kindKey: string, namespace: string | null, connection
       stopped = true;
       clearTimeout(timer);
     };
-  }, [kindKey, namespace, supported, connectionId]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [kindKey, namespaces.join(","), supported, connectionId]);
 
   if (!usage) return null;
   return (row: Row): string[] => {

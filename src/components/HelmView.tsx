@@ -18,13 +18,13 @@ const toRow = (r: HelmRelease): Row => ({
 });
 
 /** Helm has no watch API, so releases are polled. */
-export default function HelmView({ namespace, production, context }: { namespace: string | null; production: boolean; context: string }) {
+export default function HelmView({ namespaces, production, context }: { namespaces: string[]; production: boolean; context: string }) {
   const [releases, setReleases] = useState<HelmRelease[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
 
   const refresh = () =>
-    helmList(namespace).then(
+    helmList(namespaces).then(
       (r) => (setReleases(r), setError(null)),
       (e) => setError(errorText(e)),
     );
@@ -36,7 +36,7 @@ export default function HelmView({ namespace, production, context }: { namespace
     const t = setInterval(refresh, POLL_MS);
     return () => clearInterval(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [namespace]);
+  }, [namespaces.join(",")]);
 
   const rows = useMemo(() => (releases ?? []).map(toRow).sort((a, b) => a.name.localeCompare(b.name)), [releases]);
   const release = releases?.find((r) => `${r.namespace}/${r.name}` === selected) ?? null;
@@ -50,7 +50,7 @@ export default function HelmView({ namespace, production, context }: { namespace
         error={error}
         errorPrefix="Helm"
         ageLabel="Updated"
-        showNamespace={namespace === null}
+        showNamespace={namespaces.length !== 1}
         selectedUid={selected}
         onSelect={(r) => setSelected(r.uid)}
       />

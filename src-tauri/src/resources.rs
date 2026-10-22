@@ -1,4 +1,6 @@
-//! Watching, reading, editing and deleting resources of any kind in `kinds::KINDS`.
+//! Watching, reading, editing and deleting resources of any kind the connection knows.
+
+use std::collections::HashMap;
 
 use futures::StreamExt;
 use kube::api::{Api, DeleteParams, DynamicObject, PostParams};
@@ -42,38 +44,83 @@ async fn api_for(state: &AppState, kind_key: &str, namespace: Option<&str>) -> C
 }
 
 /// Starts a watch and returns its stream id; stop it with `stop_stream`.
-/// `namespace: None` watches every namespace.
+///
+/// `namespaces` empty (or a cluster-scoped kind) watches everything. Otherwise there is one
+/// watch per namespace, since the API cannot list "namespace in (a, b)" and watching the whole
+/// cluster to filter here would be heavy and needs cluster-wide RBAC. Their events are merged
+/// into one stream.
 #[tauri::command]
 pub async fn watch_resources(
     kind_key: String,
-    namespace: Option<String>,
+    namespaces: Vec<String>,
     on_event: Channel<WatchMsg>,
     state: State<'_, AppState>,
 ) -> CmdResult<u64> {
-    let (def, api) = api_for(&state, &kind_key, namespace.as_deref()).await?;
+    let conn = state.connection().await?;
+    let def = conn.kind(&kind_key)?;
+    let ar = def.api_resource();
+    let scopes: Vec<(Option<String>, Api<DynamicObject>)> = if !def.namespaced || namespaces.is_empty() {
+        vec![(None, Api::all_with(conn.client.clone(), &ar))]
+    } else {
+        namespaces.into_iter().map(|ns| (Some(ns.clone()), Api::namespaced_with(conn.client.clone(), &ns, &ar))).collect()
+    };
     let id = state.next_id();
 
     let task = tauri::async_runtime::spawn(async move {
-        let mut stream = watcher(api, watcher::Config::default()).default_backoff().boxed();
-        let mut initial: Vec<Row> = Vec::new();
-        while let Some(event) = stream.next().await {
-            let msg = match event {
-                Ok(watcher::Event::Init) => {
-                    initial.clear();
-                    continue;
+        let labels: Vec<Option<String>> = scopes.iter().map(|(ns, _)| ns.clone()).collect();
+        let streams = scopes
+            .into_iter()
+            .enumerate()
+            .map(|(i, (_, api))| watcher(api, watcher::Config::default()).default_backoff().map(move |e| (i, e)).boxed());
+        let mut merged = futures::stream::select_all(streams);
+
+        let n = labels.len();
+        let mut current: Vec<HashMap<String, Row>> = vec![HashMap::new(); n];
+        let mut initial: Vec<Vec<Row>> = vec![Vec::new(); n];
+        // A scope counts as listed after its first full list, or its first error (e.g. no RBAC
+        // in that namespace), so one bad namespace cannot keep the table loading forever.
+        let mut listed = vec![false; n];
+        let snapshot = |current: &[HashMap<String, Row>]| WatchMsg::Snapshot { rows: current.iter().flat_map(|m| m.values().cloned()).collect() };
+
+        while let Some((i, event)) = merged.next().await {
+            let mut msgs = Vec::new();
+            match event {
+                Ok(watcher::Event::Init) => initial[i].clear(),
+                Ok(watcher::Event::InitApply(obj)) => initial[i].push(kinds::summarize(&def, &obj)),
+                Ok(watcher::Event::InitDone) => {
+                    current[i] = std::mem::take(&mut initial[i]).into_iter().map(|r| (r.uid.clone(), r)).collect();
+                    listed[i] = true;
+                    // Fill the table in one go once every scope has listed; later re-lists resend all.
+                    if listed.iter().all(|l| *l) {
+                        msgs.push(snapshot(&current));
+                    }
                 }
-                Ok(watcher::Event::InitApply(obj)) => {
-                    initial.push(kinds::summarize(&def, &obj));
-                    continue;
+                Ok(watcher::Event::Apply(obj)) => {
+                    let row = kinds::summarize(&def, &obj);
+                    current[i].insert(row.uid.clone(), row.clone());
+                    msgs.push(WatchMsg::Upsert { row });
                 }
-                Ok(watcher::Event::InitDone) => WatchMsg::Snapshot { rows: std::mem::take(&mut initial) },
-                Ok(watcher::Event::Apply(obj)) => WatchMsg::Upsert { row: kinds::summarize(&def, &obj) },
-                Ok(watcher::Event::Delete(obj)) => WatchMsg::Delete { uid: obj.metadata.uid.unwrap_or_default() },
+                Ok(watcher::Event::Delete(obj)) => {
+                    let uid = obj.metadata.uid.unwrap_or_default();
+                    current[i].remove(&uid);
+                    msgs.push(WatchMsg::Delete { uid });
+                }
                 // The backoff keeps the watch alive; the UI just shows the latest error.
-                Err(e) => WatchMsg::Error { message: e.to_string() },
-            };
-            if on_event.send(msg).is_err() {
-                break; // the window went away
+                Err(e) => {
+                    let message = match &labels[i] {
+                        Some(ns) => format!("{ns}: {e}"),
+                        None => e.to_string(),
+                    };
+                    msgs.push(WatchMsg::Error { message });
+                    if !std::mem::replace(&mut listed[i], true) && listed.iter().all(|l| *l) {
+                        msgs.push(snapshot(&current));
+                    }
+                }
+            }
+            for msg in msgs {
+                if on_event.send(msg).is_err() {
+                    return; // the window went away
+                }
             }
         }
     });

@@ -58,10 +58,11 @@ export const listNamespaces = () => invoke<string[]>("list_namespaces");
 export const listKinds = () => invoke<KindInfo[]>("list_kinds");
 export const stopStream = (id: number) => invoke<void>("stop_stream", { id });
 
-export function watchResources(kindKey: string, namespace: string | null, onMessage: (m: WatchMsg) => void) {
+/** `namespaces` empty means every namespace. */
+export function watchResources(kindKey: string, namespaces: string[], onMessage: (m: WatchMsg) => void) {
   const onEvent = new Channel<WatchMsg>();
   onEvent.onmessage = onMessage;
-  return invoke<number>("watch_resources", { kindKey, namespace, onEvent });
+  return invoke<number>("watch_resources", { kindKey, namespaces, onEvent });
 }
 
 export const getYaml = (t: Target) => invoke<string>("get_yaml", { ...t });
@@ -131,7 +132,7 @@ export interface HelmDetails {
   history: HelmRevision[];
 }
 
-export const helmList = (namespace: string | null) => invoke<HelmRelease[]>("helm_list", { namespace });
+export const helmList = (namespaces: string[]) => invoke<HelmRelease[]>("helm_list", { namespaces });
 export const helmDetails = (namespace: string, name: string) => invoke<HelmDetails>("helm_details", { namespace, name });
 export const helmRollback = (namespace: string, name: string, revision: number) => invoke<string>("helm_rollback", { namespace, name, revision });
 export const helmUninstall = (namespace: string, name: string) => invoke<string>("helm_uninstall", { namespace, name });
@@ -145,7 +146,7 @@ export interface Usage {
   memoryAllocatableBytes: number | null;
 }
 
-export const podMetrics = (namespace: string | null) => invoke<Usage[]>("pod_metrics", { namespace });
+export const podMetrics = (namespaces: string[]) => invoke<Usage[]>("pod_metrics", { namespaces });
 export const nodeMetrics = () => invoke<Usage[]>("node_metrics");
 /** Error the backend returns when the cluster has no metrics-server. */
 export const METRICS_UNAVAILABLE = "metrics-unavailable";

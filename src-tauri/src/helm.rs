@@ -79,15 +79,26 @@ async fn helm(state: &AppState, args: &[&str]) -> CmdResult<String> {
     }
 }
 
+/// Releases in `namespaces` (every namespace when empty).
 #[tauri::command]
-pub async fn helm_list(namespace: Option<String>, state: State<'_, AppState>) -> CmdResult<Vec<Release>> {
-    let mut args = vec!["list", "--output", "json", "--all"];
-    match namespace.as_deref() {
-        Some(ns) => args.extend(["--namespace", ns]),
-        None => args.push("--all-namespaces"),
+pub async fn helm_list(namespaces: Vec<String>, state: State<'_, AppState>) -> CmdResult<Vec<Release>> {
+    let scopes: Vec<Vec<&str>> = if namespaces.is_empty() {
+        vec![vec!["--all-namespaces"]]
+    } else {
+        namespaces.iter().map(|ns| vec!["--namespace", ns.as_str()]).collect()
+    };
+    let outputs = futures::future::join_all(scopes.iter().map(|scope| {
+        let mut args = vec!["list", "--output", "json", "--all"];
+        args.extend(scope);
+        let state = &*state;
+        async move { helm(state, &args).await }
+    }))
+    .await;
+    let mut releases = Vec::new();
+    for json in outputs {
+        let mut list: Vec<Release> = serde_json::from_str(&json?).map_err(|e| format!("Unexpected helm output: {e}"))?;
+        releases.append(&mut list);
     }
-    let json = helm(&state, &args).await?;
-    let mut releases: Vec<Release> = serde_json::from_str(&json).map_err(|e| format!("Unexpected helm output: {e}"))?;
     for r in &mut releases {
         r.updated = iso_time(&r.updated);
     }

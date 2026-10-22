@@ -7,10 +7,27 @@ import DetailsPanel from "./components/DetailsPanel";
 import HelmView from "./components/HelmView";
 import PortForwardsView from "./components/PortForwardsView";
 import KindNav from "./components/KindNav";
+import NamespacePicker from "./components/NamespacePicker";
 import UpdateNotice from "./components/UpdateNotice";
 import { METRIC_COLUMNS, useMetrics } from "./useMetrics";
 
-const ALL = "__all__";
+
+/** The namespace selection is remembered per cluster context (per viewer, best effort). */
+const savedNamespaces = (context: string): string[] | null => {
+  try {
+    const raw = localStorage.getItem(`kubedeck.namespaces.${context}`);
+    return raw ? (JSON.parse(raw) as string[]) : null;
+  } catch {
+    return null;
+  }
+};
+const saveNamespaces = (context: string, selected: string[]) => {
+  try {
+    localStorage.setItem(`kubedeck.namespaces.${context}`, JSON.stringify(selected));
+  } catch {
+    // Storage unavailable: the selection just is not remembered.
+  }
+};
 /** Views in the sidebar that are not Kubernetes kinds. */
 const HELM = "helm";
 const FORWARDS = "port-forwards";
@@ -21,7 +38,8 @@ export default function App() {
   const [conn, setConn] = useState<Connected | null>(null);
   const [connecting, setConnecting] = useState(false);
   const [namespaces, setNamespaces] = useState<string[]>([]);
-  const [namespace, setNamespace] = useState<string>(ALL);
+  /** Selected namespaces; empty means all of them. */
+  const [selectedNs, setSelectedNs] = useState<string[]>([]);
   const [kindKey, setKindKey] = useState("pods");
   const [rows, setRows] = useState<Map<string, Row> | null>(null);
   const [watchError, setWatchError] = useState<string | null>(null);
@@ -47,7 +65,8 @@ export default function App() {
       setConn(c);
       const ns = await api.listNamespaces();
       setNamespaces(ns);
-      setNamespace(ns.includes(c.defaultNamespace) ? c.defaultNamespace : ALL);
+      const saved = savedNamespaces(context)?.filter((n) => ns.includes(n));
+      setSelectedNs(saved ?? (ns.includes(c.defaultNamespace) ? [c.defaultNamespace] : []));
     } catch (e) {
       setError(`Could not connect to ${context}: ${api.errorText(e)}`);
     } finally {
@@ -56,9 +75,15 @@ export default function App() {
   }
 
   const kind = kinds.find((k) => k.key === kindKey);
-  const ns = kind?.namespaced && namespace !== ALL ? namespace : null;
-  const selectedNamespace = namespace !== ALL ? namespace : null;
-  const metricCells = useMetrics(kindKey, ns, conn);
+  // Cluster-scoped kinds ignore the namespace selection.
+  const scopedNs = useMemo(() => (kind?.namespaced ? selectedNs : []), [kind?.namespaced, selectedNs]);
+  const nsKey = scopedNs.join(",");
+  const metricCells = useMetrics(kindKey, scopedNs, conn);
+
+  function chooseNamespaces(selected: string[]) {
+    setSelectedNs(selected);
+    if (conn) saveNamespaces(conn.context, selected);
+  }
 
   useStream(
     conn && kind
@@ -81,7 +106,7 @@ export default function App() {
               return next;
             });
           };
-          return api.watchResources(kind.key, ns, (msg) => {
+          return api.watchResources(kind.key, scopedNs, (msg) => {
             if (msg.type === "error") return setWatchError(msg.message);
             setWatchError(null);
             if (queue.push(msg) === 1) requestAnimationFrame(flush);
@@ -89,7 +114,7 @@ export default function App() {
         }
       : null,
     (e) => setWatchError(api.errorText(e)),
-    [conn, kind?.key, ns],
+    [conn, kind?.key, nsKey],
   );
 
   // Keep the details panel pointing at the live version of the selected row.
@@ -116,15 +141,15 @@ export default function App() {
             ))}
           </select>
         </label>
-        <label className="field">
+        <div className="field">
           <span>Namespace</span>
-          <select value={namespace} disabled={!conn || kindKey === FORWARDS || (kind !== undefined && !kind.namespaced)} onChange={(e) => setNamespace(e.target.value)}>
-            <option value={ALL}>All namespaces</option>
-            {namespaces.map((n) => (
-              <option key={n}>{n}</option>
-            ))}
-          </select>
-        </label>
+          <NamespacePicker
+            namespaces={namespaces}
+            selected={selectedNs}
+            disabled={!conn || kindKey === FORWARDS || (kind !== undefined && !kind.namespaced)}
+            onChange={chooseNamespaces}
+          />
+        </div>
         <KindNav
           kinds={kinds}
           active={kindKey}
@@ -151,7 +176,7 @@ export default function App() {
           <div className="empty">{connecting ? "Connecting…" : "Choose a cluster context to start."}</div>
         ) : kindKey === HELM ? (
           <div className="workspace">
-            <HelmView key={conn.context} namespace={selectedNamespace} production={prod} context={conn.context} />
+            <HelmView key={conn.context} namespaces={selectedNs} production={prod} context={conn.context} />
           </div>
         ) : kindKey === FORWARDS ? (
           <div className="workspace">
@@ -164,7 +189,7 @@ export default function App() {
               rows={rowList}
               loading={rows === null}
               error={watchError}
-              showNamespace={kind.namespaced && ns === null}
+              showNamespace={kind.namespaced && scopedNs.length !== 1}
               selectedUid={selectedRow?.uid ?? null}
               onSelect={setSelected}
               extra={metricCells && { columns: METRIC_COLUMNS, cells: metricCells }}

@@ -34,6 +34,9 @@ const ROWS: Record<string, Row[]> = {
     pod("ticker", "1/1", "Running", 0, 600),
     pod("broken", "0/1", "CrashLoopBackOff", 7, 900),
     pod("migrate-29gxk", "0/1", "Pending", 0, 20),
+    { ...pod("worker-6b9c7f5d8-4xkqp", "1/1", "Running", 0, 7200), namespace: "demo2", uid: "uid-worker-1" },
+    { ...pod("worker-6b9c7f5d8-p2m7s", "1/1", "Running", 0, 7200), namespace: "demo2", uid: "uid-worker-2" },
+    { ...pod("coredns-7db6d8ff4d-x8x2v", "1/1", "Running", 0, 86400), namespace: "kube-system", uid: "uid-coredns" },
   ],
   deployments: [
     { uid: "d1", name: "web", namespace: "demo", created: ago(3600), cells: ["3/3", "3", "3"], containers: [], ports: [] },
@@ -100,10 +103,12 @@ async function invoke(cmd: string, args: Record<string, any>): Promise<unknown> 
       connected = true;
       return { context: args.context, serverVersion: "v1.37.0", defaultNamespace: "demo" };
     case "list_namespaces":
-      return ["default", "demo", "kube-system"];
+      return ["default", "demo", "demo2", "kube-system", "monitoring", "payments", "rental"];
     case "watch_resources": {
       const id = nextStream++;
-      setTimeout(() => send(channel!, { type: "snapshot", rows: ROWS[args.kindKey] ?? [] }), 150);
+      const wanted: string[] = args.namespaces ?? [];
+      const rows = (ROWS[args.kindKey] ?? []).filter((r) => !r.namespace || wanted.length === 0 || wanted.includes(r.namespace));
+      setTimeout(() => send(channel!, { type: "snapshot", rows }), 150);
       return id;
     }
     case "get_yaml":
@@ -140,7 +145,7 @@ async function invoke(cmd: string, args: Record<string, any>): Promise<unknown> 
     case "plugin:app|version":
       return "0.2.0";
     case "pod_metrics":
-      return (ROWS.pods ?? []).map((r, i) => ({ namespace: r.namespace, name: r.name, cpuMillis: 2 + i * 37, memoryBytes: (6 + i * 21) * 1024 * 1024, cpuAllocatableMillis: null, memoryAllocatableBytes: null }));
+      return (ROWS.pods ?? []).filter((r) => !args.namespaces?.length || args.namespaces.includes(r.namespace)).map((r, i) => ({ namespace: r.namespace, name: r.name, cpuMillis: 2 + i * 37, memoryBytes: (6 + i * 21) * 1024 * 1024, cpuAllocatableMillis: null, memoryAllocatableBytes: null }));
     case "node_metrics":
       return [{ namespace: null, name: "kubedeck-test-control-plane", cpuMillis: 412, memoryBytes: 1.8 * 1024 ** 3, cpuAllocatableMillis: 8000, memoryAllocatableBytes: 7.6 * 1024 ** 3 }];
     case "list_port_forwards":
@@ -150,7 +155,7 @@ async function invoke(cmd: string, args: Record<string, any>): Promise<unknown> 
         { name: "hello", namespace: "demo", revision: "3", updated: ago(600), status: "deployed", chart: "hello-0.1.0", appVersion: "1.16.0" },
         { name: "ingress-nginx", namespace: "kube-system", revision: "12", updated: ago(86400 * 9), status: "deployed", chart: "ingress-nginx-4.11.3", appVersion: "1.11.3" },
         { name: "broken-upgrade", namespace: "demo", revision: "4", updated: ago(7200), status: "failed", chart: "api-2.3.0", appVersion: "2.3.0" },
-      ].filter((r) => !args.namespace || r.namespace === args.namespace);
+      ].filter((r) => !args.namespaces?.length || args.namespaces.includes(r.namespace));
     case "helm_details":
       return { values: "replicaCount: 2\nimage:\n  tag: 1.16.0\n", manifest: "---\n# Source: hello/templates/deployment.yaml\napiVersion: apps/v1\nkind: Deployment\n", notes: "1. Get the application URL by running these commands: ...", history: HISTORY };
     case "helm_rollback":
