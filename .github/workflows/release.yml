@@ -15,6 +15,7 @@ on:
     branches: [main]
     paths:
       - src-tauri/Cargo.lock
+      - src-tauri/Cargo.toml
       - package-lock.json
       - scripts/fetch-helm.mjs
       - .github/workflows/release.yml
