@@ -9,6 +9,7 @@
     "core:default",
     "opener:default",
     "core:window:allow-set-title",
-    "dialog:allow-save"
+    "dialog:allow-save",
+    "notification:default"
   ]
 }

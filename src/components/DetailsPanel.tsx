@@ -2,7 +2,7 @@ import { useState } from "react";
 import { deleteResource, errorText, type KindInfo, type RelatedItem, type Row, type Target } from "../api";
 import ConfirmDialog from "./ConfirmDialog";
 import YamlEditor from "./YamlEditor";
-import LogsView from "./LogsView";
+import LogsView, { type LogSource } from "./LogsView";
 import TerminalView from "./TerminalView";
 import PortForwardButtons from "./PortForwardButtons";
 import PodMetrics from "./PodMetrics";
@@ -13,7 +13,8 @@ import RelatedView from "./RelatedView";
 import NodeOverview from "./NodeOverview";
 import ExplainView from "./ExplainView";
 import SecretData from "./SecretData";
-import { IconLock } from "@tabler/icons-react";
+import { IconLayoutBottombar, IconLock } from "@tabler/icons-react";
+import { useDock } from "../dock";
 import { useReadOnly } from "../readOnly";
 
 interface Props {
@@ -65,6 +66,17 @@ export default function DetailsPanel({ kind, row, target, context, production, k
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const readOnly = useReadOnly();
+  const dock = useDock();
+  const logSource = (): LogSource =>
+    isPod
+      ? { kind: "pod", namespace: row.namespace!, pod: row.name, container: oneContainer, restarts: Number(row.cells[2] ?? 0) || 0 }
+      : { kind: "workload", kindKey: kind.key, namespace: row.namespace!, name: row.name };
+  function toDock() {
+    if (!dock || !row.namespace) return;
+    const where = `${row.name}${isPod && oneContainer && row.containers.length > 1 ? `/${oneContainer}` : ""}`;
+    if (tab === "terminal") dock({ id: `term:${row.namespace}/${where}:${Date.now()}`, kind: "terminal", title: `${where} shell`, namespace: row.namespace, pod: row.name, container: oneContainer });
+    else dock({ id: `logs:${kind.key}/${row.namespace}/${where}`, kind: "logs", title: `${where} logs`, source: logSource() });
+  }
 
   async function remove() {
     setConfirmDelete(false);
@@ -124,6 +136,11 @@ export default function DetailsPanel({ kind, row, target, context, production, k
             ))}
           </select>
         )}
+        {dock && (tab === "logs" || (tab === "terminal" && !readOnly)) && (
+          <button className="link details-dock" onClick={toDock} title="Keep it open in the dock below while you browse">
+            <IconLayoutBottombar size={13} /> open in dock
+          </button>
+        )}
       </nav>
       {(isPod || kind.key === "services") && row.namespace && (
         <PortForwardButtons kind={isPod ? "pod" : "service"} namespace={row.namespace} name={row.name} ports={row.ports} />
@@ -136,11 +153,7 @@ export default function DetailsPanel({ kind, row, target, context, production, k
         {tab === "logs" && row.namespace && (
           <LogsView
             key={oneContainer}
-            source={
-              isPod
-                ? { kind: "pod", namespace: row.namespace, pod: row.name, container: oneContainer, restarts: Number(row.cells[2] ?? 0) || 0 }
-                : { kind: "workload", kindKey: kind.key, namespace: row.namespace, name: row.name }
-            }
+            source={logSource()}
           />
         )}
         {tab === "events" && <EventsView namespace={row.namespace} uid={row.uid} />}

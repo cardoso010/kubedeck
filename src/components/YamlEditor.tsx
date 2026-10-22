@@ -3,6 +3,7 @@ import Editor from "@monaco-editor/react";
 import { useCurrentTheme } from "../theme";
 import { errorText, getYaml, replaceYaml, type Target } from "../api";
 import ConfirmDialog from "./ConfirmDialog";
+import DiffDialog from "./DiffDialog";
 import { useReadOnly } from "../readOnly";
 
 export default function YamlEditor({ target, production }: { target: Target; production: boolean }) {
@@ -60,7 +61,7 @@ export default function YamlEditor({ target, production }: { target: Target; pro
           className="primary"
           disabled={!dirty || saving || readOnly || masked}
           title={readOnly ? "Read-only mode" : masked ? "Reveal the values to edit this Secret" : undefined}
-          onClick={() => (production ? setConfirming(true) : save())}
+          onClick={() => setConfirming(true)}
         >
           {saving ? "Saving…" : "Save"}
         </button>
@@ -97,11 +98,12 @@ export default function YamlEditor({ target, production }: { target: Target; pro
         />
       )}
       {confirming && (
-        <ConfirmDialog
-          title="Save to production?"
-          message={`This replaces ${target.name} on a production cluster.`}
+        <DiffDialog
+          title={production ? `Save ${target.name} to production?` : `Save ${target.name}?`}
+          original={original ?? ""}
+          modified={draft}
           confirmLabel="Save"
-          typeToConfirm={target.name}
+          typeToConfirm={production ? target.name : undefined}
           onConfirm={save}
           onCancel={() => setConfirming(false)}
         />

@@ -36,6 +36,7 @@ form_urlencoded = "1"
 jiff = "0.2"
 json-patch = "4"
 tauri-plugin-dialog = "2"
+tauri-plugin-notification = "2"
 keyring = "4"
 
 

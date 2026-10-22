@@ -1,12 +1,12 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { IconAlertTriangle, IconAppWindow, IconLock, IconLockOpen, IconHexagons, IconLayersSubtract, IconPackage, IconPalette, IconPin, IconServer2, IconWorld } from "@tabler/icons-react";
+import { IconAlertTriangle, IconAppWindow, IconBell, IconBellOff, IconGauge, IconLock, IconLockOpen, IconPlus, IconHexagons, IconLayersSubtract, IconPackage, IconPalette, IconPin, IconServer2, IconWorld } from "@tabler/icons-react";
 import * as api from "./api";
 import type { Connected, Contexts, KindInfo, Row, Target } from "./api";
 import { useStream } from "./useStream";
 import { METRIC_COLUMNS, useMetrics } from "./useMetrics";
 import { usePins, clusterColor } from "./pins";
-import { FORWARDS, HELM, PROBLEMS, SECTIONS, sectionOf, type SectionId } from "./sections";
+import { FORWARDS, HELM, PROBLEMS, RIGHTSIZING, SECTIONS, sectionOf, type SectionId } from "./sections";
 import { ThemeContext, THEMES, useTheme } from "./theme";
 import { lockedByDefault, ReadOnlyContext, saveLoginCommand, savedLoginCommand, setLockedByDefault, UNLOCK_MINUTES } from "./readOnly";
 import ConfirmDialog from "./components/ConfirmDialog";
@@ -15,6 +15,12 @@ import DetailsPanel from "./components/DetailsPanel";
 import HelmView from "./components/HelmView";
 import PortForwardsView from "./components/PortForwardsView";
 import ProblemsView from "./components/ProblemsView";
+import RightsizingView from "./components/RightsizingView";
+import CreateDialog from "./components/CreateDialog";
+import Dock from "./components/Dock";
+import { DockContext, type DockTab } from "./dock";
+import { startFavorites } from "./favorites";
+import { notifyEnabled, notifyNew, problemKey, setNotifyEnabled } from "./notify";
 import Rail from "./components/Rail";
 import TopBar from "./components/TopBar";
 import KindTabs from "./components/KindTabs";
@@ -38,7 +44,7 @@ const saveNamespaces = (context: string, selected: string[]) => {
 };
 
 /** First kind of each section, used when the rail switches sections. */
-const SECTION_DEFAULT: Partial<Record<SectionId, string>> = { problems: PROBLEMS, workloads: "pods", network: "services", config: "configmaps", cluster: "nodes", helm: HELM, forwards: FORWARDS };
+const SECTION_DEFAULT: Partial<Record<SectionId, string>> = { problems: PROBLEMS, rightsizing: RIGHTSIZING, workloads: "pods", network: "services", config: "configmaps", cluster: "nodes", helm: HELM, forwards: FORWARDS };
 
 export default function App() {
   const { theme, setTheme } = useTheme();
@@ -65,6 +71,12 @@ export default function App() {
   const [confirmUnlock, setConfirmUnlock] = useState(false);
   const [lockPrefs, setLockPrefs] = useState(0);
   const [clock, setClock] = useState(Date.now());
+  const [dockTabs, setDockTabs] = useState<DockTab[]>([]);
+  const [dockActive, setDockActive] = useState<string | null>(null);
+  const [createOpen, setCreateOpen] = useState(false);
+  const [notifyOn, setNotifyOn] = useState(false);
+  /** Problems already seen, so only new ones notify; null until the first load. */
+  const seenProblems = useRef<Set<string> | null>(null);
   const [problems, setProblems] = useState<api.Problem[] | null>(null);
   const [problemsError, setProblemsError] = useState<string | null>(null);
   const [watchError, setWatchError] = useState<string | null>(null);
@@ -101,6 +113,9 @@ export default function App() {
       await api.setReadOnly(lock).catch(() => {});
       setLocked(lock);
       setUnlockedUntil(null);
+      setDockTabs([]);
+      setDockActive(null);
+      setNotifyOn(notifyEnabled(context));
     }
     if (!quiet) {
       setConnecting(true);
@@ -113,11 +128,15 @@ export default function App() {
       // The new cluster may have different custom resources.
       const k = await api.listKinds();
       setKinds(k);
-      setView((v) => (v === PROBLEMS || v === HELM || v === FORWARDS || k.some((x) => x.key === v) ? v : "pods"));
+      setView((v) => (v === PROBLEMS || v === RIGHTSIZING || v === HELM || v === FORWARDS || k.some((x) => x.key === v) ? v : "pods"));
       setRecentCustom((recent) => recent.filter((key) => k.some((x) => x.key === key)));
       setConn(c);
       setAuthProblem(null);
       setError(null);
+      // Connecting stops every port forward; starred ones come back.
+      void startFavorites(context).then((failed) => {
+        if (failed.length) setError(`Could not reopen starred port forwards: ${failed.map(([f, why]) => `${f.name}:${f.remotePort} (${why})`).join("; ")}`);
+      });
       // Cosmetic: never let the title fail a connection.
       try {
         getCurrentWindow()
@@ -214,9 +233,17 @@ export default function App() {
     if (!conn) return;
     let stale = false;
     setProblems(null);
+    seenProblems.current = null;
     const load = () =>
       api.clusterProblems(selectedNs).then(
-        (p) => !stale && (setProblems(p), setProblemsError(null)),
+        (p) => {
+          if (stale) return;
+          const seen = seenProblems.current;
+          if (seen && notifyEnabled(conn.context)) notifyNew(api.shortContextName(conn.context), p.filter((x) => !seen.has(problemKey(x))));
+          seenProblems.current = new Set([...(seen ?? []), ...p.map(problemKey)]);
+          setProblems(p);
+          setProblemsError(null);
+        },
         (e) => !stale && !api.isUnauthorized(api.errorText(e)) && setProblemsError(api.errorText(e)),
       );
     void load();
@@ -254,6 +281,18 @@ export default function App() {
     return () => (clearTimeout(relock), clearInterval(tick));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [unlockedUntil]);
+
+  const openDock = useCallback((tab: DockTab) => {
+    setDockTabs((tabs) => (tabs.some((t) => t.id === tab.id) ? tabs : [...tabs, tab]));
+    setDockActive(tab.id);
+  }, []);
+  function closeDock(id: string) {
+    setDockTabs((tabs) => {
+      const next = tabs.filter((t) => t.id !== id);
+      setDockActive((active) => (active === id ? (next[next.length - 1]?.id ?? null) : active));
+      return next;
+    });
+  }
 
   /** Opens an object's kind, widening the namespace selection if needed, and selects it. */
   function goTo(kindKey: string, namespace: string | null, name: string) {
@@ -302,7 +341,8 @@ export default function App() {
     const list: Command[] = [];
     if (conn) {
       for (const s of SECTIONS) {
-        if (s.id === "problems") list.push({ id: "view:problems", group: "Go to", title: "Problems", subtitle: problems ? `${problems.length} found` : undefined, icon: <IconAlertTriangle size={16} />, run: () => openView(PROBLEMS) });
+        if (s.id === "rightsizing") list.push({ id: "view:rightsizing", group: "Go to", title: "Rightsizing", subtitle: "requests vs real usage", icon: <IconGauge size={16} />, run: () => openView(RIGHTSIZING) });
+        else if (s.id === "problems") list.push({ id: "view:problems", group: "Go to", title: "Problems", subtitle: problems ? `${problems.length} found` : undefined, icon: <IconAlertTriangle size={16} />, run: () => openView(PROBLEMS) });
         else if (s.id === "helm") list.push({ id: "view:helm", group: "Go to", title: "Helm releases", icon: <IconPackage size={16} />, run: () => openView(HELM) });
         else if (s.id === "forwards") list.push({ id: "view:forwards", group: "Go to", title: "Port forwards", icon: <s.icon size={16} />, run: () => openView(FORWARDS) });
         else
@@ -322,6 +362,15 @@ export default function App() {
         list.push({ id: `ns:${ns}`, group: "Namespaces", title: ns, subtitle: "show only this namespace", icon: <IconWorld size={16} />, run: () => chooseNamespaces([ns]) });
       }
       list.push({ id: "action:install", group: "Actions", title: "Install a Helm chart", icon: <IconPackage size={16} />, run: () => (openView(HELM), setHelmInstallRequest((n) => n + 1)) });
+      list.push({ id: "action:create", group: "Actions", title: "Create resources from YAML", icon: <IconPlus size={16} />, run: () => setCreateOpen(true) });
+      list.push({
+        id: "action:notify",
+        group: "Actions",
+        title: notifyOn ? "Stop crash notifications for this cluster" : "Notify me when pods crash in the selected namespaces",
+        icon: notifyOn ? <IconBellOff size={16} /> : <IconBell size={16} />,
+        run: () =>
+          void setNotifyEnabled(conn.context, !notifyOn).then((ok) => (ok ? setNotifyOn(!notifyOn) : setError("Notifications are not allowed for kubedeck in the system settings."))),
+      });
       list.push({
         id: "action:lock",
         group: "Actions",
@@ -362,13 +411,14 @@ export default function App() {
     }
     return list;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [conn, kinds, contexts, namespaces, rowList, kind?.label, pins, openView, problems, locked, lockPrefs]);
+  }, [conn, kinds, contexts, namespaces, rowList, kind?.label, pins, openView, problems, locked, lockPrefs, notifyOn]);
 
-  const viewLabel = view === PROBLEMS ? "Problems" : view === HELM ? "Helm releases" : view === FORWARDS ? "Port forwards" : (kind?.label ?? "");
+  const viewLabel = view === RIGHTSIZING ? "Rightsizing" : view === PROBLEMS ? "Problems" : view === HELM ? "Helm releases" : view === FORWARDS ? "Port forwards" : (kind?.label ?? "");
 
   return (
     <ThemeContext.Provider value={theme}>
       <ReadOnlyContext.Provider value={!!conn && locked}>
+      <DockContext.Provider value={conn ? openDock : null}>
       <div className={`shell ${prod ? "prod" : ""}`}>
         <Rail
           section={section}
@@ -396,12 +446,13 @@ export default function App() {
             onTogglePin={togglePin}
             namespaces={namespaces}
             selectedNamespaces={selectedNs}
-            namespacesEnabled={view === PROBLEMS || view === HELM || (kind?.namespaced ?? false)}
+            namespacesEnabled={view === RIGHTSIZING || view === PROBLEMS || view === HELM || (kind?.namespaced ?? false)}
             onNamespaces={chooseNamespaces}
             viewLabel={conn ? viewLabel : ""}
             onOpenPalette={() => setPaletteOpen(true)}
             lock={conn ? { locked, minutesLeft: unlockedUntil === null ? null : Math.max(1, Math.ceil((unlockedUntil - clock) / 60_000)) } : null}
             onToggleLock={toggleLock}
+            onCreate={conn ? () => setCreateOpen(true) : null}
           />
           {conn && <KindTabs section={section} kinds={kinds} active={view} recentCustom={recentCustom} onSelect={openView} />}
           {authProblem && <AuthBanner problem={authProblem} auth={authProblem.auth ?? conn?.auth ?? null} onRetry={() => void choose(authProblem.context, { force: true, quiet: !!conn })} />}
@@ -409,6 +460,10 @@ export default function App() {
 
           {!conn ? (
             <Welcome contexts={contexts} pins={visiblePins} connecting={connecting} onChoose={(c) => void choose(c)} onPalette={() => setPaletteOpen(true)} />
+          ) : view === RIGHTSIZING ? (
+            <div className="workspace">
+              <RightsizingView namespaces={selectedNs} kinds={kinds} onOpen={(k, ns, name) => goTo(k, ns, name)} />
+            </div>
           ) : view === PROBLEMS ? (
             <div className="workspace">
               <ProblemsView problems={problems} error={problemsError} kinds={kinds} onOpen={(p) => goTo(p.kindKey, p.namespace, p.name)} />
@@ -427,7 +482,7 @@ export default function App() {
             </div>
           ) : view === FORWARDS ? (
             <div className="workspace">
-              <PortForwardsView key={conn.context} />
+              <PortForwardsView key={conn.context} context={conn.context} />
             </div>
           ) : kind ? (
             <div className="workspace">
@@ -450,7 +505,18 @@ export default function App() {
               )}
             </div>
           ) : null}
+          {conn && <Dock key={conn.context} tabs={dockTabs} active={dockActive} onActivate={setDockActive} onClose={closeDock} />}
         </div>
+        {createOpen && conn && (
+          <CreateDialog
+            kindKey={kind?.key ?? null}
+            namespaces={namespaces}
+            defaultNamespace={selectedNs[0] ?? conn.defaultNamespace}
+            production={prod}
+            context={conn.context}
+            onClose={() => setCreateOpen(false)}
+          />
+        )}
         {paletteOpen && <CommandPalette commands={commands} onClose={() => setPaletteOpen(false)} />}
         {confirmUnlock && conn && (
           <ConfirmDialog
@@ -462,6 +528,7 @@ export default function App() {
           />
         )}
       </div>
+      </DockContext.Provider>
       </ReadOnlyContext.Provider>
     </ThemeContext.Provider>
   );

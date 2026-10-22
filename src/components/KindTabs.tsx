@@ -15,7 +15,7 @@ interface Props {
 /** Tabs for the kinds of the current section; custom resources add a CRD browser. */
 export default function KindTabs({ section, kinds, active, recentCustom, onSelect }: Props) {
   const def = SECTIONS.find((s) => s.id === section);
-  if (!def || section === "helm" || section === "forwards") return null;
+  if (!def || (!def.kinds && section !== "custom")) return null;
 
   const tabs = section === "custom" ? recentCustom.map((key) => kinds.find((k) => k.key === key)).filter((k): k is KindInfo => !!k) : (def.kinds ?? []).map((key) => kinds.find((k) => k.key === key)).filter((k): k is KindInfo => !!k);
 

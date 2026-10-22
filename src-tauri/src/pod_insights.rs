@@ -121,7 +121,7 @@ impl PromTarget {
         format!("/api/v1/namespaces/{}/services/{}:{}/proxy{api}", self.namespace, self.service, self.port)
     }
 
-    fn label(&self) -> String {
+    pub fn label(&self) -> String {
         format!("{}/{}:{}", self.namespace, self.service, self.port)
     }
 }
@@ -152,7 +152,7 @@ fn candidates(services: &[Service]) -> Vec<PromTarget> {
     found.into_iter().map(|(_, t)| t).collect()
 }
 
-async fn prom_get(client: &Client, target: &PromTarget, api: &str, params: &[(&str, String)]) -> Result<Value, String> {
+pub(crate) async fn prom_get(client: &Client, target: &PromTarget, api: &str, params: &[(&str, String)]) -> Result<Value, String> {
     let query = form_urlencoded::Serializer::new(String::new()).extend_pairs(params.iter().map(|(k, v)| (*k, v.as_str()))).finish();
     let request = http::Request::get(format!("{}?{query}", target.proxy_path(api))).body(Vec::new()).map_err(err)?;
     let text = client.request_text(request).await.map_err(err)?;
@@ -182,7 +182,7 @@ async fn detect(client: &Client) -> Option<PromTarget> {
     None
 }
 
-async fn prometheus(state: &Session) -> CmdResult<(Client, Option<PromTarget>)> {
+pub(crate) async fn prometheus(state: &Session) -> CmdResult<(Client, Option<PromTarget>)> {
     let conn = state.connection().await?;
     let target = conn.prometheus.get_or_init(|| detect(&conn.client)).await.clone();
     Ok((conn.client, target))

@@ -924,3 +924,45 @@ async fn read_only_secrets_and_login_against_real_cluster() {
     let failed = cluster::run_login("echo nope >&2; exit 3".into()).await.unwrap_err();
     assert!(failed.contains("nope") && failed.contains('3'), "{failed}");
 }
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "needs a disposable cluster, see module docs"]
+async fn create_and_rightsizing_against_real_cluster() {
+    let context = test_context();
+    let app = mock_app();
+    let state = || Session::of(&app, "create");
+    cluster::connect(context, state()).await.unwrap();
+
+    // Several documents; the ConfigMap without a namespace lands in the default one given.
+    let name = format!("created-{}", std::process::id());
+    let yaml = format!("apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: {name}\ndata:\n  a: \"1\"\n---\n---\napiVersion: v1\nkind: Namespace\nmetadata:\n  name: {name}\n");
+    let dry = resources::create_resources(yaml.clone(), opt("demo"), true, state()).await.unwrap();
+    assert_eq!(dry, vec![format!("ConfigMap demo/{name}"), format!("Namespace {name}")]);
+    assert!(resources::get_yaml("configmaps".into(), opt("demo"), name.clone(), None, state()).await.is_err(), "a dry run saves nothing");
+    let created = resources::create_resources(yaml.clone(), opt("demo"), false, state()).await.unwrap();
+    assert_eq!(created, dry);
+    // Creating again fails on the first document, saying which one.
+    let again = resources::create_resources(yaml, opt("demo"), false, state()).await.unwrap_err();
+    assert!(again.starts_with("Document 1 (ConfigMap"), "{again}");
+    let bad = resources::create_resources("apiVersion: v1\nkind: Nope\nmetadata:\n  name: x\n".into(), opt("demo"), true, state()).await.unwrap_err();
+    assert!(bad.contains("Document 1 (Nope)"), "{bad}");
+    resources::delete_resource("configmaps".into(), opt("demo"), name.clone(), state()).await.unwrap();
+    resources::delete_resource("namespaces".into(), None, name, state()).await.unwrap();
+    // Read-only refuses real creation, not dry runs.
+    cluster::set_read_only(true, state());
+    assert!(resources::create_resources("apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: ro\n".into(), opt("demo"), true, state()).await.is_ok());
+    assert_eq!(resources::create_resources("apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: ro\n".into(), opt("demo"), false, state()).await.unwrap_err(), crate::state::READ_ONLY);
+    cluster::set_read_only(false, state());
+
+    // Rightsizing: requests from the pod spec, usage from Prometheus (set up by e2e/setup.sh).
+    let report = serde_json::to_value(crate::rightsizing::rightsizing(vec!["demo".into()], state()).await.unwrap()).unwrap();
+    assert!(report["source"].as_str().unwrap().starts_with("Prometheus"), "{}", report["source"]);
+    let rows = report["rows"].as_array().unwrap();
+    let limited = rows.iter().find(|r| r["workload"] == "limited").expect("limited pod");
+    assert_eq!(limited["kindKey"], "pods");
+    assert_eq!(limited["cpuRequestMillis"], 10.0);
+    assert_eq!(limited["cpuLimitMillis"], 50.0);
+    assert!(limited["memoryUsageBytes"].as_f64().unwrap() > 0.0, "{limited}");
+    let web = rows.iter().find(|r| r["workload"] == "web" && r["kindKey"] == "deployments").expect("web deployment");
+    assert!(web["pods"].as_u64().unwrap() >= 1);
+}

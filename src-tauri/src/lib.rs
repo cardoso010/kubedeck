@@ -11,6 +11,7 @@ mod nodes;
 mod pod_insights;
 mod portforward;
 mod resources;
+mod rightsizing;
 mod secrets;
 mod state;
 mod streams;
@@ -52,6 +53,7 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_notification::init())
         .manage(state::Sessions::default())
         .manage(updater::PendingUpdate::default())
         .invoke_handler(tauri::generate_handler![
@@ -69,6 +71,8 @@ pub fn run() {
             resources::get_yaml,
             resources::replace_yaml,
             resources::delete_resource,
+            resources::create_resources,
+            rightsizing::rightsizing,
             streams::stream_logs,
             streams::stream_workload_logs,
             workloads::rollout_restart,

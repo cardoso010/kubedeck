@@ -59,6 +59,22 @@ export interface Target {
 
 export const listContexts = () => invoke<Contexts>("list_contexts");
 export const connect = (context: string) => invoke<Connected>("connect", { context });
+export const createResources = (yaml: string, namespace: string | null, dryRun: boolean) => invoke<string[]>("create_resources", { yaml, namespace, dryRun });
+
+export interface RightsizeRow {
+  namespace: string;
+  kindKey: string;
+  workload: string;
+  container: string;
+  pods: number;
+  cpuRequestMillis: number | null;
+  cpuLimitMillis: number | null;
+  cpuUsageMillis: number | null;
+  memoryRequestBytes: number | null;
+  memoryLimitBytes: number | null;
+  memoryUsageBytes: number | null;
+}
+export const rightsizing = (namespaces: string[]) => invoke<{ source: string; rows: RightsizeRow[] }>("rightsizing", { namespaces });
 export const setReadOnly = (readOnly: boolean) => invoke<void>("set_read_only", { readOnly });
 export const runLogin = (command: string) => invoke<string>("run_login", { command });
 export const secretKeys = (namespace: string, name: string) => invoke<{ key: string; bytes: number }[]>("secret_keys", { namespace, name });

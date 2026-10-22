@@ -292,6 +292,28 @@ async function invoke(cmd: string, args: Record<string, any>): Promise<unknown> 
       }, 30));
       return id;
     }
+    case "create_resources": {
+      const docs = String(args.yaml).split(/^---$/m).filter((d) => /kind:/.test(d));
+      if (!docs.length) throw "Nothing to create: the YAML has no objects";
+      return docs.map((d) => `${/kind:\s*(\S+)/.exec(d)![1]} ${args.namespace}/${/name:\s*(\S+)/.exec(d)?.[1] ?? "?"}`);
+    }
+    case "rightsizing": {
+      const MI = 1024 ** 2;
+      const row = (namespace: string, kindKey: string, workload: string, container: string, pods: number, cpuReq: number | null, cpuUse: number, memReq: number | null, memUse: number) => ({
+        namespace, kindKey, workload, container, pods, cpuRequestMillis: cpuReq, cpuLimitMillis: null, cpuUsageMillis: cpuUse, memoryRequestBytes: memReq === null ? null : memReq * MI, memoryLimitBytes: null, memoryUsageBytes: memUse * MI,
+      });
+      return {
+        source: "Prometheus monitoring/prometheus-server:80 · CPU p95 and peak memory over 24h",
+        rows: [
+          row("demo", "deployments", "web", "web", 3, 500, 12, 512, 38),
+          row("demo", "deployments", "api", "api", 1, 250, 131, 256, 182),
+          row("demo", "deployments", "api", "envoy", 1, null, 21, null, 44),
+          row("demo", "pods", "limited", "limited", 1, 10, 48, 16, 31),
+          row("demo2", "deployments", "worker", "worker", 2, 1000, 85, 2048, 410),
+          row("demo", "statefulsets", "db", "postgres", 1, 500, 380, 1024, 860),
+        ],
+      };
+    }
     case "set_read_only":
       return null;
     case "run_login":

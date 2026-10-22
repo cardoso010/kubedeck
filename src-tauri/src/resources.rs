@@ -3,7 +3,8 @@
 use std::collections::HashMap;
 
 use futures::StreamExt;
-use kube::api::{Api, DeleteParams, DynamicObject, PostParams};
+use kube::api::{Api, DeleteParams, DynamicObject, GroupVersionKind, PostParams};
+use serde::Deserialize;
 use kube::runtime::{watcher, WatchStreamExt};
 use serde::Serialize;
 use tauri::ipc::Channel;
@@ -177,4 +178,48 @@ pub async fn delete_resource(kind_key: String, namespace: Option<String>, name: 
     let (_, api) = api_for(&state, &kind_key, namespace.as_deref()).await?;
     api.delete(&name, &DeleteParams::default()).await.map_err(err)?;
     Ok(())
+}
+
+/// Creates every object in `yaml` (one or more documents separated by `---`), in order.
+/// Namespaced objects without a namespace go to `namespace`. With `dry_run` the API server
+/// validates them without saving. Returns "Kind name" for each one.
+#[tauri::command]
+pub async fn create_resources(yaml: String, namespace: Option<String>, dry_run: bool, state: Session) -> CmdResult<Vec<String>> {
+    if !dry_run {
+        state.writable()?;
+    }
+    let client = state.connection().await?.client;
+    let mut docs = Vec::new();
+    for (i, doc) in serde_yaml::Deserializer::from_str(&yaml).enumerate() {
+        let value = serde_yaml::Value::deserialize(doc).map_err(|e| format!("Document {}: invalid YAML: {e}", i + 1))?;
+        if value.is_null() {
+            continue;
+        }
+        let obj: DynamicObject = serde_yaml::from_value(value).map_err(|e| format!("Document {}: {e}", i + 1))?;
+        docs.push(obj);
+    }
+    if docs.is_empty() {
+        return Err("Nothing to create: the YAML has no objects".into());
+    }
+    let params = PostParams { dry_run, field_manager: Some("kubedeck".into()) };
+    let mut created = Vec::new();
+    for (i, mut obj) in docs.into_iter().enumerate() {
+        let types = obj.types.clone().ok_or_else(|| format!("Document {}: apiVersion and kind are required", i + 1))?;
+        let gvk = GroupVersionKind::try_from(&types).map_err(|e| format!("Document {}: {e}", i + 1))?;
+        let (ar, caps) = kube::discovery::pinned_kind(&client, &gvk).await.map_err(|e| format!("Document {} ({}): {}", i + 1, types.kind, kube_err(&e)))?;
+        let api: Api<DynamicObject> = if caps.scope == kube::discovery::Scope::Namespaced {
+            let ns = obj.metadata.namespace.clone().or_else(|| namespace.clone()).ok_or_else(|| format!("Document {}: {} needs a namespace", i + 1, types.kind))?;
+            obj.metadata.namespace = Some(ns.clone());
+            Api::namespaced_with(client.clone(), &ns, &ar)
+        } else {
+            Api::all_with(client.clone(), &ar)
+        };
+        let saved = api.create(&params, &obj).await.map_err(|e| format!("Document {} ({} {}): {}", i + 1, types.kind, obj.metadata.name.as_deref().or(obj.metadata.generate_name.as_deref()).unwrap_or("?"), kube_err(&e)))?;
+        let name = saved.metadata.name.unwrap_or_default();
+        created.push(match saved.metadata.namespace {
+            Some(ns) => format!("{} {ns}/{name}", types.kind),
+            None => format!("{} {name}", types.kind),
+        });
+    }
+    Ok(created)
 }

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { IconChevronDown, IconLock, IconLockOpen, IconPin, IconPinnedFilled, IconSearch } from "@tabler/icons-react";
+import { IconChevronDown, IconLock, IconLockOpen, IconPlus, IconPin, IconPinnedFilled, IconSearch } from "@tabler/icons-react";
 import { isProduction, openWindow, shortContextName, type ContextInfo } from "../api";
 import { clusterColor } from "../pins";
 import NamespacePicker from "./NamespacePicker";
@@ -22,6 +22,8 @@ interface Props {
   /** Read-only state of the window, null when not connected. */
   lock: { locked: boolean; minutesLeft: number | null } | null;
   onToggleLock: () => void;
+  /** Opens "Create from YAML"; null when not connected. */
+  onCreate: (() => void) | null;
 }
 
 /** Breadcrumb bar: cluster › namespaces › view, plus the command palette trigger. */
@@ -59,6 +61,11 @@ export default function TopBar(p: Props) {
           ))}
         {prod && <span className="prod-badge">production</span>}
         {p.serverVersion && <span className="faint mono">{p.serverVersion}</span>}
+        {p.onCreate && (
+          <button className="icon-button" title="Create resources from YAML" aria-label="Create resources from YAML" onClick={p.onCreate}>
+            <IconPlus size={15} />
+          </button>
+        )}
         <button className="search-trigger" onClick={p.onOpenPalette}>
           <IconSearch size={14} stroke={1.8} />
           <span>Search or jump to…</span>

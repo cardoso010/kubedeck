@@ -1,9 +1,9 @@
 // Sidebar rail sections. Built-in kinds are grouped by purpose; every CRD lives under
-// "custom"; problems, Helm and port forwards are views of their own.
-import { IconAdjustmentsHorizontal, IconAlertTriangle, IconBox, IconNetwork, IconPackage, IconPlugConnected, IconPuzzle, IconServer2, type Icon } from "@tabler/icons-react";
+// "custom"; problems, rightsizing, Helm and port forwards are views of their own.
+import { IconAdjustmentsHorizontal, IconAlertTriangle, IconGauge, IconBox, IconNetwork, IconPackage, IconPlugConnected, IconPuzzle, IconServer2, type Icon } from "@tabler/icons-react";
 import type { KindInfo } from "./api";
 
-export type SectionId = "problems" | "workloads" | "network" | "config" | "cluster" | "custom" | "helm" | "forwards";
+export type SectionId = "problems" | "rightsizing" | "workloads" | "network" | "config" | "cluster" | "custom" | "helm" | "forwards";
 
 export interface Section {
   id: SectionId;
@@ -20,6 +20,7 @@ export const SECTIONS: Section[] = [
   { id: "config", label: "Config", icon: IconAdjustmentsHorizontal, kinds: ["configmaps", "secrets", "persistentvolumeclaims"] },
   { id: "cluster", label: "Cluster", icon: IconServer2, kinds: ["nodes", "namespaces", "events"] },
   { id: "custom", label: "Custom resources", icon: IconPuzzle },
+  { id: "rightsizing", label: "Rightsizing", icon: IconGauge },
   { id: "helm", label: "Helm", icon: IconPackage },
   { id: "forwards", label: "Port forwards", icon: IconPlugConnected },
 ];
@@ -28,9 +29,11 @@ export const SECTIONS: Section[] = [
 export const HELM = "helm";
 export const FORWARDS = "port-forwards";
 export const PROBLEMS = "problems";
+export const RIGHTSIZING = "rightsizing";
 
 export function sectionOf(viewKey: string, kinds: KindInfo[]): SectionId {
   if (viewKey === PROBLEMS) return "problems";
+  if (viewKey === RIGHTSIZING) return "rightsizing";
   if (viewKey === HELM) return "helm";
   if (viewKey === FORWARDS) return "forwards";
   const builtin = SECTIONS.find((s) => s.kinds?.includes(viewKey));
