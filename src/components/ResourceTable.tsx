@@ -80,7 +80,10 @@ export default function ResourceTable({ kind, rows, loading, error, errorPrefix 
                 style={{ gridTemplateColumns: template, transform: `translateY(${item.start}px)`, height: ROW_HEIGHT }}
                 onClick={() => onSelect(r)}
               >
-                <div title={r.name}>{r.name}</div>
+                <div title={r.name} className="name-cell">
+                  <span className={`status-dot ${rowHealth(kind, r)}`} />
+                  {r.name}
+                </div>
                 {showNamespace && <div>{r.namespace}</div>}
                 {r.cells.map((c, i) => (
                   <div key={i} title={c} className={statusClass(kind.columns[i], c)}>
@@ -101,6 +104,17 @@ export default function ResourceTable({ kind, rows, loading, error, errorPrefix 
       </div>
     </section>
   );
+}
+
+/** Overall health of a row, for the dot before its name. */
+function rowHealth(kind: KindInfo, row: Row): string {
+  const statusIndex = kind.columns.findIndex((c) => c === "Status");
+  if (statusIndex >= 0) return statusClass("Status", row.cells[statusIndex]) || "neutral";
+  // Workloads: "ready/desired" style columns.
+  const readyIndex = kind.columns.findIndex((c) => c === "Ready");
+  const ready = readyIndex >= 0 ? /^(\d+)\/(\d+)$/.exec(row.cells[readyIndex] ?? "") : null;
+  if (ready) return ready[1] === ready[2] ? "ok" : Number(ready[1]) === 0 ? "bad" : "warn";
+  return "neutral";
 }
 
 function statusClass(column: string | undefined, value: string) {

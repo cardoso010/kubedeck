@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import Editor from "@monaco-editor/react";
+import { useCurrentTheme } from "../theme";
 import { errorText, helmDetails, helmList, helmRollback, helmSearch, helmUninstall, splitChart, type HelmDetails, type HelmRelease, type KindInfo, type Row } from "../api";
 import ResourceTable from "./ResourceTable";
 import ConfirmDialog from "./ConfirmDialog";
@@ -28,11 +29,16 @@ interface Props {
   defaultNamespace: string;
   production: boolean;
   context: string;
+  /** Bumped by the command palette to open the install dialog. */
+  installRequest?: number;
 }
 
-export default function HelmView({ namespaces, allNamespaces, defaultNamespace, production, context }: Props) {
+export default function HelmView({ namespaces, allNamespaces, defaultNamespace, production, context, installRequest = 0 }: Props) {
   const [releases, setReleases] = useState<HelmRelease[] | null>(null);
   const [installing, setInstalling] = useState(false);
+  useEffect(() => {
+    if (installRequest > 0) setInstalling(true);
+  }, [installRequest]);
   const [error, setError] = useState<string | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
 
@@ -278,9 +284,10 @@ function UpgradeTab({ release, values, production, context, onDone }: { release:
 }
 
 function ReadOnlyCode({ text, language }: { text: string; language: string }) {
+  const monacoTheme = useCurrentTheme().monaco;
   return (
     <div className="yaml-editor">
-      <Editor language={language} theme="vs-dark" value={text} options={{ readOnly: true, minimap: { enabled: false }, fontSize: 12, scrollBeyondLastLine: false }} />
+      <Editor language={language} theme={monacoTheme} value={text} options={{ readOnly: true, minimap: { enabled: false }, fontSize: 12, scrollBeyondLastLine: false }} />
     </div>
   );
 }

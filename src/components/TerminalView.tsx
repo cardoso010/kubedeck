@@ -2,12 +2,16 @@ import { useEffect, useRef } from "react";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { errorText, execInput, execResize, execStart, stopStream } from "../api";
+import { useCurrentTheme } from "../theme";
 
 export default function TerminalView({ namespace, pod, container }: { namespace: string; pod: string; container: string | null }) {
   const host = useRef<HTMLDivElement>(null);
+  const terminal = useRef<Terminal | null>(null);
+  const theme = useCurrentTheme();
 
   useEffect(() => {
-    const term = new Terminal({ fontSize: 12, fontFamily: "Menlo, monospace", cursorBlink: true, theme: { background: "#0d1117" } });
+    const term = new Terminal({ fontSize: 12, fontFamily: '"JetBrains Mono Variable", Menlo, monospace', cursorBlink: true, theme: theme.xterm });
+    terminal.current = term;
     const fit = new FitAddon();
     term.loadAddon(fit);
     term.open(host.current!);
@@ -42,7 +46,13 @@ export default function TerminalView({ namespace, pod, container }: { namespace:
       if (id !== null) void stopStream(id);
       term.dispose();
     };
+    // The theme is applied below without restarting the session.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [namespace, pod, container]);
+
+  useEffect(() => {
+    if (terminal.current) terminal.current.options.theme = theme.xterm;
+  }, [theme]);
 
   return <div className="terminal" ref={host} />;
 }

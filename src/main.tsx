@@ -1,6 +1,9 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
 import "./monaco";
+import "./theme";
+import "@fontsource-variable/jetbrains-mono";
+import "@fontsource-variable/inter";
 import "@xterm/xterm/css/xterm.css";
 import "./App.css";
 import App from "./App";

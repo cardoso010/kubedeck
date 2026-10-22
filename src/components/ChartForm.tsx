@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import Editor from "@monaco-editor/react";
+import { useCurrentTheme } from "../theme";
 import { errorText, helmChartVersions, helmInstall, helmShowValues, helmUpgrade, type HelmChart } from "../api";
 import ConfirmDialog from "./ConfirmDialog";
 
@@ -23,6 +24,7 @@ type Output = { kind: "dry" | "error"; text: string };
 
 /** Version, values and target for `helm install` / `helm upgrade`, with a dry run first. */
 export default function ChartForm({ mode, chart: initialChart, version: initialVersion, release, values: initialValues, namespaces = [], production, context, onDone }: Props) {
+  const monacoTheme = useCurrentTheme().monaco;
   const [chart, setChart] = useState(initialChart);
   const [versions, setVersions] = useState<HelmChart[]>([]);
   const [version, setVersion] = useState<string>(initialVersion ?? "");
@@ -154,7 +156,7 @@ export default function ChartForm({ mode, chart: initialChart, version: initialV
           {valuesLoaded ? (
             <Editor
               language="yaml"
-              theme="vs-dark"
+              theme={monacoTheme}
               value={values}
               onChange={(v) => {
                 valuesTouched.current = true;

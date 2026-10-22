@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { IconChevronDown } from "@tabler/icons-react";
 
 interface Props {
   namespaces: string[];
@@ -6,6 +7,10 @@ interface Props {
   selected: string[];
   disabled: boolean;
   onChange: (selected: string[]) => void;
+  /** "crumb" renders as a breadcrumb segment in the top bar. */
+  variant?: "field" | "crumb";
+  /** The current view is cluster-scoped, so namespaces do not apply. */
+  clusterScoped?: boolean;
 }
 
 export function namespaceSummary(selected: string[]) {
@@ -18,7 +23,7 @@ export function namespaceSummary(selected: string[]) {
  * Multi-select for namespaces. Clicking a name selects only it; the checkbox adds or
  * removes it from the selection.
  */
-export default function NamespacePicker({ namespaces, selected, disabled, onChange }: Props) {
+export default function NamespacePicker({ namespaces, selected, disabled, onChange, variant = "field", clusterScoped = false }: Props) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const root = useRef<HTMLDivElement>(null);
@@ -43,13 +48,13 @@ export default function NamespacePicker({ namespaces, selected, disabled, onChan
   const toggle = (ns: string) => onChange(selected.includes(ns) ? selected.filter((n) => n !== ns) : [...selected, ns].sort());
 
   return (
-    <div className="ns-picker" ref={root}>
-      <button className="ns-picker-button" disabled={disabled} onClick={() => setOpen(!open)} title={selected.join(", ") || undefined}>
-        <span>{namespaceSummary(selected)}</span>
-        <span className="chevron">▾</span>
+    <div className={variant === "crumb" ? "crumb-wrap" : "ns-picker"} ref={root}>
+      <button className={variant === "crumb" ? "crumb" : "ns-picker-button"} disabled={disabled} onClick={() => setOpen(!open)} title={selected.join(", ") || undefined}>
+        <span>{clusterScoped ? "cluster-wide" : namespaceSummary(selected)}</span>
+        <IconChevronDown size={13} className="faint" />
       </button>
       {open && (
-        <div className="ns-picker-menu">
+        <div className="menu ns-picker-menu">
           <input autoFocus placeholder="Find a namespace…" value={query} onChange={(e) => setQuery(e.target.value)} />
           <button className={`ns-option ${selected.length === 0 ? "active" : ""}`} onClick={() => (onChange([]), setOpen(false))}>
             All namespaces

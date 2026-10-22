@@ -1,9 +1,11 @@
 import { useEffect, useState } from "react";
 import Editor from "@monaco-editor/react";
+import { useCurrentTheme } from "../theme";
 import { errorText, getYaml, replaceYaml, type Target } from "../api";
 import ConfirmDialog from "./ConfirmDialog";
 
 export default function YamlEditor({ target, production }: { target: Target; production: boolean }) {
+  const monacoTheme = useCurrentTheme().monaco;
   const [original, setOriginal] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
   const [status, setStatus] = useState<{ kind: "error" | "ok"; text: string } | null>(null);
@@ -59,7 +61,7 @@ export default function YamlEditor({ target, production }: { target: Target; pro
         ) : (
           <Editor
             language="yaml"
-            theme="vs-dark"
+            theme={monacoTheme}
             value={draft}
             onChange={(v) => setDraft(v ?? "")}
             options={{ minimap: { enabled: false }, fontSize: 12, scrollBeyondLastLine: false, tabSize: 2 }}
