@@ -15,7 +15,7 @@ use tauri::Manager;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 use crate::state::{Session, Sessions};
-use crate::{cluster, helm, helm_charts, metrics, pod_insights, portforward, resources, streams};
+use crate::{cluster, helm, helm_charts, metrics, pod_insights, portforward, resources, streams, workloads};
 
 type Inbox = Arc<Mutex<Vec<Value>>>;
 
@@ -122,7 +122,7 @@ async fn backend_against_real_cluster() {
 
     // Logs
     let (ch, logs) = channel();
-    let logs_id = streams::stream_logs("demo".into(), "ticker".into(), None, Some(5), ch, state()).await.unwrap();
+    let logs_id = streams::stream_logs("demo".into(), "ticker".into(), None, Some(5), None, ch, state()).await.unwrap();
     wait_for(&logs, "log lines", |m| m.iter().filter(|m| m["type"] == "data" && m["data"].as_str().unwrap().starts_with("tick ")).count() >= 3).await;
     resources::stop_stream(logs_id, state());
 
@@ -621,6 +621,91 @@ async fn expired_credentials_are_reported_and_recover() {
     let _ = sas.delete("kubedeck-auth", &DeleteParams::default()).await;
     let _ = bindings.delete("kubedeck-auth-view", &DeleteParams::default()).await;
     std::fs::write(&token_file, "").unwrap();
+}
+
+/// Polls `check` every 500ms for up to 60s.
+async fn eventually<F, Fut>(what: &str, mut check: F)
+where
+    F: FnMut() -> Fut,
+    Fut: std::future::Future<Output = bool>,
+{
+    for _ in 0..120 {
+        if check().await {
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(500)).await;
+    }
+    panic!("timed out waiting for {what}");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "needs a disposable cluster, see module docs"]
+async fn workload_actions_against_real_cluster() {
+    let context = test_context();
+    let app = mock_app();
+    let state = || Session::of(&app, "main");
+    cluster::connect(context, state()).await.unwrap();
+    let status = || async { serde_json::to_value(workloads::rollout_status("demo".into(), "web".into(), state()).await.unwrap()).unwrap() };
+    let deployments: kube::Api<k8s_openapi::api::apps::v1::Deployment> = kube::Api::namespaced(state().connection().await.unwrap().client, "demo");
+
+    // Restart creates a new revision.
+    let before = status().await;
+    let top = before["revisions"][0]["revision"].as_i64().unwrap();
+    assert_eq!(before["revisions"][0]["current"], true, "{before}");
+    workloads::rollout_restart("deployments".into(), "demo".into(), "web".into(), state()).await.unwrap();
+    eventually("restart revision", || async { status().await["revisions"][0]["revision"].as_i64().unwrap() == top + 1 }).await;
+    let after = status().await;
+    assert!(after["revisions"][0]["templateYaml"].as_str().unwrap().contains("kubectl.kubernetes.io/restartedAt"));
+    assert!(workloads::rollout_restart("configmaps".into(), "demo".into(), "app-config".into(), state()).await.is_err());
+
+    // Roll back to the revision before the restart: the controller reuses that ReplicaSet and
+    // makes it the newest revision, with exactly the old template.
+    let old_template = before["revisions"][0]["templateYaml"].clone();
+    workloads::rollback("demo".into(), "web".into(), top, state()).await.unwrap();
+    eventually("rollback", || {
+        let old_template = old_template.clone();
+        async move {
+            let s = status().await;
+            let current = s["revisions"].as_array().unwrap().iter().find(|r| r["current"] == true).cloned().unwrap_or_default();
+            current["revision"].as_i64() == Some(top + 2) && current["templateYaml"] == old_template
+        }
+    })
+    .await;
+    assert!(workloads::rollback("demo".into(), "web".into(), 999, state()).await.unwrap_err().contains("not found"));
+
+    // Scale and pause.
+    workloads::scale("deployments".into(), "demo".into(), "web".into(), 2, state()).await.unwrap();
+    assert_eq!(deployments.get("web").await.unwrap().spec.unwrap().replicas, Some(2));
+    workloads::scale("deployments".into(), "demo".into(), "web".into(), 3, state()).await.unwrap();
+    assert!(workloads::scale("deployments".into(), "demo".into(), "web".into(), -1, state()).await.is_err());
+    workloads::set_paused("demo".into(), "web".into(), true, state()).await.unwrap();
+    assert_eq!(status().await["paused"], true);
+    workloads::set_paused("demo".into(), "web".into(), false, state()).await.unwrap();
+    assert_eq!(status().await["paused"], false);
+
+    // Logs of the previous (crashed) run.
+    let (ch, logs) = channel();
+    streams::stream_logs("demo".into(), "broken".into(), None, None, Some(true), ch, state()).await.unwrap();
+    wait_for(&logs, "previous logs", |m| m.iter().any(|m| m["type"] == "end")).await;
+    assert!(logs.lock().unwrap().iter().any(|m| m["data"] == "boom"), "{:?}", logs.lock().unwrap());
+
+    // Logs of every replica, tagged with their pod.
+    let (ch, merged) = channel();
+    let id = streams::stream_workload_logs("deployments".into(), "demo".into(), "chatty".into(), Some(10), ch, state()).await.unwrap();
+    wait_for(&merged, "lines from both replicas", |m| {
+        m.iter().filter_map(|m| m["source"].as_str()).collect::<std::collections::BTreeSet<_>>().len() == 2
+    })
+    .await;
+    for m in merged.lock().unwrap().iter().filter(|m| m["type"] == "data") {
+        assert_eq!(m["data"].as_str().unwrap(), format!("hello from {}", m["source"].as_str().unwrap()));
+    }
+    resources::stop_stream(id, state());
+
+    // Events of one object.
+    let pods: kube::Api<k8s_openapi::api::core::v1::Pod> = kube::Api::namespaced(state().connection().await.unwrap().client, "demo");
+    let uid = pods.get("broken").await.unwrap().metadata.uid.unwrap();
+    let events = serde_json::to_value(workloads::object_events(Some("demo".into()), uid, state()).await.unwrap()).unwrap();
+    assert!(events.as_array().unwrap().iter().any(|e| e["type"] == "Warning" && e["reason"] == "BackOff"), "{events}");
 }
 
 fn crate_is_production(context: &str) -> bool {

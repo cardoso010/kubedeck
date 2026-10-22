@@ -37,6 +37,9 @@ export interface Row {
   cells: string[];
   containers: string[];
   ports: number[];
+  /** Desired replicas, for deployments and statefulsets. */
+  replicas?: number | null;
+  paused?: boolean;
 }
 
 export type WatchMsg =
@@ -45,7 +48,7 @@ export type WatchMsg =
   | { type: "delete"; uid: string }
   | { type: "error"; message: string; unauthorized: boolean };
 
-export type StreamMsg = { type: "data"; data: string } | { type: "end"; message: string | null };
+export type StreamMsg = { type: "data"; data: string; source?: string } | { type: "end"; message: string | null };
 
 /** Identifies one object for the YAML/delete commands. */
 export interface Target {
@@ -72,10 +75,63 @@ export const getYaml = (t: Target) => invoke<string>("get_yaml", { ...t });
 export const replaceYaml = (t: Target, yaml: string) => invoke<string>("replace_yaml", { ...t, yaml });
 export const deleteResource = (t: Target) => invoke<void>("delete_resource", { ...t });
 
-export function streamLogs(namespace: string, pod: string, container: string | null, onMessage: (m: StreamMsg) => void) {
+/** `previous`: the logs of the container's previous (crashed) run, not followed. */
+export function streamLogs(namespace: string, pod: string, container: string | null, onMessage: (m: StreamMsg) => void, previous = false) {
   const onEvent = new Channel<StreamMsg>();
   onEvent.onmessage = onMessage;
-  return invoke<number>("stream_logs", { namespace, pod, container, tailLines: 1000, onEvent });
+  return invoke<number>("stream_logs", { namespace, pod, container, tailLines: 1000, previous, onEvent });
+}
+
+/** Logs of every pod of a workload, each line tagged with its pod in `source`. */
+export function streamWorkloadLogs(kindKey: string, namespace: string, name: string, onMessage: (m: StreamMsg) => void) {
+  const onEvent = new Channel<StreamMsg>();
+  onEvent.onmessage = onMessage;
+  return invoke<number>("stream_workload_logs", { kindKey, namespace, name, tailLines: 1000, onEvent });
+}
+
+export interface RevisionInfo {
+  revision: number;
+  replicaSet: string;
+  created: string | null;
+  replicas: number;
+  images: string[];
+  changeCause: string | null;
+  current: boolean;
+  templateYaml: string;
+}
+
+export interface RolloutStatus {
+  replicas: number;
+  ready: number;
+  updated: number;
+  available: number;
+  paused: boolean;
+  revisions: RevisionInfo[];
+}
+
+export interface EventRow {
+  type: string;
+  reason: string;
+  message: string;
+  count: number;
+  lastSeen: string | null;
+  source: string;
+}
+
+export const rolloutRestart = (kindKey: string, namespace: string, name: string) => invoke<void>("rollout_restart", { kindKey, namespace, name });
+export const scale = (kindKey: string, namespace: string, name: string, replicas: number) => invoke<void>("scale", { kindKey, namespace, name, replicas });
+export const setPaused = (namespace: string, name: string, paused: boolean) => invoke<void>("set_paused", { namespace, name, paused });
+export const rolloutStatus = (namespace: string, name: string) => invoke<RolloutStatus>("rollout_status", { namespace, name });
+export const rollback = (namespace: string, name: string, revision: number) => invoke<void>("rollback", { namespace, name, revision });
+export const objectEvents = (namespace: string | null, uid: string) => invoke<EventRow[]>("object_events", { namespace, uid });
+
+/** Asks where to save `contents` and writes it there. Resolves false when cancelled. */
+export async function saveTextFile(defaultName: string, contents: string): Promise<boolean> {
+  const { save } = await import("@tauri-apps/plugin-dialog");
+  const path = await save({ defaultPath: defaultName });
+  if (!path) return false;
+  await invoke("write_text_file", { path, contents });
+  return true;
 }
 
 export function execStart(

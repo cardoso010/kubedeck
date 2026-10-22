@@ -24,3 +24,9 @@ pub fn open_window(app: AppHandle, context: Option<String>) -> CmdResult<()> {
         .map_err(err)?;
     Ok(())
 }
+
+/// Saves text (logs, YAML) to a path the user picked in the save dialog.
+#[tauri::command]
+pub fn write_text_file(path: String, contents: String) -> CmdResult<()> {
+    std::fs::write(&path, contents).map_err(|e| format!("Could not save {path}: {e}"))
+}

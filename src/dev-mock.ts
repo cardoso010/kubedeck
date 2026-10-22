@@ -39,8 +39,8 @@ const ROWS: Record<string, Row[]> = {
     { ...pod("coredns-7db6d8ff4d-x8x2v", "1/1", "Running", 0, 86400), namespace: "kube-system", uid: "uid-coredns" },
   ],
   deployments: [
-    { uid: "d1", name: "web", namespace: "demo", created: ago(3600), cells: ["3/3", "3", "3"], containers: [], ports: [] },
-    { uid: "d2", name: "api", namespace: "demo", created: ago(86400 * 3), cells: ["1/1", "1", "1"], containers: [], ports: [] },
+    { uid: "d1", name: "web", namespace: "demo", created: ago(3600), cells: ["3/3", "3", "3"], containers: [], ports: [], replicas: 3, paused: false },
+    { uid: "d2", name: "api", namespace: "demo", created: ago(86400 * 3), cells: ["1/1", "1", "1"], containers: [], ports: [], replicas: 1, paused: false },
   ],
   services: [{ uid: "s1", name: "web", namespace: "demo", created: ago(3600), cells: ["ClusterIP", "10.96.12.4", "80/TCP"], containers: [], ports: [80] }],
   configmaps: [{ uid: "c1", name: "app-config", namespace: "demo", created: ago(3600), cells: ["2"], containers: [], ports: [] }],
@@ -190,6 +190,40 @@ async function invoke(cmd: string, args: Record<string, any>): Promise<unknown> 
       return { status: "available", version: "0.3.0", notes: "Sample release notes", date: null };
     case "plugin:app|version":
       return "0.2.0";
+    case "rollout_status": {
+      const template = (tag: string, extra = "") => `metadata:\n  labels:\n    app: ${args.name}\n${extra}spec:\n  containers:\n    - name: ${args.name}\n      image: nginx:${tag}\n      ports:\n        - containerPort: 80\n`;
+      return {
+        replicas: 3, ready: 3, updated: 3, available: 3, paused: false,
+        revisions: [
+          { revision: 7, replicaSet: `${args.name}-7c6cdd646`, created: ago(3600), replicas: 3, images: ["nginx:1.27-alpine"], changeCause: "bump nginx to 1.27", current: true, templateYaml: template("1.27-alpine", "  annotations:\n    kubectl.kubernetes.io/restartedAt: \"2026-10-22T13:00:00Z\"\n") },
+          { revision: 6, replicaSet: `${args.name}-5d8b9c7f4`, created: ago(86400 * 2), replicas: 0, images: ["nginx:1.26-alpine"], changeCause: null, current: false, templateYaml: template("1.26-alpine") },
+          { revision: 5, replicaSet: `${args.name}-6f7a8b9c1`, created: ago(86400 * 9), replicas: 0, images: ["nginx:1.25-alpine"], changeCause: null, current: false, templateYaml: template("1.25-alpine") },
+        ],
+      };
+    }
+    case "object_events":
+      return [
+        { type: "Warning", reason: "BackOff", message: "Back-off restarting failed container in pod broken_demo", count: 41, lastSeen: ago(30), source: "kubelet" },
+        { type: "Normal", reason: "Pulled", message: 'Container image "busybox:1.36" already present on machine', count: 8, lastSeen: ago(300), source: "kubelet" },
+        { type: "Normal", reason: "Scheduled", message: "Successfully assigned demo/broken to kubedeck-test-control-plane", count: 1, lastSeen: ago(900), source: "default-scheduler" },
+      ];
+    case "stream_workload_logs": {
+      const id = nextStream++;
+      const pods = [`${args.name}-7c6cdd646-2zjfg`, `${args.name}-7c6cdd646-cggh4`, `${args.name}-7c6cdd646-jtjnc`];
+      let i = 0;
+      timers.set(id, setInterval(() => {
+        const n = i++;
+        const pod = pods[n % 3];
+        const line = n % 7 === 3 ? JSON.stringify({ time: new Date().toISOString(), level: "warn", msg: "slow upstream", upstream: "payments", ms: 800 + n }) : `10.244.0.${10 + (n % 3)} - - "GET /health HTTP/1.1" 200 2 #${n}`;
+        send(channel!, { type: "data", data: line, source: pod });
+      }, 350));
+      return id;
+    }
+    case "rollout_restart":
+    case "scale":
+    case "set_paused":
+    case "rollback":
+      return null;
     case "pod_usage": {
       const multi = args.pod.startsWith("api-");
       const mk = (name: string, cpu: number, mem: number, extra: object = {}) => ({

@@ -12,6 +12,7 @@ mod state;
 mod streams;
 mod updater;
 mod windows;
+mod workloads;
 
 /// Apps started from Finder, the Dock or a desktop launcher get a minimal PATH, so kubeconfig
 /// exec plugins such as `aws eks get-token` or `gke-gcloud-auth-plugin` would not be found.
@@ -46,6 +47,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_dialog::init())
         .manage(state::Sessions::default())
         .manage(updater::PendingUpdate::default())
         .invoke_handler(tauri::generate_handler![
@@ -60,6 +62,13 @@ pub fn run() {
             resources::replace_yaml,
             resources::delete_resource,
             streams::stream_logs,
+            streams::stream_workload_logs,
+            workloads::rollout_restart,
+            workloads::scale,
+            workloads::set_paused,
+            workloads::rollout_status,
+            workloads::rollback,
+            workloads::object_events,
             streams::exec_start,
             streams::exec_input,
             streams::exec_resize,
@@ -86,6 +95,7 @@ pub fn run() {
             updater::check_for_update,
             updater::install_update,
             windows::open_window,
+            windows::write_text_file,
         ])
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::Destroyed = event {

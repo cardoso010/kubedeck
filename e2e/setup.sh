@@ -26,6 +26,8 @@ kubectl -n demo get service web >/dev/null 2>&1 || kubectl -n demo expose deploy
 kubectl -n demo get configmap app-config >/dev/null 2>&1 || kubectl -n demo create configmap app-config --from-literal=LOG_LEVEL=debug --from-literal=FEATURE_X=true
 kubectl -n demo get pod ticker >/dev/null 2>&1 || kubectl -n demo run ticker --image=busybox:1.36 -- sh -c 'i=0; while true; do i=$((i+1)); echo "tick $i $(date)"; sleep 1; done'
 kubectl -n demo get pod broken >/dev/null 2>&1 || kubectl -n demo run broken --image=busybox:1.36 -- sh -c 'echo boom; exit 1'
+# Two replicas that log their own name, for merged workload logs.
+kubectl -n demo get deployment chatty >/dev/null 2>&1 || kubectl -n demo create deployment chatty --image=busybox:1.36 --replicas=2 -- sh -c 'while true; do echo "hello from $(hostname)"; sleep 2; done'
 # A pod with requests and limits, for the usage-vs-limits view.
 kubectl -n demo get pod limited >/dev/null 2>&1 || kubectl -n demo apply -f - <<'POD'
 apiVersion: v1
@@ -83,6 +85,7 @@ if ! "$HELM" status prometheus -n monitoring >/dev/null 2>&1; then
 fi
 
 kubectl -n demo rollout status deployment/web --timeout=180s
+kubectl -n demo rollout status deployment/chatty --timeout=180s
 kubectl -n demo2 rollout status deployment/worker --timeout=180s
 kubectl -n kube-system rollout status deployment/metrics-server --timeout=180s
 echo "Waiting for the first metrics..."

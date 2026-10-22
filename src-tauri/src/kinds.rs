@@ -144,6 +144,10 @@ pub struct Row {
     pub containers: Vec<String>,
     /// TCP ports that can be port-forwarded (container ports for pods, service ports for services).
     pub ports: Vec<u16>,
+    /// Desired replicas, for workloads that can be scaled.
+    pub replicas: Option<i32>,
+    /// Deployments with rollouts paused.
+    pub paused: bool,
 }
 
 pub fn summarize(def: &KindDef, obj: &DynamicObject) -> Row {
@@ -232,6 +236,8 @@ pub fn summarize(def: &KindDef, obj: &DynamicObject) -> Row {
         cells,
         containers,
         ports,
+        replicas: matches!(def.key.as_str(), "deployments" | "statefulsets").then(|| d.pointer("/spec/replicas").and_then(Value::as_i64).unwrap_or(1) as i32),
+        paused: d.pointer("/spec/paused").and_then(Value::as_bool).unwrap_or(false),
     }
 }
 
