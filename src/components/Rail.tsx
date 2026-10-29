@@ -181,12 +181,6 @@ function UpdateBody({ status, installing, error, install }: ReturnType<typeof us
       );
     case "upToDate":
       return <div className="popover-text faint">You're on the latest version.</div>;
-    case "noCredentials":
-      return (
-        <div className="popover-text faint">
-          Updates come from a private GitHub repository. Run <code>gh auth login</code> to get them.
-        </div>
-      );
     case "error":
       return <div className="popover-text faint">Update check failed: {status.message}</div>;
   }

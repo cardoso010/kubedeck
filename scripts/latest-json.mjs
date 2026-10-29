@@ -4,8 +4,9 @@
 //
 //   node scripts/latest-json.mjs <tag> > latest.json
 //
-// The repository is private, so download URLs are GitHub API asset URLs: the app sends
-// its GitHub token with `Accept: application/octet-stream` (see src-tauri/src/updater.rs).
+// Download URLs are GitHub API asset URLs, fetched with `Accept: application/octet-stream`
+// (see src-tauri/src/updater.rs). Unlike browser_download_url they also work from a private
+// repository or fork when the app has a GitHub token, and installed copies rely on them.
 import { execFileSync } from "node:child_process";
 
 const tag = process.argv[2];

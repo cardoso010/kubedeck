@@ -1,12 +1,12 @@
-//! Self-update from the GitHub releases of a private repository.
-//!
-//! Private release assets cannot be downloaded anonymously, so the app authenticates as the
-//! user: `GITHUB_TOKEN`/`GH_TOKEN`, or the token of a logged-in GitHub CLI (`gh auth token`).
-//! Only people with access to the repository receive updates, and no token ships in the app.
+//! Self-update from the repository's GitHub releases.
 //!
 //! The release workflow publishes a `latest.json` whose download URLs are GitHub API asset
-//! URLs; the official updater plugin fetches it and the bundle with the same auth headers and
-//! verifies the bundle signature against the public key in tauri.conf.json.
+//! URLs; the official updater plugin fetches it and the bundle, then verifies the bundle
+//! signature against the public key in tauri.conf.json.
+//!
+//! Requests go out anonymously unless a GitHub token is around (`GITHUB_TOKEN`/`GH_TOKEN`, or
+//! a logged-in GitHub CLI): a token lifts the anonymous rate limit and is what makes updates
+//! work from a private repository or fork. No token ships in the app.
 
 use std::sync::Mutex;
 
@@ -27,8 +27,6 @@ pub struct PendingUpdate(Mutex<Option<Update>>);
 pub enum UpdateStatus {
     UpToDate,
     Available { version: String, notes: Option<String>, date: Option<String> },
-    /// No GitHub credentials: updates need `gh auth login` (or GITHUB_TOKEN).
-    NoCredentials,
     Error { message: String },
 }
 
@@ -62,10 +60,12 @@ async fn github_token() -> Option<String> {
 }
 
 /// Finds the API URL of `latest.json` in the newest published release.
-async fn manifest_url(token: &str) -> Result<String, String> {
-    let response = reqwest::Client::new()
-        .get(format!("https://api.github.com/repos/{}/releases/latest", repo()))
-        .bearer_auth(token)
+async fn manifest_url(token: Option<&str>) -> Result<String, String> {
+    let mut request = reqwest::Client::new().get(format!("https://api.github.com/repos/{}/releases/latest", repo()));
+    if let Some(token) = token {
+        request = request.bearer_auth(token);
+    }
+    let response = request
         .header("Accept", "application/vnd.github+json")
         .header("User-Agent", "kubedeck-updater")
         .send()
@@ -74,8 +74,10 @@ async fn manifest_url(token: &str) -> Result<String, String> {
     match response.status().as_u16() {
         200 => {}
         // GitHub answers 404 both for "no release yet" and "no access to this repository".
+        404 if token.is_none() => return Err(format!("No published release found in {}. If the repository is private, run `gh auth login`.", repo())),
         404 => return Err(format!("No published release found in {}, or your GitHub account cannot access it.", repo())),
         401 => return Err("GitHub rejected the token. Run `gh auth login` again.".into()),
+        403 | 429 if token.is_none() => return Err("GitHub's anonymous rate limit was reached; try again later, or run `gh auth login`.".into()),
         code => return Err(format!("GitHub API returned HTTP {code}")),
     }
     let release: Release = response.json().await.map_err(err)?;
@@ -89,25 +91,18 @@ async fn manifest_url(token: &str) -> Result<String, String> {
 
 #[tauri::command]
 pub async fn check_for_update(app: AppHandle, pending: State<'_, PendingUpdate>) -> CmdResult<UpdateStatus> {
-    let Some(token) = github_token().await else {
-        return Ok(UpdateStatus::NoCredentials);
-    };
-    let url = match manifest_url(&token).await {
+    let token = github_token().await;
+    let url = match manifest_url(token.as_deref()).await {
         Ok(url) => url,
         Err(message) => return Ok(UpdateStatus::Error { message }),
     };
-    let updater = app
-        .updater_builder()
-        .endpoints(vec![url.parse().map_err(err)?])
-        .map_err(err)?
-        .header("Authorization", format!("Bearer {token}"))
-        .map_err(err)?
-        // Asset API URLs serve the file itself only with this Accept header, for both the
-        // manifest and the bundle. Redirects to the storage host drop the Authorization header.
-        .header("Accept", "application/octet-stream")
-        .map_err(err)?
-        .build()
-        .map_err(err)?;
+    let mut builder = app.updater_builder().endpoints(vec![url.parse().map_err(err)?]).map_err(err)?;
+    if let Some(token) = &token {
+        builder = builder.header("Authorization", format!("Bearer {token}")).map_err(err)?;
+    }
+    // Asset API URLs serve the file itself only with this Accept header, for both the
+    // manifest and the bundle. Redirects to the storage host drop the Authorization header.
+    let updater = builder.header("Accept", "application/octet-stream").map_err(err)?.build().map_err(err)?;
     match updater.check().await {
         Ok(Some(update)) => {
             let status = UpdateStatus::Available { version: update.version.clone(), notes: update.body.clone(), date: update.date.map(|d| d.to_string()) };

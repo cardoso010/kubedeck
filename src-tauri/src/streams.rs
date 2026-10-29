@@ -129,7 +129,7 @@ pub struct ExecHandle {
     resize: futures::channel::mpsc::Sender<TerminalSize>,
 }
 
-/// Prefers bash, falls back to sh — same as Lens and `kubectl exec -it ... sh`.
+/// Prefers bash, falls back to sh — same as most Kubernetes UIs and `kubectl exec -it ... sh`.
 const SHELL: &[&str] = &["sh", "-c", "command -v bash >/dev/null 2>&1 && exec bash || exec sh"];
 
 #[tauri::command]

@@ -1,0 +1,10 @@
+kubedeck
+Copyright 2026 The kubedeck authors
+
+This product is licensed under the Apache License, Version 2.0 (see LICENSE).
+
+The app bundles a copy of Helm (https://helm.sh), Copyright The Helm Authors,
+licensed under the Apache License, Version 2.0.
+
+Other third-party components keep their own licenses: their notices ship with
+their packages in node_modules and in the Cargo registry.

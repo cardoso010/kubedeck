@@ -1,167 +1,181 @@
 # kubedeck
 
-Cliente desktop de Kubernetes, no estilo do Lens: **Tauri 2 + Rust** (`kube-rs`) no backend e **React + TypeScript** na interface.
+A fast, native desktop client for Kubernetes: **Tauri 2 + Rust** (`kube-rs`) on the backend and **React + TypeScript** for the interface.
 
-![Pods de dois namespaces com os logs de um pod na gaveta de detalhes, no tema Terminal](docs/screenshots/pods-logs.png)
+![Pods from two namespaces with a pod's logs in the details drawer, Terminal theme](docs/screenshots/pods-logs.png)
 
-## Telas
+## Screens
 
 | | |
 |---|---|
-| ![Métricas de um pod](docs/screenshots/pod-metrics.png) | ![Paleta de comandos](docs/screenshots/command-palette.png) |
-| **Métricas do pod:** uso de CPU e memória contra requests e limits, restarts, última parada (OOMKilled em destaque) e histórico do Prometheus com rede e throttling. | **Paleta de comandos (⌘K):** busca aproximada por tipos, CRDs, recursos, clusters, namespaces, temas e ações. |
-| ![Releases Helm no tema Grafite](docs/screenshots/helm-graphite.png) | ![Editor de YAML no tema Claro](docs/screenshots/yaml-light.png) |
-| **Helm no tema Grafite:** releases, histórico com rollback, upgrade e instalação de charts. | **YAML no tema Claro:** edição com Monaco, protegida contra sobrescrever mudanças de outra pessoa, e port forward por porta. |
-| ![Problemas](docs/screenshots/problems.png) | ![Explicar com o Claude](docs/screenshots/explain.png) |
-| **Problems:** tudo que parece errado nos namespaces escolhidos, do mais grave ao menos; um clique abre o objeto. | **Explain with Claude:** o Claude lê manifesto (sem segredos), eventos e logs e sugere causa e correção. |
-| ![Visão de um node](docs/screenshots/node-overview.png) | ![Rightsizing](docs/screenshots/rightsizing.png) |
-| **Node:** capacidade contra requests e uso real, histórico, condições, taints, cordon e drain com prévia. | **Rightsizing:** requests contra o uso real de cada container, com sugestão e o quanto dá para recuperar. |
-| ![Dock com logs](docs/screenshots/dock.png) | ![Storage](docs/screenshots/storage.png) |
-| **Dock:** terminais e logs que continuam abertos enquanto você navega. | **Storage:** quanto cada volume está usando, histórico e expansão. |
-| ![Tela inicial](docs/screenshots/welcome.png) | |
-| **Tela inicial:** clusters fixados primeiro, produção sinalizada. | |
+| ![Pod metrics](docs/screenshots/pod-metrics.png) | ![Command palette](docs/screenshots/command-palette.png) |
+| **Pod metrics:** CPU and memory against requests and limits, restarts, last termination (OOMKilled highlighted) and Prometheus history with network and throttling. | **Command palette (⌘K):** fuzzy search across kinds, CRDs, resources, clusters, namespaces, themes and actions. |
+| ![Helm releases, Graphite theme](docs/screenshots/helm-graphite.png) | ![YAML editor, Light theme](docs/screenshots/yaml-light.png) |
+| **Helm, Graphite theme:** releases, history with rollback, upgrades and chart installs. | **YAML, Light theme:** Monaco editing that never overwrites someone else's change, plus per-port port forwarding. |
+| ![Problems](docs/screenshots/problems.png) | ![Explain with Claude](docs/screenshots/explain.png) |
+| **Problems:** everything that looks wrong in the selected namespaces, worst first; one click opens the object. | **Explain with Claude:** Claude reads the manifest (secrets removed), events and logs, then suggests the cause and a fix. |
+| ![Node overview](docs/screenshots/node-overview.png) | ![Rightsizing](docs/screenshots/rightsizing.png) |
+| **Nodes:** capacity against requests and real usage, history, conditions, taints, cordon and drain with a preview. | **Rightsizing:** each container's requests against real usage, with a suggestion and how much can be reclaimed. |
+| ![Dock with logs](docs/screenshots/dock.png) | ![Storage](docs/screenshots/storage.png) |
+| **Dock:** terminals and logs that stay open while you browse. | **Storage:** how full each volume is, its history, and expansion. |
+| ![Welcome screen](docs/screenshots/welcome.png) | |
+| **Welcome:** pinned clusters first, production flagged. | |
 
-As imagens usam os dados de exemplo da interface em modo navegador. Para refazê-las depois de mudar a interface, rode `npm run dev` e, em outro terminal, `npm run screenshots` (usa o Google Chrome instalado na máquina).
+The images use the sample data of the browser-only UI. To redo them after changing the interface, run `npm run dev` and, in another terminal, `npm run screenshots` (it drives the Google Chrome installed on your machine).
 
-## Instalar
+## Install
 
-O repositório é privado, então a instalação usa o GitHub CLI logado com uma conta que tenha acesso a ele.
-
-macOS e Linux:
+macOS and Linux:
 
 ```bash
-gh api repos/cardoso010/kubedeck/contents/scripts/install.sh -H "Accept: application/vnd.github.raw" | bash
+curl -fsSL https://raw.githubusercontent.com/cardoso010/kubedeck/main/scripts/install.sh | bash
 ```
 
 Windows (PowerShell):
 
 ```powershell
-gh api repos/cardoso010/kubedeck/contents/scripts/install.ps1 -H "Accept: application/vnd.github.raw" | powershell -NoProfile -Command -
+irm https://raw.githubusercontent.com/cardoso010/kubedeck/main/scripts/install.ps1 | iex
 ```
 
-No Mac, o script baixa a build da arquitetura certa (Apple Silicon ou Intel) e instala em `/Applications`. No Linux, instala o AppImage em `~/.local/bin` com um atalho no menu de aplicativos (AppImages precisam do FUSE 2, `libfuse2`). No Windows, roda o instalador em modo silencioso. As releases também trazem `.dmg` e `.deb` para instalação manual. Depois disso, o próprio app avisa quando existe uma versão nova e se atualiza com um clique (**Install and restart**, no rodapé da barra lateral). As atualizações são assinadas, e o app recusa pacotes sem uma assinatura válida.
+On a Mac the script downloads the right build (Apple Silicon or Intel) and installs it in `/Applications`. On Linux it installs the AppImage in `~/.local/bin` with an applications-menu entry (AppImages need FUSE 2, `libfuse2`). On Windows it runs the installer silently. Each [release](https://github.com/cardoso010/kubedeck/releases) also has `.dmg` and `.deb` files for manual installs.
 
-Para receber atualizações, o app precisa de um token do GitHub. Ele usa `GITHUB_TOKEN`/`GH_TOKEN` ou, se elas não existirem, o `gh auth token`. Assim, só quem tem acesso ao repositório recebe atualizações, e nenhum token vai embutido no app.
+After that, the app tells you when a new version is out and updates itself in one click (**Install and restart**, at the bottom of the sidebar). Updates are signed, and the app refuses packages without a valid signature. If `GITHUB_TOKEN`/`GH_TOKEN` is set or the GitHub CLI is logged in, the update check uses that token, which avoids GitHub's anonymous rate limit and makes updates work from a private fork (`KUBEDECK_UPDATE_REPO=owner/name`).
 
-O app ainda não é assinado com Developer ID nem notarizado. O script de instalação evita o bloqueio do Gatekeeper. Se alguém instalar pelo `.dmg` da release, vai precisar liberar o app uma vez em **Ajustes do Sistema → Privacidade e Segurança**.
+The app is not signed with an Apple Developer ID or notarized yet. The install script takes care of Gatekeeper; if you install from the `.dmg`, allow the app once in **System Settings → Privacy & Security**.
 
-## O que faz
+## Features
 
-- **Visual próprio, com temas.** *Terminal* (padrão: quase preto, fonte mono, acento verde-limão), *Grafite* (cinza-azulado, cantos arredondados, acento violeta) e *Claro*. O editor de YAML e o terminal seguem o tema, e a escolha vale para todas as janelas (ícone de paleta no trilho, ou ⌘K → "Theme").
-- **Layout enxuto.** Um trilho fino à esquerda com as seções (Workloads, Network, Config, Cluster, Custom resources, Helm, Port forwards) e os clusters fixados; uma barra em trilha `cluster / namespaces / tipo`; abas com os tipos da seção; detalhes numa gaveta à direita.
-- **Paleta de comandos (⌘K / Ctrl+K)** com busca aproximada: pula para qualquer tipo (inclusive CRDs) ou recurso da tabela, troca de cluster ou abre um numa janela nova, escolhe namespaces, troca o tema e roda ações como instalar um chart.
-- Lê o `~/.kube/config` (ou `$KUBECONFIG`) e conecta em qualquer contexto, incluindo EKS/GKE via exec plugin. O app herda o `PATH` do shell de login, então `aws`/`gcloud` são encontrados mesmo quando ele é aberto pelo Finder.
-- **Várias janelas**: cada janela é independente (cluster, watches, terminais e port forwards próprios), então dá para ver dois clusters lado a lado. Os clusters fixados (ícone de alfinete no seletor de cluster) ficam no trilho: clique troca o cluster da janela, ⌘/Ctrl-clique (ou botão direito) abre numa janela nova, ⌘/Ctrl+1…9 alterna entre eles e ⌘/Ctrl+N abre uma janela vazia. Clusters de produção ficam com anel vermelho.
-- **Vários namespaces de uma vez**: o seletor de namespace aceita múltipla escolha (clique no nome seleciona só ele; o checkbox soma à seleção), lembrada por cluster. Pods, métricas e releases Helm seguem a seleção, e a coluna Namespace aparece quando há mais de um.
-- Lista em tempo real (*watch*) Pods, Deployments, StatefulSets, DaemonSets, Jobs, CronJobs, Services, Ingresses, ConfigMaps, Secrets, Events, Nodes e Namespaces, com filtro e tabela virtualizada.
-- **Custom Resources:** ao conectar, o app lê os CRDs do cluster e os mostra na barra lateral, agrupados por API group e com busca. As colunas são as mesmas do `kubectl get` (`additionalPrinterColumns`).
-- **Métricas:** colunas de CPU e memória em Pods e Nodes, com a porcentagem do *allocatable* nos nodes, quando o cluster tem metrics-server. Sem ele, as colunas simplesmente não aparecem.
-- **Aba Metrics do pod** (a primeira da gaveta): por container, CPU e memória atuais contra requests e limits, restarts, estado e o motivo da última parada (OOMKilled em vermelho). Se o cluster tiver **Prometheus**, mostra o histórico (15 min a 7 dias) de CPU, memória, rede e *throttling* de CPU, com as linhas de request e limit. O app encontra o Prometheus sozinho pelos nomes de serviço usuais e o consulta pelo proxy do API server, com as suas próprias credenciais: sem port forward e sem configuração. Para apontar outro, use `KUBEDECK_PROMETHEUS=namespace/servico:porta`. Sem Prometheus, os gráficos de CPU e memória são ao vivo (a cada 10 s) desde a abertura da aba.
-- Painel de detalhes:
-  - **YAML** no Monaco, salvo com `replace`. O `resourceVersion` impede sobrescrever mudanças feitas por outra pessoa.
-  - **Logs** em streaming com follow e filtro.
-  - **Terminal** (exec com TTY e resize) no container escolhido.
+- **Its own look, with themes.** *Terminal* (default: near-black, monospace, lime accent), *Graphite* (blue-gray, rounded corners, violet accent) and *Light*. The YAML editor and the terminal follow the theme, and the choice applies to every window (palette icon in the rail, or ⌘K → "Theme").
+- **A lean layout.** A thin rail on the left with the sections (Problems, Workloads, Network, Config, Storage, Cluster, Custom resources, Rightsizing, Helm, Port forwards) and your pinned clusters; a `cluster / namespaces / kind` breadcrumb; tabs with the section's kinds; details in a drawer on the right.
+- **Command palette (⌘K / Ctrl+K)** with fuzzy search: jump to any kind (CRDs included) or resource in the table, switch cluster or open one in a new window, pick namespaces, change the theme, or run actions such as installing a chart.
+- Reads `~/.kube/config` (or `$KUBECONFIG`) and connects to any context, including EKS/GKE through exec plugins. The app inherits your login shell's `PATH`, so `aws`/`gcloud` are found even when it is opened from the Finder.
+- **Several windows**: each window is independent (its own cluster, watches, terminals and port forwards), so two clusters can sit side by side. Pinned clusters (pin icon in the cluster picker) live in the rail: click switches this window's cluster, ⌘/Ctrl-click (or right-click) opens a new window, ⌘/Ctrl+1…9 switches between them and ⌘/Ctrl+N opens an empty window. Production clusters get a red ring.
+- **Several namespaces at once**: the namespace picker allows multiple selection (click a name to select only it; the checkbox adds it), remembered per cluster. Pods, metrics and Helm releases follow the selection, and a Namespace column appears when there is more than one.
+- Live lists (*watch*) of Pods, Deployments, StatefulSets, DaemonSets, Jobs, CronJobs, Services, Ingresses, ConfigMaps, Secrets, PersistentVolumeClaims, PersistentVolumes, StorageClasses, Events, Nodes and Namespaces, with a filter and a virtualized table.
+- **Custom Resources:** on connect, the app reads the cluster's CRDs and lists them in the sidebar, grouped by API group and searchable. Columns are the same as `kubectl get` (`additionalPrinterColumns`).
+- **Metrics:** CPU and memory columns for Pods and Nodes (with the share of the node's *allocatable*) when the cluster has metrics-server. Without it, the columns simply don't show.
+- **Pod Metrics tab** (the first in the drawer): per container, current CPU and memory against requests and limits, restarts, state and why it last stopped (OOMKilled in red). If the cluster has **Prometheus**, it shows history (15 min to 7 days) of CPU, memory, network and CPU *throttling*, with the request and limit lines. The app finds Prometheus by its usual service names and queries it through the API server proxy with your own credentials: no port forward and no configuration. To point at another one, set `KUBEDECK_PROMETHEUS=namespace/service:port`. Without Prometheus, CPU and memory charts are live (every 10 s) from when the tab opens.
+- **Details drawer:**
+  - **YAML** in Monaco, saved with `replace`. The `resourceVersion` stops you from overwriting someone else's change, and a **diff** shows exactly what changes before saving.
+  - **Logs** streamed with follow and filter.
+  - **Terminal** (exec with TTY and resize) in the chosen container.
   - **Delete**.
-  - **Port forward** de pods e services. Cada porta TCP vira um botão. O service escolhe um pod pronto a cada conexão, então continua funcionando quando os pods são trocados. A tela **Port Forwards** lista os túneis ativos, com o número de conexões e o último erro.
-- **Helm Releases:** lista os releases e mostra valores, manifest, notas e histórico, com **rollback** para uma revisão anterior e **uninstall**. **Install chart** busca nos repositórios configurados (os mesmos do `helm repo list`, que podem ser gerenciados ali), escolhe a versão e abre os valores padrão do chart para editar; a aba **Upgrade** de cada release parte dos valores atuais. As duas têm *dry run* (renderiza e valida no servidor sem mudar nada) e a confirmação de produção. O app traz o próprio Helm (3.22.1) embutido como sidecar, então funciona sem nada instalado na máquina. Ele usa sempre o mesmo kubeconfig e contexto do app. Para usar outro binário, defina `KUBEDECK_HELM` com o caminho dele.
-- **Credenciais expiradas:** se o cluster recusar as credenciais (401, por exemplo quando a sessão AWS por trás do `aws eks get-token` vence), uma faixa explica o que renovar (o comando e o profile AWS do kubeconfig) e o app tenta reconectar sozinho a cada 20 s. Assim que as credenciais voltam a valer, a janela se recupera sem precisar reabrir.
-- **Workloads:** restart, scale e pause/resume de Deployments, StatefulSets e DaemonSets; aba **Rollout** com o histórico de revisões, diff entre elas e rollback; aba **Events** de cada objeto.
-- **Logs melhores:** execução anterior (`--previous`), logs juntos de todos os pods de um workload, modo JSON, busca com destaque, copiar e salvar em arquivo.
-- **Problems** (primeiro ícone do trilho, com contador de críticos): crash loops, OOMKilled, imagens que não baixam, pods pendentes ou não prontos, workloads indisponíveis, jobs com falha, PVCs pendentes e nodes com problema.
-- **Related:** dono, pods, services, ingresses, ConfigMaps/Secrets usados e node de cada objeto, todos clicáveis.
-- **Nodes:** visão com capacidade, requests e uso, histórico do Prometheus, condições e taints; **cordon/uncordon** e **drain** com prévia do que será despejado (respeita PodDisruptionBudgets; pula DaemonSets e pods estáticos).
-- **Explain with Claude:** só quando você clica. Envia à API da Anthropic o manifesto (valores de env e anotação `last-applied` removidos), os eventos e, para pods, os logs recentes; Secrets nunca são enviados. A chave fica no chaveiro do sistema (ou em `ANTHROPIC_API_KEY`).
-- **Modo somente leitura por cluster:** clusters de produção abrem travados (o backend recusa qualquer escrita, inclusive terminal). O cadeado na barra destrava por 15 minutos; ⌘K → "Always open this cluster read-only" muda o padrão de cada cluster.
-- **Secrets escondidos:** o YAML de um Secret vem mascarado até você clicar em **Reveal values**; a aba **Data** revela ou copia uma chave por vez, com confirmação em produção.
-- **Login pelo app:** a faixa de credenciais expiradas tem um campo com o comando de login (`aws sso login --profile …` por padrão, editável e lembrado por cluster) e o botão **Run login**, que roda o comando e reconecta.
-- **Dock:** "open in dock" nas abas de logs e terminal leva a sessão para abas na parte de baixo, que continuam rodando enquanto você navega.
-- **Port forwards favoritos:** a estrela numa linha de Port Forwards reabre aquele túnel sempre que o cluster é conectado.
-- **Criar a partir de YAML** (botão `+` ou ⌘K): cola um ou mais documentos, valida com dry run no servidor e cria. Ao salvar edições, um **diff** mostra exatamente o que muda antes de enviar.
-- **Notificações:** ⌘K → "Notify me when pods crash…" avisa no sistema quando aparece um crash loop, OOMKilled ou erro de imagem nos namespaces selecionados.
-- **Storage** (seção própria no trilho): PersistentVolumeClaims com a coluna **Used**, PersistentVolumes e StorageClasses. A aba **Usage** de um PVC mostra espaço e inodes usados, o histórico (24 h a 30 dias, pelo Prometheus) e permite **expandir** o volume quando a StorageClass deixa. O uso vem do Prometheus (`kubelet_volume_stats_*`) ou, sem ele, direto dos kubelets; só volumes que se medem (CSI como EBS, volumes `local`) informam uso. **Problems** avisa volumes acima de 85% (crítico acima de 95%) e PVs com falha, e **Related** liga PVC, pods, PV e StorageClass.
-- **Rightsizing:** requests e limits de cada container contra o uso real (p95 de CPU e pico de memória em 24 h pelo Prometheus, ou o uso atual pelo metrics-server), com o request sugerido e o total que dá para recuperar.
-- **Proteção de produção:** contextos com `prd`/`prod`/`production` no nome mostram uma faixa vermelha. Salvar, apagar, instalar, fazer upgrade, rollback ou uninstall nesses contextos exige digitar o nome do recurso.
+  - **Port forward** for pods and services: each TCP port is a button. A service picks a ready pod on every connection, so it keeps working when pods are replaced. The **Port Forwards** screen lists active tunnels with their connection count and last error.
+- **Workloads:** restart, scale and pause/resume Deployments, StatefulSets and DaemonSets; a **Rollout** tab with revision history, diffs between revisions and rollback; an **Events** tab for every object.
+- **Better logs:** the previous run (`--previous`), the merged logs of every pod in a workload, JSON mode, search with highlighting, copy and save to a file.
+- **Problems** (first icon in the rail, with a count of critical ones): crash loops, OOMKilled, images that won't pull, pending or unready pods, unavailable workloads, failed jobs, pending PVCs, volumes almost full, failed PVs and unhealthy nodes.
+- **Related:** each object's owner, pods, services, ingresses, ConfigMaps/Secrets/volumes it uses and the node it runs on, all clickable.
+- **Nodes:** an overview with capacity, requests and usage, Prometheus history, conditions and taints; **cordon/uncordon** and **drain** with a preview of what will be evicted (PodDisruptionBudgets are respected; DaemonSet and static pods are skipped).
+- **Storage** (its own rail section): PersistentVolumeClaims with a **Used** column, PersistentVolumes and StorageClasses. A PVC's **Usage** tab shows space and inodes used, history (24 h to 30 days, from Prometheus) and lets you **expand** the volume when its StorageClass allows it. Usage comes from Prometheus (`kubelet_volume_stats_*`) or, without it, straight from the kubelets; only volumes that measure themselves (CSI drivers such as EBS, `local` volumes) report usage. Volumes above 85% show up in Problems (critical above 95%).
+- **Explain with Claude:** only when you click. It sends the manifest (env values and the `last-applied` annotation removed), the events and, for pods, recent logs to the Anthropic API; Secrets are never sent. The API key is kept in the system keychain (or read from `ANTHROPIC_API_KEY`).
+- **Read-only mode per cluster:** production clusters open locked (the backend refuses every write, terminals included). The lock in the top bar unlocks for 15 minutes; ⌘K → "Always open this cluster read-only" changes each cluster's default.
+- **Hidden Secrets:** a Secret's YAML comes masked until you click **Reveal values**; the **Data** tab reveals or copies one key at a time, with a confirmation on production.
+- **Log in from the app:** when credentials expire, the banner has a field with the login command (`aws sso login --profile …` by default, editable and remembered per cluster) and a **Run login** button that runs it and reconnects.
+- **Expired credentials:** if the cluster rejects your credentials (401, for example when the AWS session behind `aws eks get-token` ends), a banner explains what to renew (the kubeconfig's command and AWS profile) and the app reconnects by itself every 20 s. As soon as the credentials work again, the window recovers without reopening.
+- **Dock:** "open in dock" on the logs and terminal tabs moves the session to tabs at the bottom, which keep running while you browse.
+- **Starred port forwards:** the star on a Port Forwards row reopens that tunnel whenever the cluster is connected.
+- **Create from YAML** (`+` button or ⌘K): paste one or more documents, validate with a server-side dry run, then create.
+- **Notifications:** ⌘K → "Notify me when pods crash…" sends a system notification when a crash loop, OOMKilled or image error appears in the selected namespaces.
+- **Rightsizing:** each container's requests and limits against real usage (CPU p95 and peak memory over 24 h from Prometheus, or current usage from metrics-server), with the suggested request and how much can be reclaimed in total.
+- **Helm Releases:** lists releases and shows values, manifest, notes and history, with **rollback** to an earlier revision and **uninstall**. **Install chart** searches your configured repositories (the same as `helm repo list`, which can be managed there), picks a version and opens the chart's default values for editing; each release's **Upgrade** tab starts from its current values. Both have a *dry run* (renders and validates on the server without changing anything) and the production confirmation. The app ships its own Helm (3.22.1) as a sidecar, so it works with nothing installed. It always uses the app's kubeconfig and context. To use another binary, set `KUBEDECK_HELM` to its path.
+- **Production safety:** contexts with `prd`/`prod`/`production` in their name show a red strip, open read-only, and saving, deleting, scaling, draining, installing, upgrading, rolling back or uninstalling on them requires typing the object's name.
 
-## Desenvolver
+## Develop
 
 ```bash
 npm install
-npm run tauri dev        # app nativo com hot reload
-npm run tauri build      # gera src-tauri/target/release/bundle/macos/kubedeck.app
-npm run dev              # só a interface, num navegador, com dados de exemplo (src/dev-mock.ts)
-npm run screenshots      # com o npm run dev rodando: refaz as imagens de docs/screenshots
+npm run tauri dev        # native app with hot reload
+npm run tauri build      # builds src-tauri/target/release/bundle/macos/kubedeck.app
+npm run dev              # the interface alone, in a browser, with sample data (src/dev-mock.ts)
+npm run screenshots      # with npm run dev running: redoes the images in docs/screenshots
 ```
 
-Antes do `dev` e do `build`, `npm run binaries` baixa o Helm para `src-tauri/binaries/` (fora do git) e confere o SHA-256 fixado em `scripts/fetch-helm.mjs`. Para usar o `cargo` direto (`cargo check`, `cargo test`), rode `npm run binaries` uma vez antes. Para atualizar o Helm, troque a versão e os hashes nesse script, copiando-os das notas do release no GitHub.
+Before `dev` and `build`, `npm run binaries` downloads Helm into `src-tauri/binaries/` (not in git) and checks the SHA-256 pinned in `scripts/fetch-helm.mjs`. To use `cargo` directly (`cargo check`, `cargo test`), run `npm run binaries` once first. To update Helm, change the version and hashes in that script, copying them from the release notes on GitHub.
 
-As convenções do código e os cuidados para trabalhar no projeto (inclusive com o Claude Code) estão em [CLAUDE.md](CLAUDE.md).
+Code conventions and the precautions for working on the project (including with Claude Code) are in [CLAUDE.md](CLAUDE.md).
 
 ## Testing
 
-Os testes de ponta a ponta rodam contra um cluster **kind descartável**. Eles editam um ConfigMap, apagam um pod e fazem rollback e uninstall de releases Helm, então nunca aponte para um cluster compartilhado. O script cria o cluster com todos os fixtures (workloads em dois namespaces, um pod com requests e limits, release Helm, CRD de exemplo, metrics-server, um Prometheus mínimo e um segundo contexto que autentica por exec plugin, para testar credenciais revogadas) num kubeconfig separado, `.kind-kubeconfig`, sem tocar no `~/.kube/config`:
+The end-to-end tests run against a **disposable kind cluster**. They edit a ConfigMap, delete a pod, and roll back and uninstall Helm releases, so never point them at a shared cluster. The script creates the cluster with every fixture (workloads in two namespaces, a pod with requests and limits, a volume that reports usage, a Helm release, a sample CRD, metrics-server, a minimal Prometheus, and a second context that authenticates through an exec plugin, to test revoked credentials) in a separate kubeconfig, `.kind-kubeconfig`, without touching `~/.kube/config`:
 
 ```bash
 npm run binaries
-e2e/setup.sh                    # cria ou completa o cluster; e2e/setup.sh --delete remove
+e2e/setup.sh                    # creates or completes the cluster; e2e/setup.sh --delete removes it
 cd src-tauri
 KUBECONFIG=$PWD/../.kind-kubeconfig KUBEDECK_E2E_CONTEXT=kind-kubedeck-test \
   KUBEDECK_HELM=$PWD/binaries/helm-$(rustc -vV | sed -n 's/host: //p') \
   cargo test -- --include-ignored
 ```
 
-O CI (`.github/workflows/ci.yml`) roda typecheck, clippy, testes unitários e essa mesma suíte de ponta a ponta num kind dentro do runner, a cada push e pull request.
+CI (`.github/workflows/ci.yml`) runs the typecheck, clippy, unit tests and this same end-to-end suite on a kind cluster inside the runner, on every push and pull request.
 
 ## Release
 
 ```bash
-npm run release -- 0.3.0 --push
+npm run release -- 0.5.0 --push
 ```
 
-O script confere se a árvore está limpa e na `main`. Depois atualiza a versão em `package.json`, `tauri.conf.json`, `Cargo.toml` e `Cargo.lock`, faz o commit, cria a tag `v0.3.0` e dá push. A tag dispara o workflow **Release**, que:
+The script checks that the tree is clean and on `main`. It then bumps the version in `package.json`, `tauri.conf.json`, `Cargo.toml` and `Cargo.lock`, commits, tags `v0.5.0` and pushes. The tag starts the **Release** workflow, which:
 
-1. cria uma release em rascunho com as notas geradas a partir dos commits;
-2. compila o app para macOS (Apple Silicon e Intel, com `.dmg`), Linux (AppImage e `.deb`) e Windows (instalador NSIS), cada um com o pacote de atualização assinado;
-3. gera o `latest.json` que o atualizador lê (`scripts/latest-json.mjs`) e publica a release.
+1. creates a draft release with notes generated from the commits;
+2. builds the app for macOS (Apple Silicon and Intel, with `.dmg`), Linux (AppImage and `.deb`) and Windows (NSIS installer), each with its signed update package;
+3. writes the `latest.json` the updater reads (`scripts/latest-json.mjs`) and publishes the release.
 
-Os apps instalados encontram a versão nova na próxima verificação, que acontece na abertura e depois a cada 6 horas.
+Installed apps find the new version on their next check, at startup and then every 6 hours.
 
-Para conferir o empacotamento sem publicar nada, rode o workflow à mão (**Actions → Release → Run workflow**): ele só compila as quatro plataformas e guarda os arquivos como artefatos da execução por 7 dias.
+To check packaging without publishing anything, run the workflow by hand (**Actions → Release → Run workflow**): it only builds the four platforms and keeps the files as run artifacts for 7 days.
 
-A assinatura das atualizações usa uma chave guardada nos segredos do repositório (`TAURI_SIGNING_PRIVATE_KEY` e `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`). Uma cópia está em `~/.tauri/kubedeck.key`, e a senha no Keychain (`kubedeck-updater-key-password`). Sem essa chave não dá para publicar atualizações que os apps instalados aceitem.
+Update packages are signed with a key kept in the repository secrets (`TAURI_SIGNING_PRIVATE_KEY` and `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`); installed apps only accept updates signed with it. Forks that publish their own builds need their own key pair and `pubkey` in `tauri.conf.json`.
 
-## Arquitetura
+## Architecture
 
 ```
 src-tauri/src/
-  cluster.rs      contextos do kubeconfig, conexão (inclui a leitura dos CRDs), namespaces
-  kinds.rs        tipos nativos e de CRDs, resumo de cada objeto em linha de tabela, JSONPath
-  resources.rs    watch genérico (DynamicObject), get/replace YAML, delete
-  streams.rs      logs e exec interativo
-  portforward.rs  port forward de pods e services (um stream por conexão TCP)
-  helm.rs         releases via o Helm embutido
-  helm_charts.rs  repositórios, busca de charts, install e upgrade
-  metrics.rs      CPU e memória via metrics-server
-  pod_insights.rs métricas de um pod: uso contra requests/limits e histórico via Prometheus
-  updater.rs      atualização automática a partir das releases privadas do GitHub
-  windows.rs      janelas novas
-  state.rs        uma sessão por janela: conexão e streams ativos (watch/logs/exec/port forward por id)
+  cluster.rs      kubeconfig contexts, connecting (also reads the CRDs), namespaces, read-only mode, login command
+  kinds.rs        built-in and CRD kinds, each object summarized as a table row, JSONPath
+  resources.rs    generic watch (DynamicObject), get/replace YAML, delete, create from YAML
+  streams.rs      logs and interactive exec
+  portforward.rs  port forwards for pods and services (one stream per TCP connection)
+  workloads.rs    restart, scale, pause, rollout history and rollback, object events
+  diagnostics.rs  the Problems scan and the Related graph
+  nodes.rs        node overview, cordon, drain
+  storage.rs      volume usage and history, expanding claims
+  rightsizing.rs  requests against real usage per container
+  secrets.rs      masked Secrets and per-key reveal
+  ai.rs           Explain with Claude
+  helm.rs         releases through the bundled Helm
+  helm_charts.rs  repositories, chart search, install and upgrade
+  metrics.rs      CPU and memory from metrics-server
+  pod_insights.rs a pod's metrics: usage against requests/limits, Prometheus history
+  updater.rs      self-update from GitHub releases
+  windows.rs      new windows, saving files
+  state.rs        one session per window: connection and active streams (by id)
 src/
-  api.ts          wrappers tipados dos comandos Rust
-  App.tsx         layout, seleção de cluster/namespace/tipo, estado do watch
-  App.css         tokens dos temas ([data-theme]) e todo o estilo
-  theme.ts        temas, cores do editor e do terminal
-  sections.ts     seções do trilho
-  components/     trilho, barra superior, abas, paleta ⌘K, tabela, gaveta de detalhes, Helm, port forwards
-scripts/          fetch-helm, release, latest-json, install (sh e ps1), screenshots
-docs/screenshots/ imagens do README
-e2e/              cluster kind e fixtures dos testes de ponta a ponta
+  api.ts          typed wrappers for the Rust commands
+  App.tsx         layout, cluster/namespace/kind selection, watch state, palette commands
+  App.css         theme tokens ([data-theme]) and all styling
+  theme.ts        themes, editor and terminal colors
+  sections.ts     rail sections
+  components/     rail, top bar, tabs, ⌘K palette, table, details drawer, dock, Helm, port forwards, …
+scripts/          fetch-helm, release, latest-json, install (sh and ps1), screenshots
+docs/screenshots/ README images
+e2e/              kind cluster and fixtures for the end-to-end tests
 ```
 
-Os eventos de watch, logs e terminal vão do Rust para a interface por `tauri::ipc::Channel`. Cada stream tem um id e é encerrado com `stop_stream`, que a interface chama ao trocar de tela.
+Watch events, logs and terminal output flow from Rust to the interface over `tauri::ipc::Channel`. Each stream has an id and ends with `stop_stream`, which the interface calls when it leaves a screen.
 
-## Próximos passos
+## Roadmap
 
-- Assinatura com Developer ID e notarização da Apple, para instalar pelo `.dmg` sem aviso do Gatekeeper
-- Diff entre a revisão atual e o *dry run* no upgrade de charts
-- Abas dentro da janela (por exemplo, vários terminais e logs ao mesmo tempo)
-- Builds Linux arm64 e Windows arm64
+- Apple Developer ID signing and notarization, so the `.dmg` installs without a Gatekeeper warning
+- Linux arm64 and Windows arm64 builds; Homebrew and winget packages
+- A diff between the current release and the *dry run* when upgrading Helm charts
+- VolumeSnapshots: list, take and restore snapshots of a claim
+- Editing kubeconfig contexts from the app (rename, delete, set a default namespace)
+
+## Contributing
+
+Issues and pull requests are welcome. Before opening a pull request, run the typecheck, clippy and the end-to-end suite above (CI runs them too), and keep [CLAUDE.md](CLAUDE.md)'s conventions: every new command gets a typed wrapper in `src/api.ts`, a case in `src/dev-mock.ts` and end-to-end coverage, and every command that changes the cluster respects read-only mode.
+
+## License
+
+kubedeck is licensed under the [Apache License, Version 2.0](LICENSE). It bundles [Helm](https://helm.sh), also under the Apache License 2.0; see [NOTICE](NOTICE).

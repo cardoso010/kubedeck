@@ -371,7 +371,6 @@ export function formatMemory(bytes: number): string {
 export type UpdateStatus =
   | { status: "upToDate" }
   | { status: "available"; version: string; notes: string | null; date: string | null }
-  | { status: "noCredentials" }
   | { status: "error"; message: string };
 
 export const checkForUpdate = () => invoke<UpdateStatus>("check_for_update");

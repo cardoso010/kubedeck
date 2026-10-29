@@ -3,6 +3,8 @@ name = "kubedeck"
 version = "0.4.1"
 description = "Kubernetes desktop client"
 authors = ["The kubedeck authors"]
+license = "Apache-2.0"
+repository = "https://github.com/cardoso010/kubedeck"
 edition = "2024"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
