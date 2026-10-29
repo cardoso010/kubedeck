@@ -4,10 +4,10 @@ Kubernetes desktop client. Tauri 2 app: Rust backend in `src-tauri/` (kube-rs), 
 
 ## Safety first
 
-- The developer's default kube context is a **production EKS cluster**. Never run tests, scripts or ad-hoc `kubectl` against `~/.kube/config`. Use the disposable kind cluster: `e2e/setup.sh`, then `KUBECONFIG=$PWD/.kind-kubeconfig`.
+- Assume the default kube context is **production** (the maintainer's is a production EKS cluster). Never run tests, scripts or ad-hoc `kubectl` against `~/.kube/config`. Use the disposable kind cluster: `e2e/setup.sh`, then `KUBECONFIG=$PWD/.kind-kubeconfig`.
 - The e2e tests refuse contexts containing `prd`/`prod`/`production`; keep that guard.
-- In the UI, destructive actions (save YAML, delete, Helm rollback/uninstall) on production contexts must keep the type-the-name confirmation (`ConfirmDialog` with `typeToConfirm`).
-- Never commit `.kind-kubeconfig`, `src-tauri/binaries/`, or anything from `~/.tauri/` (updater signing key; its password is in the macOS Keychain, service `kubedeck-updater-key-password`).
+- In the UI, every action that changes a production cluster (save YAML, delete, create, restart, scale, pause, rollback, cordon, drain, expand a volume, Helm install/upgrade/rollback/uninstall) keeps the type-the-name confirmation: `ConfirmDialog`/`DiffDialog` with `typeToConfirm`, which render `TypeToConfirm` (the name shown as typed, copyable); `CreateDialog` uses `TypeToConfirm` directly.
+- Never commit `.kind-kubeconfig`, `src-tauri/binaries/`, or the updater signing key (the maintainer keeps it in `~/.tauri/`, its password in the macOS Keychain as `kubedeck-updater-key-password`; CI reads it from repository secrets).
 
 ## Commands
 
@@ -34,10 +34,10 @@ CI (`.github/workflows/ci.yml`) runs all of the above on Linux, including e2e on
 Rust (`src-tauri/src/`), one module per feature; every `#[tauri::command]` is registered in `lib.rs`:
 
 - `state.rs` — `Sessions` holds one `AppState` per window (`Connection` with client, context and kinds; background tasks keyed by stream id). Commands take `state: Session`, a custom `CommandArg` that Tauri fills from the calling webview; the window's session is stopped when it closes.
-- `cluster.rs` — kubeconfig contexts, `connect` (also loads CRDs), namespaces.
+- `cluster.rs` — kubeconfig contexts, `connect` (also loads CRDs), namespaces, `set_read_only`, `run_login` (the user's login command from the 401 banner).
 - `kinds.rs` — built-in kinds + CRD-derived kinds; `summarize` turns any object into a table `Row`; `json_path` evaluates CRD printer columns.
-- `resources.rs` — generic watch/get/replace/delete over `DynamicObject`.
-- `streams.rs` (logs, exec), `portforward.rs`, `helm.rs` (releases; shells out to the bundled `helm`), `helm_charts.rs` (repos, search, install/upgrade), `metrics.rs` (metrics-server, table columns), `pod_insights.rs` (pod drawer metrics: usage vs requests/limits, Prometheus detection and history through the API server service proxy), `updater.rs` (self-update from private GitHub releases), `windows.rs` (new windows).
+- `resources.rs` — generic watch/get/replace/delete over `DynamicObject`, and `create_resources` (multi-document YAML, server-side dry run).
+- `streams.rs` (logs, exec), `portforward.rs`, `helm.rs` (releases; shells out to the bundled `helm`), `helm_charts.rs` (repos, search, install/upgrade), `metrics.rs` (metrics-server, table columns), `pod_insights.rs` (pod drawer metrics: usage vs requests/limits, Prometheus detection and history through the API server service proxy), `updater.rs` (self-update from GitHub releases), `windows.rs` (new windows, saving files).
 - `workloads.rs` (restart, scale, pause, rollout history and rollback, object events), `diagnostics.rs` (Problems scan and the Related graph), `nodes.rs` (node summary, cordon, drain via the eviction API), `rightsizing.rs` (requests vs Prometheus/metrics-server usage per workload container), `secrets.rs` (masking and per-key reveal), `storage.rs` (claim usage from Prometheus or the kubelet stats summary, history, expansion), `ai.rs` (Explain with Claude: key in the system keychain, redacted context, streamed SSE).
 - `e2e_test.rs` — end-to-end tests that call the real commands through `tauri::test::mock_builder`; `Session::of(&app, "main")` gives a window's session, and `Sessions::with_helm_env` isolates helm's repository config.
 
