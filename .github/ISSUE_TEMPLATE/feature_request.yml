@@ -1,0 +1,16 @@
+name: Feature request
+description: Suggest an idea for kubedeck
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What are you trying to do?
+      description: The task or problem, before the solution. "When I debug a failing rollout, I have to …"
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: What would help
+      description: How you imagine it working. Mockups welcome.

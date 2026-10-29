@@ -37,6 +37,8 @@
       "binaries/helm"
     ],
     "license": "Apache-2.0",
+    "publisher": "cardoso010",
+    "homepage": "https://github.com/cardoso010/kubedeck",
     "resources": {
       "../LICENSE": "LICENSE",
       "../NOTICE": "NOTICE"

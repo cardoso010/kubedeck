@@ -7,6 +7,10 @@ on:
   pull_request:
     paths-ignore: ["**.md"]
 
+# Pull requests from forks run untrusted code: give the job a read-only token.
+permissions:
+  contents: read
+
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true

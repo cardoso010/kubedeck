@@ -176,6 +176,8 @@ Watch events, logs and terminal output flow from Rust to the interface over `tau
 
 Issues and pull requests are welcome. Before opening a pull request, run the typecheck, clippy and the end-to-end suite above (CI runs them too), and keep [CLAUDE.md](CLAUDE.md)'s conventions: every new command gets a typed wrapper in `src/api.ts`, a case in `src/dev-mock.ts` and end-to-end coverage, and every command that changes the cluster respects read-only mode.
 
+Please follow the [code of conduct](CODE_OF_CONDUCT.md). To report a security problem, see [SECURITY.md](SECURITY.md) instead of opening an issue.
+
 ## License
 
 kubedeck is licensed under the [Apache License, Version 2.0](LICENSE). It bundles [Helm](https://helm.sh), also under the Apache License 2.0; see [NOTICE](NOTICE).
