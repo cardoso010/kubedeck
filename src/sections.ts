@@ -1,9 +1,9 @@
 // Sidebar rail sections. Built-in kinds are grouped by purpose; every CRD lives under
 // "custom"; problems, rightsizing, Helm and port forwards are views of their own.
-import { IconAdjustmentsHorizontal, IconAlertTriangle, IconGauge, IconBox, IconNetwork, IconPackage, IconPlugConnected, IconPuzzle, IconServer2, type Icon } from "@tabler/icons-react";
+import { IconAdjustmentsHorizontal, IconAlertTriangle, IconDatabase, IconGauge, IconBox, IconNetwork, IconPackage, IconPlugConnected, IconPuzzle, IconServer2, type Icon } from "@tabler/icons-react";
 import type { KindInfo } from "./api";
 
-export type SectionId = "problems" | "rightsizing" | "workloads" | "network" | "config" | "cluster" | "custom" | "helm" | "forwards";
+export type SectionId = "problems" | "rightsizing" | "workloads" | "storage" | "network" | "config" | "cluster" | "custom" | "helm" | "forwards";
 
 export interface Section {
   id: SectionId;
@@ -17,7 +17,8 @@ export const SECTIONS: Section[] = [
   { id: "problems", label: "Problems", icon: IconAlertTriangle },
   { id: "workloads", label: "Workloads", icon: IconBox, kinds: ["pods", "deployments", "statefulsets", "daemonsets", "jobs", "cronjobs"] },
   { id: "network", label: "Network", icon: IconNetwork, kinds: ["services", "ingresses"] },
-  { id: "config", label: "Config", icon: IconAdjustmentsHorizontal, kinds: ["configmaps", "secrets", "persistentvolumeclaims"] },
+  { id: "config", label: "Config", icon: IconAdjustmentsHorizontal, kinds: ["configmaps", "secrets"] },
+  { id: "storage", label: "Storage", icon: IconDatabase, kinds: ["persistentvolumeclaims", "persistentvolumes", "storageclasses"] },
   { id: "cluster", label: "Cluster", icon: IconServer2, kinds: ["nodes", "namespaces", "events"] },
   { id: "custom", label: "Custom resources", icon: IconPuzzle },
   { id: "rightsizing", label: "Rightsizing", icon: IconGauge },

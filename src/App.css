@@ -582,3 +582,12 @@ button.rs-row:hover:not(:disabled) { background: var(--bg-2); border-color: var(
 .type-confirm-hint { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; font-size: 12px; color: var(--text-2); }
 .confirm-name { user-select: text; -webkit-user-select: text; cursor: text; padding: 1px 6px; border: 1px solid var(--line-2); border-radius: var(--radius); background: var(--bg-sunken); color: var(--text); font-family: var(--font-mono); text-transform: none; word-break: break-all; }
 .type-confirm input { width: 100%; font-family: var(--font-mono); }
+
+/* ---------- Storage ---------- */
+
+.volume-source { font-size: 11px; }
+.volume-chart-head { display: flex; align-items: center; gap: 6px; }
+.volume-expand { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 12px; }
+.volume-expand input { width: 170px; font-family: var(--font-mono); }
+.volume-expand button { display: inline-flex; align-items: center; gap: 5px; }
+.volume-bar .capacity-used { height: 100%; top: 0 !important; }

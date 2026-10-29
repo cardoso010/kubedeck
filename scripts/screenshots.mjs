@@ -111,4 +111,11 @@ await scene("dock", { theme: "terminal" }, async (page) => {
   await page.waitForTimeout(3000);
 });
 
+await scene("storage", { theme: "graphite", namespaces: ["demo"] }, async (page) => {
+  await page.getByRole("button", { name: "Storage", exact: true }).click();
+  await page.locator(".table-row", { hasText: "data-postgres-0" }).click();
+  await page.waitForSelector(".volume-bar");
+  await page.waitForSelector(".chart svg");
+});
+
 await browser.close();

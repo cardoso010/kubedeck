@@ -966,3 +966,54 @@ async fn create_and_rightsizing_against_real_cluster() {
     let web = rows.iter().find(|r| r["workload"] == "web" && r["kindKey"] == "deployments").expect("web deployment");
     assert!(web["pods"].as_u64().unwrap() >= 1);
 }
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "needs a disposable cluster, see module docs"]
+async fn storage_against_real_cluster() {
+    let context = test_context();
+    let app = mock_app();
+    let state = || Session::of(&app, "storage");
+    cluster::connect(context, state()).await.unwrap();
+
+    // The new kinds resolve to the right API resources.
+    let sc = resources::get_yaml("storageclasses".into(), None, "standard".into(), None, state()).await.unwrap();
+    assert!(sc.contains("rancher.io/local-path"), "{sc}");
+    let pvc = resources::get_yaml("persistentvolumeclaims".into(), opt("demo"), "data".into(), None, state()).await.unwrap();
+    let pv_name = pvc.lines().find_map(|l| l.trim().strip_prefix("volumeName: ")).expect("bound claim").to_owned();
+    assert!(resources::get_yaml("persistentvolumes".into(), None, pv_name.clone(), None, state()).await.is_ok());
+
+    // Usage from Prometheus, and from the kubelets directly when there is no Prometheus.
+    let usage = serde_json::to_value(crate::storage::volume_usage(vec!["demo".into()], state()).await.unwrap()).unwrap();
+    assert!(usage["source"].as_str().unwrap().starts_with("Prometheus"), "{usage}");
+    let data = usage["volumes"].as_array().unwrap().iter().find(|v| v["claim"] == "data").unwrap_or_else(|| panic!("{usage}")).clone();
+    assert!(data["capacityBytes"].as_f64().unwrap() > 0.0 && data["usedBytes"].as_f64().unwrap() > 0.0, "{data}");
+    let client = state().connection().await.unwrap().client;
+    let direct = crate::storage::from_kubelets(&client, &["demo".into()]).await;
+    assert!(direct.iter().any(|v| v.claim == "data" && v.used_bytes > 0.0), "{direct:?}");
+    let history = serde_json::to_value(crate::storage::volume_history("demo".into(), "data".into(), 60, state()).await.unwrap()).unwrap();
+    assert!(!history["used"][0]["points"].as_array().unwrap().is_empty(), "{history}");
+
+    // Expansion: kind's StorageClass does not allow it, and volumes never shrink.
+    let info = serde_json::to_value(crate::storage::volume_expand_info("demo".into(), "data".into(), state()).await.unwrap()).unwrap();
+    assert_eq!(info, serde_json::json!({ "requested": "1Gi", "storageClass": "standard", "expandable": false }));
+    let refused = crate::storage::expand_volume("demo".into(), "data".into(), "2Gi".into(), state()).await.unwrap_err();
+    assert!(refused.contains("does not allow volume expansion"), "{refused}");
+    let shrink = crate::storage::expand_volume("demo".into(), "data".into(), "512Mi".into(), state()).await.unwrap_err();
+    assert!(shrink.contains("can only grow"), "{shrink}");
+    let nonsense = crate::storage::expand_volume("demo".into(), "data".into(), "big".into(), state()).await.unwrap_err();
+    assert!(nonsense.contains("is not a size"), "{nonsense}");
+    cluster::set_read_only(true, state());
+    assert_eq!(crate::storage::expand_volume("demo".into(), "data".into(), "2Gi".into(), state()).await.unwrap_err(), crate::state::READ_ONLY);
+    cluster::set_read_only(false, state());
+
+    // Related: claim ↔ pod, volume and class.
+    let rel = serde_json::to_value(diagnostics::related("persistentvolumeclaims".into(), opt("demo"), "data".into(), state()).await.unwrap()).unwrap();
+    let group = |rel: &Value, name: &str| rel.as_array().unwrap().iter().find(|g| g["relation"] == name).map(|g| g["items"].clone());
+    assert_eq!(group(&rel, "Used by").unwrap()[0]["name"], "writer");
+    assert_eq!(group(&rel, "Bound to").unwrap()[0]["name"], pv_name.as_str());
+    assert_eq!(group(&rel, "Storage class").unwrap()[0]["name"], "standard");
+    let rel = serde_json::to_value(diagnostics::related("persistentvolumes".into(), None, pv_name, state()).await.unwrap()).unwrap();
+    assert_eq!(group(&rel, "Claimed by").unwrap()[0]["name"], "data");
+    let rel = serde_json::to_value(diagnostics::related("storageclasses".into(), None, "standard".into(), state()).await.unwrap()).unwrap();
+    assert!(group(&rel, "Claims").unwrap().as_array().unwrap().iter().any(|i| i["name"] == "data"));
+}

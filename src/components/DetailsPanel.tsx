@@ -13,6 +13,7 @@ import RelatedView from "./RelatedView";
 import NodeOverview from "./NodeOverview";
 import ExplainView from "./ExplainView";
 import SecretData from "./SecretData";
+import VolumeView from "./VolumeView";
 import { IconLayoutBottombar, IconLock } from "@tabler/icons-react";
 import { useDock } from "../dock";
 import { useReadOnly } from "../readOnly";
@@ -29,7 +30,7 @@ interface Props {
   onClose: () => void;
 }
 
-type Tab = "overview" | "data" | "metrics" | "rollout" | "logs" | "terminal" | "events" | "related" | "explain" | "yaml";
+type Tab = "overview" | "volume" | "data" | "metrics" | "rollout" | "logs" | "terminal" | "events" | "related" | "explain" | "yaml";
 
 /** Kinds whose pods' logs can be merged into one stream. */
 const WORKLOADS = ["deployments", "statefulsets", "daemonsets", "jobs"];
@@ -47,6 +48,7 @@ const FIRST_TABS: Record<string, [Tab, string][]> = {
   ],
   nodes: [["overview", "Overview"]],
   secrets: [["data", "Data"]],
+  persistentvolumeclaims: [["volume", "Usage"]],
 };
 
 function tabsFor(kindKey: string): [Tab, string][] {
@@ -157,6 +159,7 @@ export default function DetailsPanel({ kind, row, target, context, production, k
           />
         )}
         {tab === "events" && <EventsView namespace={row.namespace} uid={row.uid} />}
+        {tab === "volume" && row.namespace && <VolumeView namespace={row.namespace} name={row.name} production={production} context={context} />}
         {tab === "data" && row.namespace && <SecretData namespace={row.namespace} name={row.name} production={production} />}
         {tab === "overview" && <NodeOverview name={row.name} production={production} context={context} />}
         {tab === "related" && <RelatedView kindKey={kind.key} namespace={row.namespace} name={row.name} kinds={kinds} onOpen={onNavigate} />}

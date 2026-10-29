@@ -44,6 +44,19 @@ const ROWS: Record<string, Row[]> = {
   ],
   services: [{ uid: "s1", name: "web", namespace: "demo", created: ago(3600), cells: ["ClusterIP", "10.96.12.4", "80/TCP"], containers: [], ports: [80] }],
   secrets: [{ uid: "sec1", name: "app-secret", namespace: "demo", created: ago(3600), cells: ["Opaque", "2"], containers: [], ports: [] }],
+  persistentvolumeclaims: [
+    { uid: "pvc1", name: "data-postgres-0", namespace: "demo", created: ago(86400 * 40), cells: ["Bound", "20Gi", "RWO", "gp3"], containers: [], ports: [] },
+    { uid: "pvc2", name: "uploads", namespace: "demo", created: ago(86400 * 12), cells: ["Bound", "50Gi", "RWO", "gp3"], containers: [], ports: [] },
+    { uid: "pvc3", name: "cache", namespace: "demo", created: ago(600), cells: ["Pending", "", "RWO", "gp3"], containers: [], ports: [] },
+  ],
+  persistentvolumes: [
+    { uid: "pv1", name: "pvc-1f2e3d4c", namespace: null, created: ago(86400 * 40), cells: ["Bound", "20Gi", "demo/data-postgres-0", "gp3", "Delete"], containers: [], ports: [] },
+    { uid: "pv2", name: "pvc-9a8b7c6d", namespace: null, created: ago(86400 * 12), cells: ["Bound", "50Gi", "demo/uploads", "gp3", "Delete"], containers: [], ports: [] },
+  ],
+  storageclasses: [
+    { uid: "sc1", name: "gp3", namespace: null, created: ago(86400 * 300), cells: ["ebs.csi.aws.com", "Delete", "WaitForFirstConsumer", "yes", "default"], containers: [], ports: [] },
+    { uid: "sc2", name: "gp2", namespace: null, created: ago(86400 * 600), cells: ["kubernetes.io/aws-ebs", "Delete", "WaitForFirstConsumer", "no", ""], containers: [], ports: [] },
+  ],
   configmaps: [{ uid: "c1", name: "app-config", namespace: "demo", created: ago(3600), cells: ["2"], containers: [], ports: [] }],
 };
 
@@ -54,6 +67,9 @@ const KINDS = [
   { key: "services", label: "Services", namespaced: true, columns: ["Type", "Cluster IP", "Ports"] },
   { key: "configmaps", label: "ConfigMaps", namespaced: true, columns: ["Keys"] },
   { key: "secrets", label: "Secrets", namespaced: true, columns: ["Type", "Keys"] },
+  { key: "persistentvolumeclaims", label: "PersistentVolumeClaims", namespaced: true, columns: ["Status", "Capacity", "Access", "Storage class"] },
+  { key: "persistentvolumes", label: "PersistentVolumes", namespaced: false, columns: ["Status", "Capacity", "Claim", "Storage class", "Reclaim"] },
+  { key: "storageclasses", label: "StorageClasses", namespaced: false, columns: ["Provisioner", "Reclaim", "Binding", "Expansion", "Default"] },
   { key: "nodes", label: "Nodes", namespaced: false, columns: ["Status", "Roles", "Version"] },
 ];
 
@@ -234,6 +250,7 @@ async function invoke(cmd: string, args: Record<string, any>): Promise<unknown> 
         { severity: "critical", kindKey: "pods", namespace: "demo", name: "web-7c6cdd646-cggh4", reason: "OOMKilled", message: "Container web ran out of memory (limit 256Mi) 2h ago", since: ago(7200) },
         { severity: "critical", kindKey: "deployments", namespace: "demo", name: "api", reason: "Unavailable", message: "0 of 1 replicas available", since: ago(1200) },
         { severity: "warning", kindKey: "pods", namespace: "demo", name: "migrate-29gxk", reason: "Unschedulable", message: "0/2 nodes are available: 2 Insufficient memory.", since: ago(600) },
+        { severity: "warning", kindKey: "persistentvolumeclaims", namespace: "demo", name: "data-postgres-0", reason: "VolumeAlmostFull", message: "92% used (1.7Gi free)", since: null },
         { severity: "warning", kindKey: "nodes", namespace: null, name: "kubedeck-test-control-plane", reason: "MemoryPressure", message: "kubelet has insufficient memory available", since: ago(300) },
       ].filter((p) => !args.namespaces?.length || p.namespace === null || args.namespaces.includes(p.namespace));
     case "related":
@@ -314,6 +331,22 @@ async function invoke(cmd: string, args: Record<string, any>): Promise<unknown> 
         ],
       };
     }
+    case "volume_usage": {
+      const GI = 1024 ** 3;
+      const v = (claim: string, cap: number, used: number) => ({ namespace: "demo", claim, capacityBytes: cap * GI, usedBytes: used * GI, availableBytes: (cap - used) * GI, inodes: 1310720, inodesUsed: Math.round(1310720 * (used / cap) * 0.4) });
+      return { source: "Prometheus monitoring/prometheus-server:80", volumes: [v("data-postgres-0", 20, 18.3), v("uploads", 50, 21.4)] };
+    }
+    case "volume_history": {
+      const end = Date.now() / 1000;
+      const n = 120;
+      const step = (args.minutes * 60) / n;
+      const GI = 1024 ** 3;
+      return { source: "monitoring/prometheus-server:80", used: [{ name: "used", points: Array.from({ length: n }, (_, i) => [end - (n - i) * step, (12 + (6.3 * i) / n + 0.15 * Math.sin(i / 4)) * GI]) }] };
+    }
+    case "volume_expand_info":
+      return { requested: args.name === "uploads" ? "50Gi" : "20Gi", storageClass: "gp3", expandable: true };
+    case "expand_volume":
+      return null;
     case "set_read_only":
       return null;
     case "run_login":

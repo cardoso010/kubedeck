@@ -119,8 +119,8 @@ function rowHealth(kind: KindInfo, row: Row): string {
 
 function statusClass(column: string | undefined, value: string) {
   if (column !== "Status" && column !== "Type") return "";
-  if (/^(Running|Ready|Active|Complete|Succeeded|Normal|deployed)$/.test(value)) return "ok";
-  if (/^(Pending|ContainerCreating|PodInitializing|Terminating)$|^(pending-|uninstalling)/.test(value)) return "warn";
+  if (/^(Running|Ready|Active|Complete|Succeeded|Normal|deployed|Bound|Available)$/.test(value)) return "ok";
+  if (/^(Pending|ContainerCreating|PodInitializing|Terminating|Released)$|^(pending-|uninstalling)/.test(value)) return "warn";
   if (/(Err|Fail|fail|BackOff|NotReady|Warning|OOM|Evicted|Unknown)/.test(value)) return "bad";
   return "";
 }

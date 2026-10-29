@@ -77,6 +77,32 @@ spec:
 POD
 kubectl -n demo get deployment bad-image >/dev/null 2>&1 || kubectl -n demo create deployment bad-image --image=registry.invalid/kubedeck/nope:1
 # A pod with requests and limits, for the usage-vs-limits view.
+# A volume that reports usage: local-path's "local" type (its default hostPath volumes are
+# not measured by the kubelet), mounted by a pod that writes 50 MB.
+kubectl -n demo get pod writer >/dev/null 2>&1 || kubectl -n demo apply -f - <<'PVC'
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: data
+  annotations: { volumeType: local }
+spec:
+  accessModes: [ReadWriteOnce]
+  resources: { requests: { storage: 1Gi } }
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: writer
+spec:
+  containers:
+    - name: writer
+      image: busybox:1.36
+      command: ["sh", "-c", "dd if=/dev/zero of=/data/fill bs=1M count=50; sleep infinity"]
+      volumeMounts: [{ name: data, mountPath: /data }]
+  volumes:
+    - name: data
+      persistentVolumeClaim: { claimName: data }
+PVC
 kubectl -n demo get pod limited >/dev/null 2>&1 || kubectl -n demo apply -f - <<'POD'
 apiVersion: v1
 kind: Pod
@@ -149,6 +175,11 @@ echo "Waiting for Prometheus to have pod samples..."
 for _ in $(seq 1 60); do
   # A few throttling samples of the limited pod, so rates over them exist.
   kubectl get --raw "/api/v1/namespaces/monitoring/services/prometheus-server:80/proxy/api/v1/query?query=count_over_time(container_cpu_cfs_throttled_periods_total%7Bnamespace%3D%22demo%22%2Cpod%3D%22limited%22%7D%5B2m%5D)%3E%3D4" 2>/dev/null | grep -q '"value"' && break
+  sleep 3
+done
+echo "Waiting for Prometheus to have volume samples..."
+for _ in $(seq 1 60); do
+  kubectl get --raw "/api/v1/namespaces/monitoring/services/prometheus-server:80/proxy/api/v1/query?query=kubelet_volume_stats_used_bytes%7Bnamespace%3D%22demo%22%2Cpersistentvolumeclaim%3D%22data%22%7D" 2>/dev/null | grep -q '"value"' && break
   sleep 3
 done
 echo "kind cluster '$CLUSTER' ready. KUBECONFIG=$KUBECONFIG"

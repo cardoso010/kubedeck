@@ -14,6 +14,7 @@ mod resources;
 mod rightsizing;
 mod secrets;
 mod state;
+mod storage;
 mod streams;
 mod updater;
 mod windows;
@@ -73,6 +74,10 @@ pub fn run() {
             resources::delete_resource,
             resources::create_resources,
             rightsizing::rightsizing,
+            storage::volume_usage,
+            storage::volume_history,
+            storage::volume_expand_info,
+            storage::expand_volume,
             streams::stream_logs,
             streams::stream_workload_logs,
             workloads::rollout_restart,

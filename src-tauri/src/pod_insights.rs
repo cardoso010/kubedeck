@@ -310,7 +310,7 @@ pub async fn node_history(name: String, minutes: u64, state: Session) -> CmdResu
 }
 
 /// Reads a Prometheus matrix result.
-fn series(data: &Value) -> Vec<Series> {
+pub(crate) fn series(data: &Value) -> Vec<Series> {
     let mut out: Vec<Series> = data["result"]
         .as_array()
         .into_iter()

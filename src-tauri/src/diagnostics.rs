@@ -5,7 +5,7 @@ use std::collections::BTreeMap;
 
 use k8s_openapi::api::apps::v1::{DaemonSet, Deployment, ReplicaSet, StatefulSet};
 use k8s_openapi::api::batch::v1::Job;
-use k8s_openapi::api::core::v1::{Node, PersistentVolumeClaim, Pod, Service};
+use k8s_openapi::api::core::v1::{Node, PersistentVolume, PersistentVolumeClaim, Pod, Service};
 use k8s_openapi::api::networking::v1::Ingress;
 use kube::api::{Api, ListParams};
 use kube::Client;
@@ -121,6 +121,15 @@ where
     lists.into_iter().filter_map(Result::ok).flat_map(|l| l.items).collect()
 }
 
+/// A claim at 85% is worth a look, at 95% it is about to stop writes.
+fn fullness(v: &crate::storage::VolumeStats) -> Option<&'static str> {
+    match v.used_fraction() {
+        f if f >= 0.95 => Some("critical"),
+        f if f >= 0.85 => Some("warning"),
+        _ => None,
+    }
+}
+
 /// Everything that looks wrong in `namespaces` (all when empty), worst first.
 #[tauri::command]
 pub async fn cluster_problems(namespaces: Vec<String>, state: Session) -> CmdResult<Vec<Problem>> {
@@ -178,6 +187,42 @@ pub async fn cluster_problems(namespaces: Vec<String>, state: Session) -> CmdRes
     for p in &pvcs {
         if p.status.as_ref().and_then(|s| s.phase.as_deref()) == Some("Pending") && older_than(ts(p.metadata.creation_timestamp.as_ref()).as_ref(), GRACE_SECONDS) {
             out.push(Problem { severity: "warning", kind_key: "persistentvolumeclaims", namespace: p.metadata.namespace.clone(), name: p.metadata.name.clone().unwrap_or_default(), reason: "Pending".into(), message: "The volume claim is not bound".into(), since: ts(p.metadata.creation_timestamp.as_ref()) });
+        }
+    }
+    // Volumes filling up. Only from Prometheus: asking every kubelet on each poll would be
+    // too heavy for big clusters (the Storage view does that on demand instead).
+    if let Ok((prom_client, Some(target))) = crate::pod_insights::prometheus(&state).await {
+        for v in crate::storage::from_prometheus(&prom_client, &target, &namespaces).await.unwrap_or_default() {
+            if let Some(severity) = fullness(&v) {
+                out.push(Problem {
+                    severity,
+                    kind_key: "persistentvolumeclaims",
+                    namespace: Some(v.namespace.clone()),
+                    name: v.claim.clone(),
+                    reason: "VolumeAlmostFull".into(),
+                    message: format!("{:.0}% used ({} free)", v.used_fraction() * 100.0, crate::storage::format_bytes(v.available_bytes)),
+                    since: None,
+                });
+            }
+        }
+    }
+    // PersistentVolumes are cluster-wide: show failed ones whose claim is in scope.
+    if let Ok(pvs) = Api::<PersistentVolume>::all(client.clone()).list(&ListParams::default()).await {
+        for pv in pvs.items {
+            let status = pv.status.clone().unwrap_or_default();
+            let claim_ns = pv.spec.as_ref().and_then(|s| s.claim_ref.as_ref()).and_then(|c| c.namespace.clone());
+            let in_scope = namespaces.is_empty() || claim_ns.as_ref().is_some_and(|ns| namespaces.contains(ns));
+            if status.phase.as_deref() == Some("Failed") && in_scope {
+                out.push(Problem {
+                    severity: "critical",
+                    kind_key: "persistentvolumes",
+                    namespace: None,
+                    name: pv.metadata.name.clone().unwrap_or_default(),
+                    reason: status.reason.unwrap_or_else(|| "Failed".into()),
+                    message: status.message.unwrap_or_else(|| "The volume failed to be reclaimed".into()),
+                    since: None,
+                });
+            }
         }
     }
     // Nodes are cluster-wide; listing them may be forbidden.
@@ -386,6 +431,38 @@ pub async fn related(kind_key: String, namespace: Option<String>, name: String, 
             let pods = Api::<Pod>::namespaced(client.clone(), ns).list(&ListParams::default()).await.map(|l| l.items).unwrap_or_default();
             push("Used by", pods.iter().filter(|p| pod_uses(p).iter().any(|u| u.kind_key == kind_key && u.name == name)).map(pod_item).collect());
         }
+        "persistentvolumeclaims" => {
+            let pvc = Api::<PersistentVolumeClaim>::namespaced(client.clone(), ns).get(&name).await.map_err(|e| kube_err(&e))?;
+            let pods = Api::<Pod>::namespaced(client.clone(), ns).list(&ListParams::default()).await.map(|l| l.items).unwrap_or_default();
+            push("Used by", pods.iter().filter(|p| pod_uses(p).iter().any(|u| u.kind_key == kind_key && u.name == name)).map(pod_item).collect());
+            let spec = pvc.spec.unwrap_or_default();
+            if let Some(pv) = spec.volume_name.filter(|v| !v.is_empty()) {
+                push("Bound to", vec![item("persistentvolumes", None, &pv, pvc.status.and_then(|s| s.phase).unwrap_or_default())]);
+            }
+            if let Some(sc) = spec.storage_class_name {
+                push("Storage class", vec![item("storageclasses", None, &sc, "")]);
+            }
+        }
+        "persistentvolumes" => {
+            let pv = Api::<PersistentVolume>::all(client.clone()).get(&name).await.map_err(|e| kube_err(&e))?;
+            let spec = pv.spec.unwrap_or_default();
+            if let Some(c) = spec.claim_ref {
+                push("Claimed by", vec![item("persistentvolumeclaims", c.namespace.as_deref(), c.name.as_deref().unwrap_or_default(), "")]);
+            }
+            if let Some(sc) = spec.storage_class_name {
+                push("Storage class", vec![item("storageclasses", None, &sc, "")]);
+            }
+        }
+        "storageclasses" => {
+            let pvcs = Api::<PersistentVolumeClaim>::all(client.clone()).list(&ListParams::default()).await.map(|l| l.items).unwrap_or_default();
+            push(
+                "Claims",
+                pvcs.iter()
+                    .filter(|p| p.spec.as_ref().and_then(|s| s.storage_class_name.as_deref()) == Some(name.as_str()))
+                    .map(|p| item("persistentvolumeclaims", p.metadata.namespace.as_deref(), p.metadata.name.as_deref().unwrap_or_default(), p.status.as_ref().and_then(|s| s.phase.clone()).unwrap_or_default()))
+                    .collect(),
+            );
+        }
         "nodes" => {
             let pods = Api::<Pod>::all(client.clone()).list(&ListParams::default().fields(&format!("spec.nodeName={name}"))).await.map_err(|e| kube_err(&e))?;
             push("Pods", pods.items.iter().map(pod_item).collect());
@@ -408,4 +485,19 @@ fn ingress_services(i: &Ingress) -> Vec<String> {
     names.sort();
     names.dedup();
     names
+}
+
+#[cfg(test)]
+mod storage_tests {
+    use super::fullness;
+    use crate::storage::VolumeStats;
+
+    #[test]
+    fn flags_volumes_filling_up() {
+        let at = |used: f64| VolumeStats { capacity_bytes: 100.0, used_bytes: used, ..Default::default() };
+        assert_eq!(fullness(&at(50.0)), None);
+        assert_eq!(fullness(&at(85.0)), Some("warning"));
+        assert_eq!(fullness(&at(97.0)), Some("critical"));
+        assert_eq!(fullness(&VolumeStats::default()), None, "no capacity reported");
+    }
 }

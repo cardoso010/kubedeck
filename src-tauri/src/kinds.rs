@@ -48,7 +48,9 @@ const BUILTINS: &[Builtin] = &[
     Builtin { key: "ingresses", label: "Ingresses", group: "networking.k8s.io", version: "v1", kind: "Ingress", namespaced: true, columns: &["Class", "Hosts"] },
     Builtin { key: "configmaps", label: "ConfigMaps", group: "", version: "v1", kind: "ConfigMap", namespaced: true, columns: &["Keys"] },
     Builtin { key: "secrets", label: "Secrets", group: "", version: "v1", kind: "Secret", namespaced: true, columns: &["Type", "Keys"] },
-    Builtin { key: "persistentvolumeclaims", label: "PersistentVolumeClaims", group: "", version: "v1", kind: "PersistentVolumeClaim", namespaced: true, columns: &["Status", "Capacity", "Storage class"] },
+    Builtin { key: "persistentvolumeclaims", label: "PersistentVolumeClaims", group: "", version: "v1", kind: "PersistentVolumeClaim", namespaced: true, columns: &["Status", "Capacity", "Access", "Storage class"] },
+    Builtin { key: "persistentvolumes", label: "PersistentVolumes", group: "", version: "v1", kind: "PersistentVolume", namespaced: false, columns: &["Status", "Capacity", "Claim", "Storage class", "Reclaim"] },
+    Builtin { key: "storageclasses", label: "StorageClasses", group: "storage.k8s.io", version: "v1", kind: "StorageClass", namespaced: false, columns: &["Provisioner", "Reclaim", "Binding", "Expansion", "Default"] },
     Builtin { key: "events", label: "Events", group: "", version: "v1", kind: "Event", namespaced: true, columns: &["Type", "Reason", "Object", "Message"] },
     Builtin { key: "nodes", label: "Nodes", group: "", version: "v1", kind: "Node", namespaced: false, columns: &["Status", "Roles", "Version"] },
     Builtin { key: "namespaces", label: "Namespaces", group: "", version: "v1", kind: "Namespace", namespaced: false, columns: &["Status"] },
@@ -218,7 +220,21 @@ pub fn summarize(def: &KindDef, obj: &DynamicObject) -> Row {
             vec![ready.to_owned(), roles, s(d, "/status/nodeInfo/kubeletVersion")]
         }
         "namespaces" => vec![s(d, "/status/phase")],
-        "persistentvolumeclaims" => vec![s(d, "/status/phase"), s(d, "/status/capacity/storage"), s(d, "/spec/storageClassName")],
+        "persistentvolumeclaims" => vec![s(d, "/status/phase"), s(d, "/status/capacity/storage"), access_modes(d), s(d, "/spec/storageClassName")],
+        "persistentvolumes" => {
+            let claim = d.pointer("/spec/claimRef").map(|c| format!("{}/{}", c["namespace"].as_str().unwrap_or_default(), c["name"].as_str().unwrap_or_default())).unwrap_or_default();
+            vec![s(d, "/status/phase"), s(d, "/spec/capacity/storage"), claim, s(d, "/spec/storageClassName"), s(d, "/spec/persistentVolumeReclaimPolicy")]
+        }
+        "storageclasses" => {
+            let default = meta.annotations.as_ref().and_then(|a| a.get("storageclass.kubernetes.io/is-default-class")).is_some_and(|v| v == "true");
+            vec![
+                s(d, "/provisioner"),
+                d.pointer("/reclaimPolicy").and_then(Value::as_str).unwrap_or("Delete").to_owned(),
+                d.pointer("/volumeBindingMode").and_then(Value::as_str).unwrap_or("Immediate").to_owned(),
+                if d.pointer("/allowVolumeExpansion").and_then(Value::as_bool).unwrap_or(false) { "yes" } else { "no" }.to_owned(),
+                if default { "default" } else { "" }.to_owned(),
+            ]
+        }
         _ => {
             // Custom resources: printer column paths are relative to the whole object,
             // and `data` holds everything but metadata.
@@ -241,6 +257,22 @@ pub fn summarize(def: &KindDef, obj: &DynamicObject) -> Row {
         replicas: matches!(def.key.as_str(), "deployments" | "statefulsets").then(|| d.pointer("/spec/replicas").and_then(Value::as_i64).unwrap_or(1) as i32),
         paused: d.pointer("/spec/paused").and_then(Value::as_bool).unwrap_or(false),
     }
+}
+
+/// `kubectl get pvc` style: RWO, RWX, ROX, RWOP.
+fn access_modes(d: &Value) -> String {
+    arr(d, "/spec/accessModes")
+        .iter()
+        .filter_map(Value::as_str)
+        .map(|m| match m {
+            "ReadWriteOnce" => "RWO",
+            "ReadWriteMany" => "RWX",
+            "ReadOnlyMany" => "ROX",
+            "ReadWriteOncePod" => "RWOP",
+            other => other,
+        })
+        .collect::<Vec<_>>()
+        .join(",")
 }
 
 fn tcp_ports(list: Option<&Value>, field: &str) -> Vec<u16> {

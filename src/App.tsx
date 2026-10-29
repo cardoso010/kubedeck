@@ -5,6 +5,7 @@ import * as api from "./api";
 import type { Connected, Contexts, KindInfo, Row, Target } from "./api";
 import { useStream } from "./useStream";
 import { METRIC_COLUMNS, useMetrics } from "./useMetrics";
+import { VOLUME_COLUMNS, useVolumeUsage } from "./useVolumeUsage";
 import { usePins, clusterColor } from "./pins";
 import { FORWARDS, HELM, PROBLEMS, RIGHTSIZING, SECTIONS, sectionOf, type SectionId } from "./sections";
 import { ThemeContext, THEMES, useTheme } from "./theme";
@@ -44,7 +45,7 @@ const saveNamespaces = (context: string, selected: string[]) => {
 };
 
 /** First kind of each section, used when the rail switches sections. */
-const SECTION_DEFAULT: Partial<Record<SectionId, string>> = { problems: PROBLEMS, rightsizing: RIGHTSIZING, workloads: "pods", network: "services", config: "configmaps", cluster: "nodes", helm: HELM, forwards: FORWARDS };
+const SECTION_DEFAULT: Partial<Record<SectionId, string>> = { storage: "persistentvolumeclaims", problems: PROBLEMS, rightsizing: RIGHTSIZING, workloads: "pods", network: "services", config: "configmaps", cluster: "nodes", helm: HELM, forwards: FORWARDS };
 
 export default function App() {
   const { theme, setTheme } = useTheme();
@@ -185,6 +186,7 @@ export default function App() {
   const scopedNs = useMemo(() => (kind?.namespaced ? selectedNs : []), [kind?.namespaced, selectedNs]);
   const nsKey = scopedNs.join(",");
   const metricCells = useMetrics(view, scopedNs, conn);
+  const volumeCells = useVolumeUsage(view, scopedNs, conn);
 
   function chooseNamespaces(next: string[]) {
     setSelectedNs(next);
@@ -494,7 +496,7 @@ export default function App() {
                 showNamespace={kind.namespaced && scopedNs.length !== 1}
                 selectedUid={selectedRow?.uid ?? null}
                 onSelect={setSelected}
-                extra={metricCells && { columns: METRIC_COLUMNS, cells: metricCells }}
+                extra={metricCells ? { columns: METRIC_COLUMNS, cells: metricCells } : volumeCells && { columns: VOLUME_COLUMNS, cells: volumeCells }}
               />
               {selectedRow && target && (
                 <DetailsPanel key={selectedRow.uid} kind={kind} row={selectedRow} target={target} context={conn.context} production={prod}

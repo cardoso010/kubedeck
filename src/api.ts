@@ -209,6 +209,19 @@ export const related = (kindKey: string, namespace: string | null, name: string)
 export const nodeSummary = (name: string) => invoke<NodeSummary>("node_summary", { name });
 export const cordon = (name: string, unschedulable: boolean) => invoke<void>("cordon", { name, unschedulable });
 export const drain = (name: string, podSelector: string | null, dryRun: boolean) => invoke<DrainReport>("drain", { name, podSelector, dryRun });
+export interface VolumeStats {
+  namespace: string;
+  claim: string;
+  capacityBytes: number;
+  usedBytes: number;
+  availableBytes: number;
+  inodes: number | null;
+  inodesUsed: number | null;
+}
+export const volumeUsage = (namespaces: string[]) => invoke<{ source: string; volumes: VolumeStats[] }>("volume_usage", { namespaces });
+export const volumeHistory = (namespace: string, claim: string, minutes: number) => invoke<{ source: string; used: Series[] }>("volume_history", { namespace, claim, minutes });
+export const volumeExpandInfo = (namespace: string, name: string) => invoke<{ requested: string; storageClass: string | null; expandable: boolean }>("volume_expand_info", { namespace, name });
+export const expandVolume = (namespace: string, name: string, size: string) => invoke<void>("expand_volume", { namespace, name, size });
 export const nodeHistory = (name: string, minutes: number) => invoke<NodeHistory>("node_history", { name, minutes });
 
 export const aiStatus = () => invoke<{ configured: boolean; source: "environment" | "keychain" | null }>("ai_status");

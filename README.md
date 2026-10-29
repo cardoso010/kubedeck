@@ -16,8 +16,10 @@ Cliente desktop de Kubernetes, no estilo do Lens: **Tauri 2 + Rust** (`kube-rs`)
 | **Problems:** tudo que parece errado nos namespaces escolhidos, do mais grave ao menos; um clique abre o objeto. | **Explain with Claude:** o Claude lê manifesto (sem segredos), eventos e logs e sugere causa e correção. |
 | ![Visão de um node](docs/screenshots/node-overview.png) | ![Rightsizing](docs/screenshots/rightsizing.png) |
 | **Node:** capacidade contra requests e uso real, histórico, condições, taints, cordon e drain com prévia. | **Rightsizing:** requests contra o uso real de cada container, com sugestão e o quanto dá para recuperar. |
-| ![Dock com logs](docs/screenshots/dock.png) | ![Tela inicial](docs/screenshots/welcome.png) |
-| **Dock:** terminais e logs que continuam abertos enquanto você navega. | **Tela inicial:** clusters fixados primeiro, produção sinalizada. |
+| ![Dock com logs](docs/screenshots/dock.png) | ![Storage](docs/screenshots/storage.png) |
+| **Dock:** terminais e logs que continuam abertos enquanto você navega. | **Storage:** quanto cada volume está usando, histórico e expansão. |
+| ![Tela inicial](docs/screenshots/welcome.png) | |
+| **Tela inicial:** clusters fixados primeiro, produção sinalizada. | |
 
 As imagens usam os dados de exemplo da interface em modo navegador. Para refazê-las depois de mudar a interface, rode `npm run dev` e, em outro terminal, `npm run screenshots` (usa o Google Chrome instalado na máquina).
 
@@ -76,6 +78,7 @@ O app ainda não é assinado com Developer ID nem notarizado. O script de instal
 - **Port forwards favoritos:** a estrela numa linha de Port Forwards reabre aquele túnel sempre que o cluster é conectado.
 - **Criar a partir de YAML** (botão `+` ou ⌘K): cola um ou mais documentos, valida com dry run no servidor e cria. Ao salvar edições, um **diff** mostra exatamente o que muda antes de enviar.
 - **Notificações:** ⌘K → "Notify me when pods crash…" avisa no sistema quando aparece um crash loop, OOMKilled ou erro de imagem nos namespaces selecionados.
+- **Storage** (seção própria no trilho): PersistentVolumeClaims com a coluna **Used**, PersistentVolumes e StorageClasses. A aba **Usage** de um PVC mostra espaço e inodes usados, o histórico (24 h a 30 dias, pelo Prometheus) e permite **expandir** o volume quando a StorageClass deixa. O uso vem do Prometheus (`kubelet_volume_stats_*`) ou, sem ele, direto dos kubelets; só volumes que se medem (CSI como EBS, volumes `local`) informam uso. **Problems** avisa volumes acima de 85% (crítico acima de 95%) e PVs com falha, e **Related** liga PVC, pods, PV e StorageClass.
 - **Rightsizing:** requests e limits de cada container contra o uso real (p95 de CPU e pico de memória em 24 h pelo Prometheus, ou o uso atual pelo metrics-server), com o request sugerido e o total que dá para recuperar.
 - **Proteção de produção:** contextos com `prd`/`prod`/`production` no nome mostram uma faixa vermelha. Salvar, apagar, instalar, fazer upgrade, rollback ou uninstall nesses contextos exige digitar o nome do recurso.
 
