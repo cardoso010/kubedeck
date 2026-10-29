@@ -3,6 +3,7 @@ import Editor from "@monaco-editor/react";
 import { createResources, errorText } from "../api";
 import { useCurrentTheme } from "../theme";
 import { useReadOnly } from "../readOnly";
+import TypeToConfirm, { confirms } from "./TypeToConfirm";
 
 interface Props {
   /** Kind key of the current view, used to pick a starting template. */
@@ -32,6 +33,7 @@ export default function CreateDialog({ kindKey, namespaces, defaultNamespace, pr
   const [result, setResult] = useState<{ ok: boolean; text: string; dry: boolean } | null>(null);
   const [busy, setBusy] = useState(false);
   const [typed, setTyped] = useState("");
+  const clusterName = context.split("/").pop() ?? context;
 
   async function run(dryRun: boolean) {
     setBusy(true);
@@ -71,12 +73,12 @@ export default function CreateDialog({ kindKey, namespaces, defaultNamespace, pr
         <div className="modal-actions create-actions">
           {readOnly && <span className="faint">Read-only mode: you can validate, not create.</span>}
           {production && validated && !readOnly && (
-            <input placeholder={`type ${context.split("/").pop()} to create`} value={typed} onChange={(e) => setTyped(e.target.value)} />
+            <TypeToConfirm expected={clusterName} value={typed} onChange={setTyped} />
           )}
           <button disabled={busy} onClick={() => void run(true)}>
             Validate (dry run)
           </button>
-          <button className="primary" disabled={busy || readOnly || !validated || (production && typed !== context.split("/").pop())} title={validated ? undefined : "Validate first"} onClick={() => void run(false)}>
+          <button className="primary" disabled={busy || readOnly || !validated || (production && !confirms(typed, clusterName))} title={validated ? undefined : "Validate first"} onClick={() => void run(false)}>
             Create
           </button>
         </div>

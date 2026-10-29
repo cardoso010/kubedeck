@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { DiffEditor } from "@monaco-editor/react";
 import { useCurrentTheme } from "../theme";
+import TypeToConfirm, { confirms } from "./TypeToConfirm";
 
 interface Props {
   title: string;
@@ -28,9 +29,9 @@ export default function DiffDialog({ title, original, modified, confirmLabel, ty
           <DiffEditor language="yaml" theme={monacoTheme} original={original} modified={modified} options={{ readOnly: true, renderSideBySide: true, minimap: { enabled: false }, fontSize: 12, scrollBeyondLastLine: false }} />
         </div>
         <div className="modal-actions create-actions">
-          {typeToConfirm && <input autoFocus placeholder={`type ${typeToConfirm} to confirm`} value={typed} onChange={(e) => setTyped(e.target.value)} />}
+          {typeToConfirm && <TypeToConfirm expected={typeToConfirm} value={typed} onChange={setTyped} />}
           <button onClick={onCancel}>Cancel</button>
-          <button className="primary" disabled={!!typeToConfirm && typed !== typeToConfirm} onClick={onConfirm}>
+          <button className="primary" disabled={!!typeToConfirm && !confirms(typed, typeToConfirm)} onClick={onConfirm}>
             {confirmLabel}
           </button>
         </div>

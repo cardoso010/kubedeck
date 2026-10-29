@@ -4,6 +4,7 @@ import { cordon, drain, errorText, formatCpu, formatMemory, nodeHistory, nodeSum
 import LineChart from "./LineChart";
 import ConfirmDialog from "./ConfirmDialog";
 import { useReadOnly } from "../readOnly";
+import TypeToConfirm, { confirms } from "./TypeToConfirm";
 
 interface Props {
   name: string;
@@ -218,7 +219,7 @@ function DrainList({ report, done = false }: { report: DrainReport; done?: boole
 
 function DrainDialog({ name, preview, production, context, onConfirm, onCancel }: { name: string; preview: DrainReport; production: boolean; context: string; onConfirm: () => void; onCancel: () => void }) {
   const [typed, setTyped] = useState("");
-  const ok = !production || typed === name;
+  const ok = !production || confirms(typed, name);
   return (
     <div className="modal-backdrop" onClick={onCancel}>
       <div className="modal modal-wide" onClick={(e) => e.stopPropagation()}>
@@ -227,14 +228,7 @@ function DrainDialog({ name, preview, production, context, onConfirm, onCancel }
           The node is cordoned, then each pod below is evicted on {context}. PodDisruptionBudgets are respected, so some evictions may be refused.
         </p>
         <DrainList report={preview} />
-        {production && (
-          <label className="field">
-            <span>
-              Type <code>{name}</code> to confirm
-            </span>
-            <input autoFocus value={typed} onChange={(e) => setTyped(e.target.value)} />
-          </label>
-        )}
+        {production && <TypeToConfirm expected={name} value={typed} onChange={setTyped} />}
         <div className="modal-actions">
           <button onClick={onCancel}>Cancel</button>
           <button className="danger" disabled={!ok} onClick={onConfirm}>
