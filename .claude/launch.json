@@ -1,6 +1,7 @@
 {
   "version": "0.0.1",
   "configurations": [
-    { "name": "ui-preview", "runtimeExecutable": "npm", "runtimeArgs": ["run", "dev"], "port": 1420 }
+    { "name": "ui-preview", "runtimeExecutable": "npm", "runtimeArgs": ["run", "dev"], "port": 1420 },
+    { "name": "site", "runtimeExecutable": "bash", "runtimeArgs": ["-c", "scripts/build-site.sh && python3 -m http.server 4173 -d _site"], "port": 4173 }
   ]
 }

@@ -21,7 +21,7 @@ body:
     id: version
     attributes:
       label: kubedeck version
-      description: Shown in the update popover at the bottom of the sidebar.
+      description: Shown in the About popover (ⓘ at the bottom of the sidebar), which also opens this form with it filled in.
       placeholder: "0.4.2"
     validations:
       required: true

@@ -1,7 +1,9 @@
 import { useEffect, useState } from "react";
-import { IconAppWindow, IconCheck, IconDownload, IconHexagons, IconPalette } from "@tabler/icons-react";
+import { IconAppWindow, IconBrandGithub, IconBug, IconCheck, IconDownload, IconHexagons, IconInfoCircle, IconLink, IconNews, IconPalette, IconTerminal2, IconWorld } from "@tabler/icons-react";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import { checkForUpdate, errorText, installUpdate, isProduction, openWindow, shortContextName, type UpdateStatus } from "../api";
 import { getVersion } from "@tauri-apps/api/app";
+import { bugReportUrl, INSTALL_COMMAND, REPO_URL, SITE_URL } from "../about";
 import { clusterColor } from "../pins";
 import { SECTIONS, type SectionId } from "../sections";
 import { THEMES, type Theme, type ThemeId } from "../theme";
@@ -19,6 +21,8 @@ interface Props {
   onTheme: (id: ThemeId) => void;
   /** Critical problems in the selected namespaces, shown as a badge on Problems. */
   problemCount: number;
+  /** Bumped by the command palette to open the About popover. */
+  aboutRequest: number;
 }
 
 const initials = (context: string) =>
@@ -29,15 +33,19 @@ const initials = (context: string) =>
     .map((p) => p[0]!.toUpperCase())
     .join("") || "?";
 
-type Popover = { kind: "theme" } | { kind: "update" } | { kind: "cluster"; context: string; x: number; y: number };
+type Popover = { kind: "theme" } | { kind: "update" } | { kind: "about" } | { kind: "cluster"; context: string; x: number; y: number };
 
 /**
  * The thin left rail: sections, pinned clusters, and app actions. Clusters: click switches
  * this window, ⌘/Ctrl-click opens a new window, right-click for more.
  */
-export default function Rail({ section, onSection, connected, pins, current, onSwitchCluster, onUnpin, onMoveUp, theme, onTheme, problemCount }: Props) {
+export default function Rail({ section, onSection, connected, pins, current, onSwitchCluster, onUnpin, onMoveUp, theme, onTheme, problemCount, aboutRequest }: Props) {
   const [popover, setPopover] = useState<Popover | null>(null);
   const update = useUpdate();
+
+  useEffect(() => {
+    if (aboutRequest > 0) setPopover({ kind: "about" });
+  }, [aboutRequest]);
 
   useEffect(() => {
     if (!popover) return;
@@ -94,9 +102,12 @@ export default function Rail({ section, onSection, connected, pins, current, onS
         <IconDownload size={18} stroke={1.6} />
         {update.status?.status === "available" && <span className="rail-badge" />}
       </button>
+      <button className="rail-button" data-tip="About kubedeck" aria-label="About kubedeck" onClick={() => setPopover({ kind: "about" })}>
+        <IconInfoCircle size={18} stroke={1.6} />
+      </button>
 
       {popover?.kind === "theme" && (
-        <div className="rail-popover" style={{ bottom: 64 }}>
+        <div className="rail-popover" style={{ bottom: 108 }}>
           <div className="popover-title">Theme</div>
           {THEMES.map((t) => (
             <button key={t.id} className="popover-item" onClick={() => onTheme(t.id)}>
@@ -111,11 +122,12 @@ export default function Rail({ section, onSection, connected, pins, current, onS
         </div>
       )}
       {popover?.kind === "update" && (
-        <div className="rail-popover" style={{ bottom: 20 }}>
+        <div className="rail-popover" style={{ bottom: 64 }}>
           <div className="popover-title">kubedeck {update.version && `v${update.version}`}</div>
           <UpdateBody {...update} />
         </div>
       )}
+      {popover?.kind === "about" && <About version={update.version} />}
       {popover?.kind === "cluster" && (
         <div className="rail-popover" style={{ top: popover.y - 10 }}>
           <div className="popover-title">{shortContextName(popover.context)}</div>
@@ -131,6 +143,59 @@ export default function Rail({ section, onSection, connected, pins, current, onS
         </div>
       )}
     </nav>
+  );
+}
+
+/** Version, project links and a way to share the app. */
+function About({ version }: { version: string }) {
+  const [copied, setCopied] = useState<string | null>(null);
+  const copy = (what: string, text: string) =>
+    void navigator.clipboard.writeText(text).then(() => {
+      setCopied(what);
+      setTimeout(() => setCopied(null), 1500);
+    });
+  const link = (url: string) => () => void openUrl(url);
+
+  return (
+    <div className="rail-popover about" style={{ bottom: 20 }}>
+      <div className="about-head">
+        <IconHexagons size={26} stroke={1.5} />
+        <div>
+          <strong>kubedeck</strong> <span className="faint">{version && `v${version}`}</span>
+          <div className="faint">A fast, native Kubernetes client. Open source, Apache-2.0.</div>
+        </div>
+      </div>
+      <div className="popover-title">Share</div>
+      <button className="popover-item" onClick={() => copy("link", SITE_URL)}>
+        <IconLink size={15} />
+        <span className="popover-item-text">
+          <span>{copied === "link" ? "Copied" : "Copy link"}</span>
+          <span className="faint">{SITE_URL.replace("https://", "").replace(/\/$/, "")}</span>
+        </span>
+        {copied === "link" && <IconCheck size={14} />}
+      </button>
+      <button className="popover-item" onClick={() => copy("install", INSTALL_COMMAND)}>
+        <IconTerminal2 size={15} />
+        <span className="popover-item-text">
+          <span>{copied === "install" ? "Copied" : "Copy install command"}</span>
+          <span className="faint">one line, for macOS, Linux or Windows</span>
+        </span>
+        {copied === "install" && <IconCheck size={14} />}
+      </button>
+      <div className="popover-title">Links</div>
+      <button className="popover-item" onClick={link(SITE_URL)}>
+        <IconWorld size={15} /> Website
+      </button>
+      <button className="popover-item" onClick={link(REPO_URL)}>
+        <IconBrandGithub size={15} /> GitHub
+      </button>
+      <button className="popover-item" onClick={link(version ? `${REPO_URL}/releases/tag/v${version}` : `${REPO_URL}/releases`)}>
+        <IconNews size={15} /> What's new
+      </button>
+      <button className="popover-item" onClick={link(bugReportUrl(version))}>
+        <IconBug size={15} /> Report a bug
+      </button>
+    </div>
   );
 }
 

@@ -31,3 +31,4 @@ dist-ssr
 
 # e2e exec-plugin token
 /e2e/.auth-token
+_site/

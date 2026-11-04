@@ -2,6 +2,8 @@
 
 A fast, native desktop client for Kubernetes: **Tauri 2 + Rust** (`kube-rs`) on the backend and **React + TypeScript** for the interface.
 
+**Website:** [cardoso010.github.io/kubedeck](https://cardoso010.github.io/kubedeck/)
+
 ![Pods from two namespaces with a pod's logs in the details drawer, Terminal theme](docs/screenshots/pods-logs.png)
 
 ## Screens
@@ -76,6 +78,7 @@ The app is not signed with an Apple Developer ID or notarized yet. The install s
 - **Starred port forwards:** the star on a Port Forwards row reopens that tunnel whenever the cluster is connected.
 - **Create from YAML** (`+` button or ⌘K): paste one or more documents, validate with a server-side dry run, then create.
 - **Notifications:** ⌘K → "Notify me when pods crash…" sends a system notification when a crash loop, OOMKilled or image error appears in the selected namespaces.
+- **About** (ⓘ at the bottom of the rail, or ⌘K → "About kubedeck"): the version, links to the website, GitHub and release notes, a bug report already filled in with the version and OS, and buttons to copy the project link or the install command to share.
 - **Rightsizing:** each container's requests and limits against real usage (CPU p95 and peak memory over 24 h from Prometheus, or current usage from metrics-server), with the suggested request and how much can be reclaimed in total.
 - **Helm Releases:** lists releases and shows values, manifest, notes and history, with **rollback** to an earlier revision and **uninstall**. **Install chart** searches your configured repositories (the same as `helm repo list`, which can be managed there), picks a version and opens the chart's default values for editing; each release's **Upgrade** tab starts from its current values. Both have a *dry run* (renders and validates on the server without changing anything) and the production confirmation. The app ships its own Helm (3.22.1) as a sidecar, so it works with nothing installed. It always uses the app's kubeconfig and context. To use another binary, set `KUBEDECK_HELM` to its path.
 - **Production safety:** contexts with `prd`/`prod`/`production` in their name show a red strip, open read-only, and saving, deleting, scaling, draining, installing, upgrading, rolling back or uninstalling on them requires typing the object's name.
@@ -88,7 +91,10 @@ npm run tauri dev        # native app with hot reload
 npm run tauri build      # builds src-tauri/target/release/bundle/macos/kubedeck.app
 npm run dev              # the interface alone, in a browser, with sample data (src/dev-mock.ts)
 npm run screenshots      # with npm run dev running: redoes the images in docs/screenshots
+scripts/build-site.sh && python3 -m http.server -d _site   # the project page, at localhost:8000
 ```
+
+The project page lives in `site/` (plain HTML, CSS and JS). The **Pages** workflow assembles it with the screenshots and the app icon (`scripts/build-site.sh`) and publishes it to GitHub Pages on every push to `main` that touches it.
 
 Before `dev` and `build`, `npm run binaries` downloads Helm into `src-tauri/binaries/` (not in git) and checks the SHA-256 pinned in `scripts/fetch-helm.mjs`. To use `cargo` directly (`cargo check`, `cargo test`), run `npm run binaries` once first. To update Helm, change the version and hashes in that script, copying them from the release notes on GitHub.
 

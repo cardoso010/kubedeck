@@ -17,6 +17,7 @@ npm run tauri dev                 # native app with hot reload (fetches the Helm
 npm run dev                       # UI only in a browser, with sample data from src/dev-mock.ts
 npm run screenshots               # with npm run dev running: regenerate docs/screenshots (README images)
 npm run binaries                  # fetch the Helm sidecar; needed once before plain cargo commands
+scripts/build-site.sh             # project page (site/ + screenshots + icon) into _site/, published by pages.yml
 npx tsc --noEmit                  # typecheck UI
 cd src-tauri && cargo clippy --all-targets -- -D warnings
 cd src-tauri && cargo test        # unit tests (e2e tests are #[ignore])
@@ -72,5 +73,6 @@ Layout: `Rail` (sections, with the Problems badge from `sections.ts`, pinned clu
 - Changing the updater `pubkey` in tauri.conf.json strands every installed copy. Only rotate it together with a manual reinstall plan.
 - Builds are ad-hoc signed (no Developer ID yet); `scripts/install.sh` (macOS, Linux) and `scripts/install.ps1` (Windows) download with curl/PowerShell, or through `gh` when it is logged in.
 - Don't change `identifier` in tauri.conf.json (`io.github.cardoso010.kubedeck`): the webview's storage lives under it, so every user would lose their settings (pins, theme, read-only defaults, starred port forwards) again, as they did once in v0.4.2.
+- The project page (`site/`, https://cardoso010.github.io/kubedeck/) is static HTML deployed by `.github/workflows/pages.yml`. Its download links match the asset suffixes above; the app links to it from the About popover (`src/about.ts`), so keep the URLs in sync.
 - Platform code: the login-shell PATH import is `cfg(unix)`; keep Windows paths in mind for sidecars (`helm.exe`).
 - Helm is pinned in `scripts/fetch-helm.mjs` with per-platform SHA-256 sums from the official release notes; update version and sums together.

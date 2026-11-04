@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { IconAlertTriangle, IconAppWindow, IconBell, IconBellOff, IconGauge, IconLock, IconLockOpen, IconPlus, IconHexagons, IconLayersSubtract, IconPackage, IconPalette, IconPin, IconServer2, IconWorld } from "@tabler/icons-react";
+import { IconAlertTriangle, IconAppWindow, IconBell, IconBellOff, IconGauge, IconLock, IconLockOpen, IconPlus, IconHexagons, IconInfoCircle, IconLink, IconLayersSubtract, IconPackage, IconPalette, IconPin, IconServer2, IconWorld } from "@tabler/icons-react";
 import * as api from "./api";
 import type { Connected, Contexts, KindInfo, Row, Target } from "./api";
 import { useStream } from "./useStream";
@@ -23,6 +23,7 @@ import { DockContext, type DockTab } from "./dock";
 import { startFavorites } from "./favorites";
 import { notifyEnabled, notifyNew, problemKey, setNotifyEnabled } from "./notify";
 import Rail from "./components/Rail";
+import { SITE_URL } from "./about";
 import TopBar from "./components/TopBar";
 import KindTabs from "./components/KindTabs";
 import CommandPalette, { type Command } from "./components/CommandPalette";
@@ -85,6 +86,7 @@ export default function App() {
   const [selected, setSelected] = useState<Row | null>(null);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [helmInstallRequest, setHelmInstallRequest] = useState(0);
+  const [aboutRequest, setAboutRequest] = useState(0);
   /** The cluster rejected this window's credentials (e.g. an expired AWS session). */
   const [authProblem, setAuthProblem] = useState<{ context: string; auth: Connected["auth"]; tries: number } | null>(null);
 
@@ -408,6 +410,8 @@ export default function App() {
       list.push({ id: `ctxw:${c.name}`, group: "Clusters", title: `${name} in a new window`, icon: <IconAppWindow size={16} />, run: () => void api.openWindow(c.name) });
     }
     list.push({ id: "action:window", group: "Actions", title: "New window", hint: "⌘N", icon: <IconAppWindow size={16} />, run: () => void api.openWindow(null) });
+    list.push({ id: "action:about", group: "Actions", title: "About kubedeck", subtitle: "version, links, share", icon: <IconInfoCircle size={16} />, run: () => setAboutRequest((n) => n + 1) });
+    list.push({ id: "action:share", group: "Actions", title: "Copy kubedeck link", subtitle: SITE_URL, icon: <IconLink size={16} />, run: () => void navigator.clipboard.writeText(SITE_URL) });
     for (const t of THEMES) {
       list.push({ id: `theme:${t.id}`, group: "Theme", title: `Theme: ${t.label}`, subtitle: t.description, icon: <IconPalette size={16} />, run: () => setTheme(t.id) });
     }
@@ -434,6 +438,7 @@ export default function App() {
           theme={theme}
           onTheme={setTheme}
           problemCount={problems?.filter((p) => p.severity === "critical").length ?? 0}
+          aboutRequest={aboutRequest}
         />
         <div className="stage">
           {prod && <div className="prod-strip">Production cluster · changes affect real workloads</div>}

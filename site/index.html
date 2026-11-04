@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>kubedeck — a fast, native Kubernetes desktop client</title>
+    <meta name="description" content="Open-source Kubernetes desktop client built with Tauri and Rust: live resources, logs, terminals, Helm, metrics, Problems, rightsizing and production safety. macOS, Linux and Windows." />
+    <link rel="canonical" href="https://cardoso010.github.io/kubedeck/" />
+    <link rel="icon" type="image/png" href="icon.png" />
+    <meta name="theme-color" content="#07090c" />
+
+    <!-- Link previews (Slack, X, LinkedIn, WhatsApp) need absolute URLs. -->
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="kubedeck" />
+    <meta property="og:title" content="kubedeck — a fast, native Kubernetes desktop client" />
+    <meta property="og:description" content="Open source, built with Tauri and Rust. Live resources, logs, terminals, Helm, metrics and production safety." />
+    <meta property="og:url" content="https://cardoso010.github.io/kubedeck/" />
+    <meta property="og:image" content="https://cardoso010.github.io/kubedeck/screenshots/pods-logs.png" />
+    <meta name="twitter:card" content="summary_large_image" />
+
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <header class="nav">
+      <a class="brand" href="./"><img src="icon.png" alt="" width="22" height="22" />kubedeck</a>
+      <nav>
+        <a href="#features">Features</a>
+        <a href="#safety">Safety</a>
+        <a href="https://github.com/cardoso010/kubedeck/releases">Releases</a>
+        <a class="github" href="https://github.com/cardoso010/kubedeck">GitHub <span id="stars" class="stars" hidden></span></a>
+      </nav>
+    </header>
+
+    <main>
+      <section class="hero">
+        <p class="eyebrow">open source · macOS · linux · windows</p>
+        <h1>Kubernetes, at native speed.</h1>
+        <p class="lead">
+          kubedeck is a desktop client for your clusters, built with Tauri and Rust. Live lists, logs and terminals, Helm,
+          metrics and Prometheus history, a Problems view that tells you what is broken, and guard rails for production.
+        </p>
+
+        <div class="install" id="install">
+          <div class="tabs" role="tablist">
+            <button role="tab" data-os="unix" aria-selected="true">macOS · Linux</button>
+            <button role="tab" data-os="windows" aria-selected="false">Windows</button>
+          </div>
+          <div class="command">
+            <code id="command">curl -fsSL https://raw.githubusercontent.com/cardoso010/kubedeck/main/scripts/install.sh | bash</code>
+            <button class="copy" data-copy="command" aria-label="Copy install command">Copy</button>
+          </div>
+          <p class="downloads" id="downloads">
+            Or download from the <a href="https://github.com/cardoso010/kubedeck/releases/latest">latest release</a>.
+          </p>
+        </div>
+
+        <figure class="shot hero-shot">
+          <img src="screenshots/pods-logs.png" alt="Pods from two namespaces with a pod's logs in the details drawer" />
+        </figure>
+      </section>
+
+      <section id="features" class="features">
+        <h2>What it does</h2>
+        <div class="grid">
+          <article>
+            <img src="screenshots/problems.png" alt="Problems view" loading="lazy" />
+            <h3>Problems</h3>
+            <p>Crash loops, OOMKilled, images that won't pull, unavailable workloads, full volumes and unhealthy nodes, worst first. One click opens the object.</p>
+          </article>
+          <article>
+            <img src="screenshots/pod-metrics.png" alt="Pod metrics" loading="lazy" />
+            <h3>Metrics without setup</h3>
+            <p>CPU and memory against requests and limits, and Prometheus history found automatically through the API server, with your own credentials.</p>
+          </article>
+          <article>
+            <img src="screenshots/command-palette.png" alt="Command palette" loading="lazy" />
+            <h3>Command palette</h3>
+            <p>⌘K to jump to any kind, CRD, resource, cluster or namespace, or to run an action.</p>
+          </article>
+          <article>
+            <img src="screenshots/helm-graphite.png" alt="Helm releases" loading="lazy" />
+            <h3>Helm built in</h3>
+            <p>Releases, history, rollback, upgrades and chart installs with a server-side dry run. Helm ships with the app.</p>
+          </article>
+          <article>
+            <img src="screenshots/explain.png" alt="Explain with Claude" loading="lazy" />
+            <h3>Explain with Claude</h3>
+            <p>On click only: the manifest (secrets removed), events and logs go to Claude, which suggests the cause and a fix.</p>
+          </article>
+          <article>
+            <img src="screenshots/rightsizing.png" alt="Rightsizing" loading="lazy" />
+            <h3>Rightsizing</h3>
+            <p>Each container's requests against real usage, with a suggestion and how much the cluster can reclaim.</p>
+          </article>
+          <article>
+            <img src="screenshots/node-overview.png" alt="Node overview" loading="lazy" />
+            <h3>Nodes</h3>
+            <p>Capacity, requests and usage, conditions and taints, cordon and drain with a preview of what gets evicted.</p>
+          </article>
+          <article>
+            <img src="screenshots/storage.png" alt="Storage" loading="lazy" />
+            <h3>Storage</h3>
+            <p>How full each volume is, its history, and expansion when the StorageClass allows it.</p>
+          </article>
+          <article>
+            <img src="screenshots/dock.png" alt="Dock with terminals and logs" loading="lazy" />
+            <h3>Dock</h3>
+            <p>Terminals and logs that keep running while you browse, and several windows for several clusters.</p>
+          </article>
+        </div>
+      </section>
+
+      <section id="safety" class="safety">
+        <h2>Safe around production</h2>
+        <ul>
+          <li><strong>Read-only by default.</strong> Contexts named <code>prd</code>, <code>prod</code> or <code>production</code> open locked, and the backend refuses every write until you unlock.</li>
+          <li><strong>Type the name to confirm.</strong> Deleting, scaling, draining, rolling back or uninstalling on production asks for the object's name.</li>
+          <li><strong>Secrets stay hidden.</strong> Values are masked until you reveal one key, and they are never sent to Claude.</li>
+          <li><strong>Your credentials, your RBAC.</strong> Everything goes through your kubeconfig, including EKS and GKE exec plugins. No agents in the cluster, no telemetry.</li>
+          <li><strong>Signed updates.</strong> The app updates itself in one click and refuses packages without a valid signature.</li>
+        </ul>
+      </section>
+
+      <section class="cta">
+        <h2>Try it</h2>
+        <p>Free and open source under the Apache 2.0 license. Bugs, ideas and pull requests are welcome.</p>
+        <div class="buttons">
+          <a class="button primary" href="#install">Install</a>
+          <a class="button" href="https://github.com/cardoso010/kubedeck">Star on GitHub</a>
+          <button class="button" data-copy-text="https://cardoso010.github.io/kubedeck/">Copy link to share</button>
+        </div>
+      </section>
+    </main>
+
+    <footer>
+      <span>kubedeck · Apache-2.0</span>
+      <a href="https://github.com/cardoso010/kubedeck">GitHub</a>
+      <a href="https://github.com/cardoso010/kubedeck/issues/new/choose">Report a bug</a>
+      <a href="https://github.com/cardoso010/kubedeck/security/policy">Security</a>
+    </footer>
+
+    <script src="main.js"></script>
+  </body>
+</html>
