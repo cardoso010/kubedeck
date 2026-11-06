@@ -8,7 +8,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use k8s_openapi::api::core::v1::{PersistentVolumeClaim, Pod};
-use k8s_openapi::api::storage::v1::StorageClass;
+use k8s_openapi::api::storage::v1::{StorageClass, VolumeAttributesClass};
 use kube::api::{Api, ListParams, Patch, PatchParams};
 use kube::Client;
 use serde::Serialize;
@@ -182,6 +182,13 @@ pub struct ExpandInfo {
     storage_class: Option<String>,
     /// Whether the claim's StorageClass allows growing volumes.
     expandable: bool,
+    /// The VolumeAttributesClass asked for (spec) and the one the volume has now (status).
+    attributes_class: Option<String>,
+    current_attributes_class: Option<String>,
+    /// An unfinished change of class: "Pending", "InProgress" or "Infeasible", with its target.
+    modify_status: Option<String>,
+    /// Classes the claim's driver can switch to (Kubernetes 1.34+; empty before).
+    attributes_classes: Vec<String>,
 }
 
 /// What `expand_volume` needs to know before offering it.
@@ -193,12 +200,35 @@ pub async fn volume_expand_info(namespace: String, name: String, state: Session)
 async fn expand_info(client: &Client, namespace: &str, name: &str) -> CmdResult<ExpandInfo> {
     let pvc = Api::<PersistentVolumeClaim>::namespaced(client.clone(), namespace).get(name).await.map_err(|e| kube_err(&e))?;
     let requested = requested_size(&pvc);
-    let storage_class = pvc.spec.and_then(|s| s.storage_class_name);
-    let expandable = match &storage_class {
-        Some(sc) => Api::<StorageClass>::all(client.clone()).get(sc).await.ok().and_then(|sc| sc.allow_volume_expansion).unwrap_or(false),
-        None => false,
+    let status = pvc.status.clone().unwrap_or_default();
+    let spec = pvc.spec.unwrap_or_default();
+    let class = match &spec.storage_class_name {
+        Some(sc) => Api::<StorageClass>::all(client.clone()).get(sc).await.ok(),
+        None => None,
     };
-    Ok(ExpandInfo { requested, storage_class, expandable })
+    let expandable = class.as_ref().and_then(|c| c.allow_volume_expansion).unwrap_or(false);
+    // A class only applies to volumes of its own CSI driver.
+    let attributes_classes = match &class {
+        Some(c) => Api::<VolumeAttributesClass>::all(client.clone())
+            .list(&ListParams::default())
+            .await
+            .map(|l| l.items.into_iter().filter(|v| v.driver_name == c.provisioner).filter_map(|v| v.metadata.name).collect())
+            .unwrap_or_default(),
+        None => Vec::new(),
+    };
+    let modify_status = status.modify_volume_status.map(|m| match m.target_volume_attributes_class_name {
+        Some(target) => format!("{} → {target}", m.status),
+        None => m.status,
+    });
+    Ok(ExpandInfo {
+        requested,
+        storage_class: spec.storage_class_name,
+        expandable,
+        attributes_class: spec.volume_attributes_class_name,
+        current_attributes_class: status.current_volume_attributes_class_name,
+        modify_status,
+        attributes_classes,
+    })
 }
 
 fn requested_size(pvc: &PersistentVolumeClaim) -> String {
@@ -228,6 +258,26 @@ pub async fn expand_volume(namespace: String, name: String, size: String, state:
     }
     let api = Api::<PersistentVolumeClaim>::namespaced(client, &namespace);
     api.patch(&name, &PatchParams::default(), &Patch::Merge(&json!({ "spec": { "resources": { "requests": { "storage": size.trim() } } } })))
+        .await
+        .map_err(|e| kube_err(&e))?;
+    Ok(())
+}
+
+/// Moves a claim to another VolumeAttributesClass (IOPS, throughput and the like), which the
+/// CSI driver applies to the existing volume without recreating it.
+#[tauri::command]
+pub async fn set_volume_attributes_class(namespace: String, name: String, class: String, state: Session) -> CmdResult<()> {
+    state.writable()?;
+    let client = state.connection().await?.client;
+    let info = expand_info(&client, &namespace, &name).await?;
+    if !info.attributes_classes.contains(&class) {
+        return Err(match info.storage_class {
+            Some(sc) => format!("No VolumeAttributesClass named {class} for the driver of StorageClass {sc}"),
+            None => format!("{name} has no StorageClass, so its attributes class cannot change"),
+        });
+    }
+    Api::<PersistentVolumeClaim>::namespaced(client, &namespace)
+        .patch(&name, &PatchParams::default(), &Patch::Merge(&json!({ "spec": { "volumeAttributesClassName": class } })))
         .await
         .map_err(|e| kube_err(&e))?;
     Ok(())

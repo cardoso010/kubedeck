@@ -119,6 +119,20 @@ export default function PodMetrics({ namespace, pod, container }: Props) {
         {usage && !usage.metricsServer && <div className="faint metrics-note">metrics-server is not available, so current usage is unknown.</div>}
       </div>
 
+      {usage && usage.devices.length > 0 && (
+        <div className="node-section">
+          <div className="related-title">Devices</div>
+          {usage.devices.map((d) => (
+            <div key={d.name} className="device-claim">
+              <span className={`status-dot ${d.allocated ? "ok" : "warn"}`} />
+              <strong>{d.name}</strong>
+              <span className="faint">{d.claim ?? "claim not created yet"}</span>
+              {d.allocated ? d.devices.map((dev) => <code key={dev}>{dev}</code>) : <span className="warn">not allocated yet</span>}
+            </div>
+          ))}
+        </div>
+      )}
+
       <div className="metrics-toolbar">
         {prometheus === undefined ? (
           <span className="faint">Looking for Prometheus…</span>
@@ -180,7 +194,11 @@ function UsageCard({ c, showName }: { c: ContainerUsage; showName: boolean }) {
   const oom = c.lastTermination?.startsWith("OOMKilled");
   return (
     <div className="usage-card">
-      {showName && <div className="usage-card-name">{c.name}</div>}
+      {showName && (
+        <div className="usage-card-name">
+          {c.name} {c.sidecar && <span className="kind-chip">sidecar</span>}
+        </div>
+      )}
       <div className="usage-grid">
         <Meter
           label="CPU"

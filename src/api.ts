@@ -66,6 +66,8 @@ export interface RightsizeRow {
   kindKey: string;
   workload: string;
   container: string;
+  /** A native sidecar (init container with restartPolicy Always). */
+  sidecar: boolean;
   pods: number;
   cpuRequestMillis: number | null;
   cpuLimitMillis: number | null;
@@ -75,6 +77,21 @@ export interface RightsizeRow {
   memoryUsageBytes: number | null;
 }
 export const rightsizing = (namespaces: string[]) => invoke<{ source: string; rows: RightsizeRow[] }>("rightsizing", { namespaces });
+export interface NewRequests {
+  namespace: string;
+  kindKey: string;
+  workload: string;
+  container: string;
+  cpuMillis: number | null;
+  memoryBytes: number | null;
+}
+export interface ApplyOutcome {
+  target: string;
+  ok: boolean;
+  message: string;
+}
+/** "pods" resizes the running pods in place (no restart); "workload" changes the pod template. */
+export const applyRequests = (request: NewRequests, to: "pods" | "workload", dryRun: boolean) => invoke<ApplyOutcome[]>("apply_requests", { request, to, dryRun });
 export const setReadOnly = (readOnly: boolean) => invoke<void>("set_read_only", { readOnly });
 export const runLogin = (command: string) => invoke<string>("run_login", { command });
 export const secretKeys = (namespace: string, name: string) => invoke<{ key: string; bytes: number }[]>("secret_keys", { namespace, name });
@@ -220,7 +237,20 @@ export interface VolumeStats {
 }
 export const volumeUsage = (namespaces: string[]) => invoke<{ source: string; volumes: VolumeStats[] }>("volume_usage", { namespaces });
 export const volumeHistory = (namespace: string, claim: string, minutes: number) => invoke<{ source: string; used: Series[] }>("volume_history", { namespace, claim, minutes });
-export const volumeExpandInfo = (namespace: string, name: string) => invoke<{ requested: string; storageClass: string | null; expandable: boolean }>("volume_expand_info", { namespace, name });
+export interface ExpandInfo {
+  requested: string;
+  storageClass: string | null;
+  expandable: boolean;
+  /** VolumeAttributesClass asked for, and the one the volume has now. */
+  attributesClass: string | null;
+  currentAttributesClass: string | null;
+  /** An unfinished change: "Pending", "InProgress" or "Infeasible", with its target. */
+  modifyStatus: string | null;
+  /** Classes of the claim's driver it can move to. */
+  attributesClasses: string[];
+}
+export const volumeExpandInfo = (namespace: string, name: string) => invoke<ExpandInfo>("volume_expand_info", { namespace, name });
+export const setVolumeAttributesClass = (namespace: string, name: string, className: string) => invoke<void>("set_volume_attributes_class", { namespace, name, class: className });
 export const expandVolume = (namespace: string, name: string, size: string) => invoke<void>("expand_volume", { namespace, name, size });
 export const nodeHistory = (name: string, minutes: number) => invoke<NodeHistory>("node_history", { name, minutes });
 
@@ -379,6 +409,8 @@ export const installUpdate = () => invoke<void>("install_update");
 
 export interface ContainerUsage {
   name: string;
+  /** A native sidecar (init container with restartPolicy Always). */
+  sidecar: boolean;
   cpuMillis: number | null;
   memoryBytes: number | null;
   cpuRequestMillis: number | null;
@@ -391,9 +423,18 @@ export interface ContainerUsage {
   lastTermination: string | null;
 }
 
+export interface DeviceClaim {
+  name: string;
+  claim: string | null;
+  allocated: boolean;
+  /** driver/pool/device */
+  devices: string[];
+}
 export interface PodUsage {
   metricsServer: boolean;
   containers: ContainerUsage[];
+  /** Devices claimed through Dynamic Resource Allocation (GPUs and the like). */
+  devices: DeviceClaim[];
 }
 
 /** [unix seconds, value] pairs. */

@@ -57,6 +57,10 @@ const ROWS: Record<string, Row[]> = {
     { uid: "sc1", name: "gp3", namespace: null, created: ago(86400 * 300), cells: ["ebs.csi.aws.com", "Delete", "WaitForFirstConsumer", "yes", "default"], containers: [], ports: [] },
     { uid: "sc2", name: "gp2", namespace: null, created: ago(86400 * 600), cells: ["kubernetes.io/aws-ebs", "Delete", "WaitForFirstConsumer", "no", ""], containers: [], ports: [] },
   ],
+  volumeattributesclasses: [
+    { uid: "vac1", name: "gp3-standard", namespace: null, created: ago(86400 * 90), cells: ["ebs.csi.aws.com", "iops=3000, throughput=125"], containers: [], ports: [] },
+    { uid: "vac2", name: "gp3-fast", namespace: null, created: ago(86400 * 90), cells: ["ebs.csi.aws.com", "iops=16000, throughput=1000"], containers: [], ports: [] },
+  ],
   configmaps: [{ uid: "c1", name: "app-config", namespace: "demo", created: ago(3600), cells: ["2"], containers: [], ports: [] }],
 };
 
@@ -70,6 +74,7 @@ const KINDS = [
   { key: "persistentvolumeclaims", label: "PersistentVolumeClaims", namespaced: true, columns: ["Status", "Capacity", "Access", "Storage class"] },
   { key: "persistentvolumes", label: "PersistentVolumes", namespaced: false, columns: ["Status", "Capacity", "Claim", "Storage class", "Reclaim"] },
   { key: "storageclasses", label: "StorageClasses", namespaced: false, columns: ["Provisioner", "Reclaim", "Binding", "Expansion", "Default"] },
+  { key: "volumeattributesclasses", label: "VolumeAttributesClasses", namespaced: false, columns: ["Driver", "Parameters"] },
   { key: "nodes", label: "Nodes", namespaced: false, columns: ["Status", "Roles", "Version"] },
 ];
 
@@ -317,7 +322,7 @@ async function invoke(cmd: string, args: Record<string, any>): Promise<unknown> 
     case "rightsizing": {
       const MI = 1024 ** 2;
       const row = (namespace: string, kindKey: string, workload: string, container: string, pods: number, cpuReq: number | null, cpuUse: number, memReq: number | null, memUse: number) => ({
-        namespace, kindKey, workload, container, pods, cpuRequestMillis: cpuReq, cpuLimitMillis: null, cpuUsageMillis: cpuUse, memoryRequestBytes: memReq === null ? null : memReq * MI, memoryLimitBytes: null, memoryUsageBytes: memUse * MI,
+        namespace, kindKey, workload, container, sidecar: container === "envoy", pods, cpuRequestMillis: cpuReq, cpuLimitMillis: null, cpuUsageMillis: cpuUse, memoryRequestBytes: memReq === null ? null : memReq * MI, memoryLimitBytes: null, memoryUsageBytes: memUse * MI,
       });
       return {
         source: "Prometheus monitoring/prometheus-server:80 · CPU p95 and peak memory over 24h",
@@ -330,6 +335,11 @@ async function invoke(cmd: string, args: Record<string, any>): Promise<unknown> 
           row("demo", "statefulsets", "db", "postgres", 1, 500, 380, 1024, 860),
         ],
       };
+    }
+    case "apply_requests": {
+      const r = args.request;
+      if (args.to === "workload") return [{ target: r.workload, ok: true, message: args.dryRun ? "the server accepts the new template" : "template updated; its pods are replaced as in a rollout" }];
+      return [1, 2].map((i) => ({ target: `${r.workload}-7c6cdd646-${i}x${i}k`, ok: true, message: args.dryRun ? "the server accepts the resize" : "resized in place; the kubelet applies it without a restart" }));
     }
     case "volume_usage": {
       const GI = 1024 ** 3;
@@ -344,8 +354,17 @@ async function invoke(cmd: string, args: Record<string, any>): Promise<unknown> 
       return { source: "monitoring/prometheus-server:80", used: [{ name: "used", points: Array.from({ length: n }, (_, i) => [end - (n - i) * step, (12 + (6.3 * i) / n + 0.15 * Math.sin(i / 4)) * GI]) }] };
     }
     case "volume_expand_info":
-      return { requested: args.name === "uploads" ? "50Gi" : "20Gi", storageClass: "gp3", expandable: true };
+      return {
+        requested: args.name === "uploads" ? "50Gi" : "20Gi",
+        storageClass: "gp3",
+        expandable: true,
+        attributesClass: "gp3-standard",
+        currentAttributesClass: "gp3-standard",
+        modifyStatus: null,
+        attributesClasses: ["gp3-standard", "gp3-fast"],
+      };
     case "expand_volume":
+    case "set_volume_attributes_class":
       return null;
     case "set_read_only":
       return null;
@@ -365,15 +384,16 @@ async function invoke(cmd: string, args: Record<string, any>): Promise<unknown> 
     case "pod_usage": {
       const multi = args.pod.startsWith("api-");
       const mk = (name: string, cpu: number, mem: number, extra: object = {}) => ({
-        name, cpuMillis: cpu, memoryBytes: mem * 1024 ** 2, cpuRequestMillis: 100, cpuLimitMillis: 250,
+        name, sidecar: false, cpuMillis: cpu, memoryBytes: mem * 1024 ** 2, cpuRequestMillis: 100, cpuLimitMillis: 250,
         memoryRequestBytes: 128 * 1024 ** 2, memoryLimitBytes: 256 * 1024 ** 2, restarts: 0, ready: true, state: "running", lastTermination: null, ...extra,
       });
       const containers = multi
-        ? [mk("api", 113 + Math.random() * 20, 69), mk("envoy", 18 + Math.random() * 4, 41, { cpuLimitMillis: null, memoryLimitBytes: null })]
+        ? [mk("api", 113 + Math.random() * 20, 69), mk("envoy", 18 + Math.random() * 4, 41, { sidecar: true, cpuLimitMillis: null, memoryLimitBytes: null })]
         : args.pod === "broken"
           ? [mk("broken", 0, 0, { restarts: 7, ready: false, state: "waiting: CrashLoopBackOff", lastTermination: `OOMKilled (exit 137) at ${ago(240)}` })]
           : [mk(args.pod.split("-")[0], 150 + Math.random() * 40, 190 + Math.random() * 10, { restarts: 1, lastTermination: `OOMKilled (exit 137) at ${ago(9000)}` })];
-      return { metricsServer: true, containers };
+      const devices = multi ? [{ name: "gpu", claim: `${args.pod}-gpu-x7k2p`, allocated: true, devices: ["gpu.nvidia.com/ip-10-0-3-17/gpu-0"] }] : [];
+      return { metricsServer: true, containers, devices };
     }
     case "prometheus_target":
       return "monitoring/prometheus-server:80";

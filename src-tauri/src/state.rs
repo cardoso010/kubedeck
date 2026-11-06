@@ -46,6 +46,9 @@ pub struct Connection {
     pub kinds: Arc<Vec<KindDef>>,
     /// Where this cluster's Prometheus answers, found on first use (None: not found).
     pub prometheus: Arc<tokio::sync::OnceCell<Option<crate::pod_insights::PromTarget>>>,
+    /// Watches stream their initial state instead of listing it first: less memory on the API
+    /// server and a faster first paint on big clusters.
+    pub streaming_lists: bool,
 }
 
 impl Connection {

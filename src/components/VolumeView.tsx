@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
-import { IconArrowsMaximize } from "@tabler/icons-react";
-import { errorText, expandVolume, formatMemory, prometheusTarget, volumeExpandInfo, volumeHistory, volumeUsage, type Series, type VolumeStats } from "../api";
+import { IconArrowsMaximize, IconBolt } from "@tabler/icons-react";
+import { errorText, expandVolume, formatMemory, prometheusTarget, setVolumeAttributesClass, volumeExpandInfo, volumeHistory, volumeUsage, type ExpandInfo, type Series, type VolumeStats } from "../api";
 import { useReadOnly } from "../readOnly";
 import LineChart from "./LineChart";
 import ConfirmDialog from "./ConfirmDialog";
@@ -27,9 +27,11 @@ export default function VolumeView({ namespace, name, production, context }: Pro
   const [history, setHistory] = useState<Series[] | null>(null);
   const [range, setRange] = useState(RANGES[1][1]);
   const [hasProm, setHasProm] = useState(false);
-  const [info, setInfo] = useState<Awaited<ReturnType<typeof volumeExpandInfo>> | null>(null);
+  const [info, setInfo] = useState<ExpandInfo | null>(null);
   const [size, setSize] = useState("");
   const [confirming, setConfirming] = useState(false);
+  const [vac, setVac] = useState("");
+  const [confirmingVac, setConfirmingVac] = useState(false);
   const [status, setStatus] = useState<{ ok: boolean; text: string } | null>(null);
 
   const loadInfo = () => volumeExpandInfo(namespace, name).then(setInfo, () => {});
@@ -60,6 +62,19 @@ export default function VolumeView({ namespace, name, production, context }: Pro
       await expandVolume(namespace, name, size.trim());
       setStatus({ ok: true, text: `Requested ${size.trim()}. The driver grows the volume; some only finish after the pod restarts.` });
       setSize("");
+      void loadInfo();
+    } catch (e) {
+      setStatus({ ok: false, text: errorText(e) });
+    }
+  }
+
+  async function changeClass() {
+    setConfirmingVac(false);
+    setStatus(null);
+    try {
+      await setVolumeAttributesClass(namespace, name, vac);
+      setStatus({ ok: true, text: `Asked for ${vac}. The driver changes the volume in place; it can take a few minutes.` });
+      setVac("");
       void loadInfo();
     } catch (e) {
       setStatus({ ok: false, text: errorText(e) });
@@ -132,9 +147,42 @@ export default function VolumeView({ namespace, name, production, context }: Pro
             )}
           </div>
         )}
+        {info && (info.attributesClasses.length > 0 || info.attributesClass) && (
+          <>
+            <div className="related-title">Attributes class</div>
+            <div className="volume-expand">
+              <span className="faint">
+                {info.currentAttributesClass ?? "none"}
+                {info.attributesClass && info.attributesClass !== info.currentAttributesClass && ` → ${info.attributesClass}`}
+                {info.modifyStatus && <span className={info.modifyStatus.startsWith("Infeasible") ? "bad" : "warn"}> · {info.modifyStatus}</span>}
+              </span>
+              <select value={vac} onChange={(e) => setVac(e.target.value)} disabled={readOnly}>
+                <option value="">change to…</option>
+                {info.attributesClasses
+                  .filter((c) => c !== info.attributesClass)
+                  .map((c) => (
+                    <option key={c}>{c}</option>
+                  ))}
+              </select>
+              <button disabled={readOnly || !vac} title={readOnly ? "Read-only mode" : undefined} onClick={() => setConfirmingVac(true)}>
+                <IconBolt size={14} /> Change
+              </button>
+            </div>
+          </>
+        )}
         {status && <div className={status.ok ? "ok" : "bad"}>{status.text}</div>}
       </div>
 
+      {confirmingVac && (
+        <ConfirmDialog
+          title={`Move ${name} to ${vac}?`}
+          message={`The CSI driver changes the volume's performance (IOPS, throughput) in place on ${context}. Some providers limit how often a volume can change.`}
+          confirmLabel="Change class"
+          typeToConfirm={production ? name : undefined}
+          onConfirm={() => void changeClass()}
+          onCancel={() => setConfirmingVac(false)}
+        />
+      )}
       {confirming && (
         <ConfirmDialog
           title={`Expand ${name} to ${size.trim()}?`}

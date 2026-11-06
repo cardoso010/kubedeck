@@ -469,7 +469,7 @@ export default function App() {
             <Welcome contexts={contexts} pins={visiblePins} connecting={connecting} onChoose={(c) => void choose(c)} onPalette={() => setPaletteOpen(true)} />
           ) : view === RIGHTSIZING ? (
             <div className="workspace">
-              <RightsizingView namespaces={selectedNs} kinds={kinds} onOpen={(k, ns, name) => goTo(k, ns, name)} />
+              <RightsizingView namespaces={selectedNs} kinds={kinds} production={prod} context={conn.context} onOpen={(k, ns, name) => goTo(k, ns, name)} />
             </div>
           ) : view === PROBLEMS ? (
             <div className="workspace">
