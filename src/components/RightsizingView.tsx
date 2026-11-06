@@ -1,9 +1,14 @@
 import { useEffect, useMemo, useState } from "react";
+import { IconAdjustments } from "@tabler/icons-react";
 import { errorText, formatCpu, formatMemory, rightsizing, type KindInfo, type RightsizeRow } from "../api";
+import { useReadOnly } from "../readOnly";
+import ApplyRequestsDialog from "./ApplyRequestsDialog";
 
 interface Props {
   namespaces: string[];
   kinds: KindInfo[];
+  production: boolean;
+  context: string;
   onOpen: (kindKey: string, namespace: string, name: string) => void;
 }
 
@@ -46,8 +51,11 @@ function analyse(r: RightsizeRow): Analysed {
 }
 
 /** Requests against real usage per workload container, with suggested requests. */
-export default function RightsizingView({ namespaces, kinds, onOpen }: Props) {
+export default function RightsizingView({ namespaces, kinds, production, context, onOpen }: Props) {
+  const readOnly = useReadOnly();
   const [data, setData] = useState<{ source: string; rows: RightsizeRow[] } | null>(null);
+  const [applying, setApplying] = useState<Analysed | null>(null);
+  const [reload, setReload] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [onlyIssues, setOnlyIssues] = useState(true);
   const [query, setQuery] = useState("");
@@ -65,7 +73,7 @@ export default function RightsizingView({ namespaces, kinds, onOpen }: Props) {
       stale = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [nsKey]);
+  }, [nsKey, reload]);
 
   const rows = useMemo(() => (data?.rows ?? []).map(analyse), [data]);
   const shown = useMemo(() => {
@@ -115,24 +123,62 @@ export default function RightsizingView({ namespaces, kinds, onOpen }: Props) {
           <div>CPU used</div>
           <div>Memory request → suggested</div>
           <div>Memory used</div>
+          <div />
         </div>
         {shown.map((r) => (
-          <button key={`${r.namespace}/${r.kindKey}/${r.workload}/${r.container}`} className="rs-row" onClick={() => onOpen(r.kindKey, r.namespace, r.workload)}>
+          <div
+            key={`${r.namespace}/${r.kindKey}/${r.workload}/${r.container}`}
+            className="rs-row clickable"
+            role="button"
+            tabIndex={0}
+            onClick={() => onOpen(r.kindKey, r.namespace, r.workload)}
+            onKeyDown={(e) => e.key === "Enter" && onOpen(r.kindKey, r.namespace, r.workload)}
+          >
             <div className="rs-workload">
               <span className="kind-chip">{label(r.kindKey)}</span>
               <span className="faint">{r.namespace}/</span>
               {r.workload}
             </div>
-            <div>{r.container}</div>
+            <div>
+              {r.container} {r.sidecar && <span className="kind-chip">sidecar</span>}
+            </div>
             <div>{r.pods}</div>
             <Cell request={r.cpuRequestMillis} suggested={r.cpu.suggested} verdict={r.cpu.verdict} format={formatCpu} />
             <div>{r.cpuUsageMillis === null ? "—" : formatCpu(r.cpuUsageMillis)}</div>
             <Cell request={r.memoryRequestBytes} suggested={r.memory.suggested} verdict={r.memory.verdict} format={formatMemory} />
             <div>{r.memoryUsageBytes === null ? "—" : formatMemory(r.memoryUsageBytes)}</div>
-          </button>
+            <div>
+              {(r.cpu.suggested !== null || r.memory.suggested !== null) && (
+                <button
+                  className="icon-button"
+                  disabled={readOnly}
+                  title={readOnly ? "Read-only mode" : "Apply new requests…"}
+                  aria-label="Apply new requests"
+                  onClick={(e) => (e.stopPropagation(), setApplying(r))}
+                >
+                  <IconAdjustments size={15} />
+                </button>
+              )}
+            </div>
+          </div>
         ))}
         {data && shown.length === 0 && <div className="empty">{onlyIssues ? "Every container's requests match its usage." : "No running pods in the selected namespaces."}</div>}
       </div>
+      {applying && (
+        <ApplyRequestsDialog
+          namespace={applying.namespace}
+          kindKey={applying.kindKey}
+          kindLabel={label(applying.kindKey)}
+          workload={applying.workload}
+          container={applying.container}
+          // Suggestions where there is one, the current request otherwise.
+          cpuMillis={applying.cpu.verdict === "ok" ? applying.cpuRequestMillis : (applying.cpu.suggested ?? applying.cpuRequestMillis)}
+          memoryBytes={applying.memory.verdict === "ok" ? applying.memoryRequestBytes : (applying.memory.suggested ?? applying.memoryRequestBytes)}
+          production={production}
+          context={context}
+          onClose={(changed) => (setApplying(null), changed && setReload((n) => n + 1))}
+        />
+      )}
     </section>
   );
 }

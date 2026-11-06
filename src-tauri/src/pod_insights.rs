@@ -20,6 +20,8 @@ use crate::state::{err, CmdResult, Session};
 #[serde(rename_all = "camelCase")]
 pub struct ContainerUsage {
     name: String,
+    /// A native sidecar (init container with restartPolicy Always) rather than an app container.
+    sidecar: bool,
     /// None when metrics-server has no sample for it (not installed, or the container just started).
     cpu_millis: Option<f64>,
     memory_bytes: Option<f64>,
@@ -40,6 +42,53 @@ pub struct ContainerUsage {
 pub struct PodUsage {
     metrics_server: bool,
     containers: Vec<ContainerUsage>,
+    /// Devices (GPUs and the like) the pod claims through Dynamic Resource Allocation.
+    devices: Vec<DeviceClaim>,
+}
+
+#[derive(Serialize, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct DeviceClaim {
+    /// The claim's name in the pod spec.
+    name: String,
+    /// The ResourceClaim object, once there is one (templates create it with the pod).
+    claim: Option<String>,
+    allocated: bool,
+    /// Allocated devices as driver/pool/device.
+    devices: Vec<String>,
+}
+
+/// What a ResourceClaim (resource.k8s.io/v1) was given, read as JSON so clusters without
+/// the API (before Kubernetes 1.34) or with another version cost nothing.
+fn allocated_devices(claim: &Value) -> Option<Vec<String>> {
+    let results = claim.pointer("/status/allocation/devices/results")?.as_array()?;
+    Some(
+        results
+            .iter()
+            .map(|r| ["driver", "pool", "device"].iter().map(|k| r[k].as_str().unwrap_or("?")).collect::<Vec<_>>().join("/"))
+            .collect(),
+    )
+}
+
+async fn device_claims(client: &Client, pod: &Pod) -> Vec<DeviceClaim> {
+    let Some(claims) = pod.spec.as_ref().and_then(|s| s.resource_claims.as_ref()).filter(|c| !c.is_empty()) else {
+        return Vec::new();
+    };
+    let namespace = pod.metadata.namespace.clone().unwrap_or_default();
+    let statuses = pod.status.as_ref().and_then(|s| s.resource_claim_statuses.clone()).unwrap_or_default();
+    let ar = ApiResource::from_gvk_with_plural(&GroupVersionKind::gvk("resource.k8s.io", "v1", "ResourceClaim"), "resourceclaims");
+    let api = Api::<DynamicObject>::namespaced_with(client.clone(), &namespace, &ar);
+    let mut out = Vec::new();
+    for c in claims {
+        // A claim from a template gets a generated name, reported in the pod's status.
+        let claim = c.resource_claim_name.clone().or_else(|| statuses.iter().find(|s| s.name == c.name).and_then(|s| s.resource_claim_name.clone()));
+        let devices = match &claim {
+            Some(name) => api.get(name).await.ok().and_then(|o| serde_json::to_value(o).ok()).and_then(|v| allocated_devices(&v)),
+            None => None,
+        };
+        out.push(DeviceClaim { name: c.name.clone(), claim, allocated: devices.is_some(), devices: devices.unwrap_or_default() });
+    }
+    out
 }
 
 /// Current usage of each container, with its requests, limits, restarts and last termination.
@@ -49,7 +98,7 @@ pub async fn pod_usage(namespace: String, pod: String, state: Session) -> CmdRes
     let spec_pod = Api::<Pod>::namespaced(client.clone(), &namespace).get(&pod).await.map_err(err)?;
 
     let ar = ApiResource::from_gvk_with_plural(&GroupVersionKind::gvk("metrics.k8s.io", "v1beta1", "PodMetrics"), "pods");
-    let metrics = Api::<DynamicObject>::namespaced_with(client, &namespace, &ar).get(&pod).await.ok();
+    let metrics = Api::<DynamicObject>::namespaced_with(client.clone(), &namespace, &ar).get(&pod).await.ok();
     let usage: BTreeMap<String, (f64, f64)> = metrics
         .as_ref()
         .and_then(|m| m.data["containers"].as_array().cloned())
@@ -61,12 +110,13 @@ pub async fn pod_usage(namespace: String, pod: String, state: Session) -> CmdRes
         })
         .collect();
 
-    let statuses = spec_pod.status.as_ref().and_then(|s| s.container_statuses.clone()).unwrap_or_default();
+    let status = spec_pod.status.clone().unwrap_or_default();
+    let statuses: Vec<_> = status.container_statuses.into_iter().flatten().chain(status.init_container_statuses.into_iter().flatten()).collect();
     let containers = spec_pod
         .spec
         .iter()
-        .flat_map(|s| &s.containers)
-        .map(|c| {
+        .flat_map(crate::rightsizing::running_containers)
+        .map(|(c, sidecar)| {
             let resources = c.resources.as_ref();
             let get = |map: Option<&BTreeMap<String, k8s_openapi::apimachinery::pkg::api::resource::Quantity>>, key: &str| {
                 map.and_then(|m| m.get(key)).map(|q| quantity(&Value::String(q.0.clone())))
@@ -92,6 +142,7 @@ pub async fn pod_usage(namespace: String, pod: String, state: Session) -> CmdRes
             });
             ContainerUsage {
                 name: c.name.clone(),
+                sidecar,
                 cpu_millis: usage.get(&c.name).map(|u| u.0),
                 memory_bytes: usage.get(&c.name).map(|u| u.1),
                 cpu_request_millis: get(requests, "cpu").map(|v| v * 1000.0),
@@ -105,7 +156,8 @@ pub async fn pod_usage(namespace: String, pod: String, state: Session) -> CmdRes
             }
         })
         .collect();
-    Ok(PodUsage { metrics_server: metrics.is_some(), containers })
+    let devices = device_claims(&client, &spec_pod).await;
+    Ok(PodUsage { metrics_server: metrics.is_some(), containers, devices })
 }
 
 #[derive(Serialize, Clone, Debug, PartialEq)]
@@ -333,6 +385,16 @@ pub(crate) fn series(data: &Value) -> Vec<Series> {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn reads_allocated_devices() {
+        let claim = json!({ "status": { "allocation": { "devices": { "results": [
+            { "request": "gpu", "driver": "gpu.nvidia.com", "pool": "node-1", "device": "gpu-0" },
+            { "request": "gpu", "driver": "gpu.nvidia.com", "pool": "node-1", "device": "gpu-1" }
+        ] } } } });
+        assert_eq!(allocated_devices(&claim), Some(vec!["gpu.nvidia.com/node-1/gpu-0".to_owned(), "gpu.nvidia.com/node-1/gpu-1".to_owned()]));
+        assert_eq!(allocated_devices(&json!({ "status": {} })), None, "not allocated yet");
+    }
 
     fn service(namespace: &str, name: &str, ports: Value) -> Service {
         serde_json::from_value(json!({ "metadata": { "name": name, "namespace": namespace }, "spec": { "ports": ports } })).unwrap()

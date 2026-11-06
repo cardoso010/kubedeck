@@ -51,6 +51,7 @@ const BUILTINS: &[Builtin] = &[
     Builtin { key: "persistentvolumeclaims", label: "PersistentVolumeClaims", group: "", version: "v1", kind: "PersistentVolumeClaim", namespaced: true, columns: &["Status", "Capacity", "Access", "Storage class"] },
     Builtin { key: "persistentvolumes", label: "PersistentVolumes", group: "", version: "v1", kind: "PersistentVolume", namespaced: false, columns: &["Status", "Capacity", "Claim", "Storage class", "Reclaim"] },
     Builtin { key: "storageclasses", label: "StorageClasses", group: "storage.k8s.io", version: "v1", kind: "StorageClass", namespaced: false, columns: &["Provisioner", "Reclaim", "Binding", "Expansion", "Default"] },
+    Builtin { key: "volumeattributesclasses", label: "VolumeAttributesClasses", group: "storage.k8s.io", version: "v1", kind: "VolumeAttributesClass", namespaced: false, columns: &["Driver", "Parameters"] },
     Builtin { key: "events", label: "Events", group: "", version: "v1", kind: "Event", namespaced: true, columns: &["Type", "Reason", "Object", "Message"] },
     Builtin { key: "nodes", label: "Nodes", group: "", version: "v1", kind: "Node", namespaced: false, columns: &["Status", "Roles", "Version"] },
     Builtin { key: "namespaces", label: "Namespaces", group: "", version: "v1", kind: "Namespace", namespaced: false, columns: &["Status"] },
@@ -234,6 +235,10 @@ pub fn summarize(def: &KindDef, obj: &DynamicObject) -> Row {
                 if d.pointer("/allowVolumeExpansion").and_then(Value::as_bool).unwrap_or(false) { "yes" } else { "no" }.to_owned(),
                 if default { "default" } else { "" }.to_owned(),
             ]
+        }
+        "volumeattributesclasses" => {
+            let params = d.pointer("/parameters").and_then(Value::as_object).map(|p| p.iter().map(|(k, v)| format!("{k}={}", v.as_str().unwrap_or_default())).collect::<Vec<_>>().join(", "));
+            vec![s(d, "/driverName"), params.unwrap_or_default()]
         }
         _ => {
             // Custom resources: printer column paths are relative to the whole object,

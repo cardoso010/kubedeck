@@ -119,6 +119,39 @@ spec:
         requests: { cpu: 10m, memory: 16Mi }
         limits: { cpu: 50m, memory: 64Mi }
 POD
+# A VolumeAttributesClass for kind's driver, for changing a claim's class.
+kubectl apply -f - <<'VAC'
+apiVersion: storage.k8s.io/v1
+kind: VolumeAttributesClass
+metadata:
+  name: fast
+driverName: rancher.io/local-path
+parameters: { iops: "3000" }
+VAC
+# A deployment with a native sidecar, for resizing pods in place (rightsizing) and sidecars.
+kubectl -n demo get deployment sizeme >/dev/null 2>&1 || kubectl -n demo apply -f - <<'DEPLOY'
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sizeme
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: sizeme } }
+  template:
+    metadata: { labels: { app: sizeme } }
+    spec:
+      initContainers:
+        - name: proxy
+          image: busybox:1.36
+          restartPolicy: Always
+          command: ["sleep", "infinity"]
+          resources: { requests: { cpu: 10m, memory: 16Mi }, limits: { cpu: 100m, memory: 64Mi } }
+      containers:
+        - name: app
+          image: busybox:1.36
+          command: ["sleep", "infinity"]
+          resources: { requests: { cpu: 20m, memory: 32Mi }, limits: { cpu: 200m, memory: 128Mi } }
+DEPLOY
 # A second namespace, for multi-namespace views.
 kubectl create namespace demo2 --dry-run=client -o yaml | kubectl apply -f -
 kubectl -n demo2 get deployment worker >/dev/null 2>&1 || kubectl -n demo2 create deployment worker --image=busybox:1.36 --replicas=2 -- sleep infinity

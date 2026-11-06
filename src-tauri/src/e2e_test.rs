@@ -296,6 +296,8 @@ async fn several_namespaces_against_real_cluster() {
     let app = mock_app();
     let state = || Session::of(&app, "main");
     cluster::connect(context, state()).await.unwrap();
+    // kind runs a recent Kubernetes, so watches stream their initial state.
+    assert!(state().connection().await.unwrap().streaming_lists);
     let namespaces = |rows: &Value| -> std::collections::BTreeSet<String> {
         rows.as_array().unwrap().iter().map(|r| r["namespace"].as_str().unwrap().to_owned()).collect()
     };
@@ -529,6 +531,31 @@ async fn pod_metrics_against_real_cluster() {
     assert_eq!(app_container["memoryLimitBytes"], 64.0 * 1024.0 * 1024.0);
     assert!(app_container["cpuMillis"].as_f64().is_some(), "{app_container}");
     assert_eq!(app_container["state"], "running");
+    assert_eq!(app_container["sidecar"], false);
+    assert_eq!(limited["devices"], serde_json::json!([]));
+
+    // Native sidecars come after the app containers, flagged.
+    let client = state().connection().await.unwrap().client;
+    let pods: kube::Api<k8s_openapi::api::core::v1::Pod> = kube::Api::namespaced(client.clone(), "demo");
+    let sizeme = pods.list(&kube::api::ListParams::default().labels("app=sizeme")).await.unwrap().items.remove(0).metadata.name.unwrap();
+    let with_sidecar = usage("demo", &sizeme).await;
+    let names: Vec<(&str, bool)> = with_sidecar["containers"].as_array().unwrap().iter().map(|c| (c["name"].as_str().unwrap(), c["sidecar"].as_bool().unwrap())).collect();
+    assert_eq!(names, [("app", false), ("proxy", true)], "{with_sidecar}");
+
+    // A pod claiming a device through DRA: no driver in kind, so the claim stays unallocated.
+    let ns = format!("dra-{}", std::process::id());
+    let create = |yaml: String, namespace: Option<String>| resources::create_resources(yaml, namespace, false, state());
+    create(format!("apiVersion: v1\nkind: Namespace\nmetadata:\n  name: {ns}\n"), None).await.unwrap();
+    create("apiVersion: resource.k8s.io/v1\nkind: DeviceClass\nmetadata:\n  name: e2e-gpu\nspec: {}\n".into(), None).await.ok();
+    create(
+        "apiVersion: resource.k8s.io/v1\nkind: ResourceClaim\nmetadata:\n  name: gpu\nspec:\n  devices:\n    requests:\n      - name: gpu\n        exactly: { deviceClassName: e2e-gpu }\n---\napiVersion: v1\nkind: Pod\nmetadata:\n  name: trainer\nspec:\n  resourceClaims: [{ name: gpu, resourceClaimName: gpu }]\n  containers:\n    - name: train\n      image: busybox:1.36\n      command: [sleep, infinity]\n      resources: { claims: [{ name: gpu }] }\n".into(),
+        Some(ns.clone()),
+    )
+    .await
+    .unwrap();
+    let trainer = usage(&ns, "trainer").await;
+    assert_eq!(trainer["devices"], serde_json::json!([{ "name": "gpu", "claim": "gpu", "allocated": false, "devices": [] }]), "{trainer}");
+    resources::delete_resource("namespaces".into(), None, ns, state()).await.unwrap();
 
     // Restarts and why the last run ended.
     let broken = usage("demo", "broken").await;
@@ -954,6 +981,8 @@ async fn create_and_rightsizing_against_real_cluster() {
     cluster::set_read_only(true, state());
     assert!(resources::create_resources("apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: ro\n".into(), opt("demo"), true, state()).await.is_ok());
     assert_eq!(resources::create_resources("apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: ro\n".into(), opt("demo"), false, state()).await.unwrap_err(), crate::state::READ_ONLY);
+    let resize: crate::rightsizing::NewRequests = serde_json::from_value(serde_json::json!({ "namespace": "demo", "kindKey": "deployments", "workload": "sizeme", "container": "app", "cpuMillis": 30.0 })).unwrap();
+    assert_eq!(crate::rightsizing::apply_requests(resize, crate::rightsizing::ApplyTo::Pods, false, state()).await.unwrap_err(), crate::state::READ_ONLY);
     cluster::set_read_only(false, state());
 
     // Rightsizing: requests from the pod spec, usage from Prometheus (set up by e2e/setup.sh).
@@ -967,6 +996,56 @@ async fn create_and_rightsizing_against_real_cluster() {
     assert!(limited["memoryUsageBytes"].as_f64().unwrap() > 0.0, "{limited}");
     let web = rows.iter().find(|r| r["workload"] == "web" && r["kindKey"] == "deployments").expect("web deployment");
     assert!(web["pods"].as_u64().unwrap() >= 1);
+    let sidecar = rows.iter().find(|r| r["workload"] == "sizeme" && r["container"] == "proxy").expect("sizeme sidecar");
+    assert_eq!(sidecar["sidecar"], true);
+
+    // New requests: in place on the running pods (same pod, no restart), then on the template.
+    use crate::rightsizing::{apply_requests, ApplyTo};
+    let pods: kube::Api<k8s_openapi::api::core::v1::Pod> = kube::Api::namespaced(state().connection().await.unwrap().client, "demo");
+    let sizeme = || async { pods.list(&kube::api::ListParams::default().labels("app=sizeme")).await.unwrap().items.into_iter().find(|p| p.metadata.deletion_timestamp.is_none()).unwrap() };
+    // An earlier run's rollout may still be replacing the pod: start from exactly one.
+    for _ in 0..60 {
+        let live = pods.list(&kube::api::ListParams::default().labels("app=sizeme")).await.unwrap().items;
+        if live.len() == 1 && live[0].status.as_ref().and_then(|s| s.phase.as_deref()) == Some("Running") {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+    }
+    let before = sizeme().await;
+    let request = |container: &str, cpu: f64| -> crate::rightsizing::NewRequests {
+        serde_json::from_value(serde_json::json!({ "namespace": "demo", "kindKey": "deployments", "workload": "sizeme", "container": container, "cpuMillis": cpu, "memoryBytes": 48.0 * 1024.0 * 1024.0 })).unwrap()
+    };
+    let requests_of = |p: &k8s_openapi::api::core::v1::Pod, container: &str| {
+        let spec = p.spec.as_ref().unwrap();
+        let c = spec.containers.iter().chain(spec.init_containers.iter().flatten()).find(|c| c.name == container).unwrap();
+        c.resources.as_ref().unwrap().requests.clone().unwrap()
+    };
+    let dry = apply_requests(request("app", 30.0), ApplyTo::Pods, true, state()).await.unwrap();
+    assert!(dry.iter().all(|o| o.ok) && dry.len() == 1, "{dry:?}");
+    assert_eq!(requests_of(&sizeme().await, "app"), requests_of(&before, "app"), "a dry run changes nothing");
+    let done = apply_requests(request("app", 30.0), ApplyTo::Pods, false, state()).await.unwrap();
+    assert!(done.iter().all(|o| o.ok), "{done:?}");
+    let after = sizeme().await;
+    assert_eq!(after.metadata.uid, before.metadata.uid, "resized in place, not replaced");
+    assert_eq!((requests_of(&after, "app")["cpu"].0.as_str(), requests_of(&after, "app")["memory"].0.as_str()), ("30m", "48Mi"));
+    // Sidecars resize too.
+    let sidecar = apply_requests(request("proxy", 15.0), ApplyTo::Pods, false, state()).await.unwrap();
+    assert!(sidecar.iter().all(|o| o.ok), "{sidecar:?}");
+    assert_eq!(requests_of(&sizeme().await, "proxy")["cpu"].0, "15m");
+    // A request above the limit is refused per pod, readably.
+    let too_big = apply_requests(request("app", 5000.0), ApplyTo::Pods, false, state()).await.unwrap();
+    assert!(!too_big[0].ok && too_big[0].message.contains("limit"), "{too_big:?}");
+    // The template: permanent, rolls the pods.
+    let deployments: kube::Api<k8s_openapi::api::apps::v1::Deployment> = kube::Api::namespaced(state().connection().await.unwrap().client, "demo");
+    apply_requests(request("app", 30.0), ApplyTo::Workload, false, state()).await.unwrap();
+    let template = deployments.get("sizeme").await.unwrap().spec.template.spec.unwrap();
+    assert_eq!(template.containers[0].resources.as_ref().unwrap().requests.as_ref().unwrap()["cpu"].0, "30m");
+    let mut bare = request("app", 30.0);
+    bare.kind_key = "pods".into();
+    assert!(apply_requests(bare, ApplyTo::Workload, true, state()).await.is_err(), "bare pods have no template");
+    // Back to the fixture's values, so the next run starts from the same place.
+    let original: crate::rightsizing::NewRequests = serde_json::from_value(serde_json::json!({ "namespace": "demo", "kindKey": "deployments", "workload": "sizeme", "container": "app", "cpuMillis": 20.0, "memoryBytes": 32.0 * 1024.0 * 1024.0 })).unwrap();
+    apply_requests(original, ApplyTo::Workload, false, state()).await.unwrap();
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -997,7 +1076,20 @@ async fn storage_against_real_cluster() {
 
     // Expansion: kind's StorageClass does not allow it, and volumes never shrink.
     let info = serde_json::to_value(crate::storage::volume_expand_info("demo".into(), "data".into(), state()).await.unwrap()).unwrap();
-    assert_eq!(info, serde_json::json!({ "requested": "1Gi", "storageClass": "standard", "expandable": false }));
+    assert_eq!((&info["requested"], &info["storageClass"], &info["expandable"]), (&"1Gi".into(), &"standard".into(), &false.into()), "{info}");
+    assert_eq!(info["attributesClasses"], serde_json::json!(["fast"]), "classes of the claim's driver");
+
+    // VolumeAttributesClass: only classes of the claim's driver, and read-only refuses it.
+    assert!(crate::storage::set_volume_attributes_class("demo".into(), "data".into(), "nope".into(), state()).await.unwrap_err().contains("No VolumeAttributesClass named nope"));
+    cluster::set_read_only(true, state());
+    assert_eq!(crate::storage::set_volume_attributes_class("demo".into(), "data".into(), "fast".into(), state()).await.unwrap_err(), crate::state::READ_ONLY);
+    cluster::set_read_only(false, state());
+    crate::storage::set_volume_attributes_class("demo".into(), "data".into(), "fast".into(), state()).await.unwrap();
+    let info = serde_json::to_value(crate::storage::volume_expand_info("demo".into(), "data".into(), state()).await.unwrap()).unwrap();
+    assert_eq!(info["attributesClass"], "fast", "{info}");
+    assert!(resources::get_yaml("volumeattributesclasses".into(), None, "fast".into(), None, state()).await.unwrap().contains("iops"));
+    let related = serde_json::to_value(diagnostics::related("persistentvolumeclaims".into(), opt("demo"), "data".into(), state()).await.unwrap()).unwrap();
+    assert!(related.to_string().contains("volumeattributesclasses"), "{related}");
     let refused = crate::storage::expand_volume("demo".into(), "data".into(), "2Gi".into(), state()).await.unwrap_err();
     assert!(refused.contains("does not allow volume expansion"), "{refused}");
     let shrink = crate::storage::expand_volume("demo".into(), "data".into(), "512Mi".into(), state()).await.unwrap_err();

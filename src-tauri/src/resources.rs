@@ -66,13 +66,14 @@ pub async fn watch_resources(
         namespaces.into_iter().map(|ns| (Some(ns.clone()), Api::namespaced_with(conn.client.clone(), &ns, &ar))).collect()
     };
     let id = state.next_id();
+    let config = if conn.streaming_lists { watcher::Config::default().streaming_lists() } else { watcher::Config::default() };
 
     let task = tauri::async_runtime::spawn(async move {
         let labels: Vec<Option<String>> = scopes.iter().map(|(ns, _)| ns.clone()).collect();
         let streams = scopes
             .into_iter()
             .enumerate()
-            .map(|(i, (_, api))| watcher(api, watcher::Config::default()).default_backoff().map(move |e| (i, e)).boxed());
+            .map(|(i, (_, api))| watcher(api, config.clone()).default_backoff().map(move |e| (i, e)).boxed());
         let mut merged = futures::stream::select_all(streams);
 
         let n = labels.len();

@@ -188,6 +188,11 @@ pub async fn cluster_problems(namespaces: Vec<String>, state: Session) -> CmdRes
         if p.status.as_ref().and_then(|s| s.phase.as_deref()) == Some("Pending") && older_than(ts(p.metadata.creation_timestamp.as_ref()).as_ref(), GRACE_SECONDS) {
             out.push(Problem { severity: "warning", kind_key: "persistentvolumeclaims", namespace: p.metadata.namespace.clone(), name: p.metadata.name.clone().unwrap_or_default(), reason: "Pending".into(), message: "The volume claim is not bound".into(), since: ts(p.metadata.creation_timestamp.as_ref()) });
         }
+        // The driver gave up on a change of VolumeAttributesClass; the claim keeps asking for it.
+        if let Some(m) = p.status.as_ref().and_then(|s| s.modify_volume_status.as_ref()).filter(|m| m.status == "Infeasible") {
+            let target = m.target_volume_attributes_class_name.as_deref().unwrap_or("the requested class");
+            out.push(Problem { severity: "warning", kind_key: "persistentvolumeclaims", namespace: p.metadata.namespace.clone(), name: p.metadata.name.clone().unwrap_or_default(), reason: "ModifyInfeasible".into(), message: format!("The driver cannot move this volume to {target}"), since: None });
+        }
     }
     // Volumes filling up. Only from Prometheus: asking every kubelet on each poll would be
     // too heavy for big clusters (the Storage view does that on demand instead).
@@ -441,6 +446,9 @@ pub async fn related(kind_key: String, namespace: Option<String>, name: String, 
             }
             if let Some(sc) = spec.storage_class_name {
                 push("Storage class", vec![item("storageclasses", None, &sc, "")]);
+            }
+            if let Some(vac) = spec.volume_attributes_class_name {
+                push("Attributes class", vec![item("volumeattributesclasses", None, &vac, "")]);
             }
         }
         "persistentvolumes" => {

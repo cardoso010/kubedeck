@@ -18,7 +18,7 @@ export const SECTIONS: Section[] = [
   { id: "workloads", label: "Workloads", icon: IconBox, kinds: ["pods", "deployments", "statefulsets", "daemonsets", "jobs", "cronjobs"] },
   { id: "network", label: "Network", icon: IconNetwork, kinds: ["services", "ingresses"] },
   { id: "config", label: "Config", icon: IconAdjustmentsHorizontal, kinds: ["configmaps", "secrets"] },
-  { id: "storage", label: "Storage", icon: IconDatabase, kinds: ["persistentvolumeclaims", "persistentvolumes", "storageclasses"] },
+  { id: "storage", label: "Storage", icon: IconDatabase, kinds: ["persistentvolumeclaims", "persistentvolumes", "storageclasses", "volumeattributesclasses"] },
   { id: "cluster", label: "Cluster", icon: IconServer2, kinds: ["nodes", "namespaces", "events"] },
   { id: "custom", label: "Custom resources", icon: IconPuzzle },
   { id: "rightsizing", label: "Rightsizing", icon: IconGauge },

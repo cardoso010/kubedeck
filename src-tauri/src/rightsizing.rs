@@ -5,11 +5,11 @@
 
 use std::collections::{BTreeMap, HashMap};
 
-use k8s_openapi::api::core::v1::Pod;
-use kube::api::{Api, ApiResource, DynamicObject, GroupVersionKind, ListParams};
+use k8s_openapi::api::core::v1::{Container, Pod, PodSpec};
+use kube::api::{Api, ApiResource, DynamicObject, GroupVersionKind, ListParams, Patch, PatchParams};
 use kube::Client;
-use serde::Serialize;
-use serde_json::Value;
+use serde::{Deserialize, Serialize};
+use serde_json::{json, Value};
 
 use crate::metrics::quantity;
 use crate::pod_insights::{prom_get, prometheus};
@@ -23,6 +23,8 @@ pub struct RightsizeRow {
     kind_key: String,
     workload: String,
     container: String,
+    /// A native sidecar: an init container with restartPolicy Always, running beside the app.
+    sidecar: bool,
     pods: usize,
     cpu_request_millis: Option<f64>,
     cpu_limit_millis: Option<f64>,
@@ -156,7 +158,7 @@ pub async fn rightsizing(namespaces: Vec<String>, state: Session) -> CmdResult<R
         let ns = pod.metadata.namespace.clone().unwrap_or_default();
         let pod_name = pod.metadata.name.clone().unwrap_or_default();
         let (kind_key, workload) = owner(pod);
-        for c in pod.spec.iter().flat_map(|s| s.containers.iter()) {
+        for (c, sidecar) in pod.spec.iter().flat_map(running_containers) {
             let resources = c.resources.as_ref();
             let get = |which: Option<&BTreeMap<String, k8s_openapi::apimachinery::pkg::api::resource::Quantity>>, key: &str| {
                 which.and_then(|m| m.get(key)).map(|q| quantity(&Value::String(q.0.clone())))
@@ -168,6 +170,7 @@ pub async fn rightsizing(namespaces: Vec<String>, state: Session) -> CmdResult<R
                 kind_key: kind_key.clone(),
                 workload: workload.clone(),
                 container: c.name.clone(),
+                sidecar,
                 cpu_request_millis: get(requests, "cpu").map(|v| v * 1000.0),
                 cpu_limit_millis: get(limits, "cpu").map(|v| v * 1000.0),
                 memory_request_bytes: get(requests, "memory"),
@@ -182,6 +185,124 @@ pub async fn rightsizing(namespaces: Vec<String>, state: Session) -> CmdResult<R
         }
     }
     Ok(Rightsizing { source, rows: rows.into_values().collect() })
+}
+
+/// The containers that run for the pod's whole life: the app containers, then native sidecars
+/// (init containers with restartPolicy Always), flagged as such.
+pub(crate) fn running_containers(spec: &PodSpec) -> impl Iterator<Item = (&Container, bool)> {
+    let sidecars = spec.init_containers.iter().flatten().filter(|c| c.restart_policy.as_deref() == Some("Always"));
+    spec.containers.iter().map(|c| (c, false)).chain(sidecars.map(|c| (c, true)))
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NewRequests {
+    pub(crate) namespace: String,
+    pub(crate) kind_key: String,
+    pub(crate) workload: String,
+    pub(crate) container: String,
+    pub(crate) cpu_millis: Option<f64>,
+    pub(crate) memory_bytes: Option<f64>,
+}
+
+#[derive(Serialize, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct ApplyOutcome {
+    /// The pod, or the workload when its template was changed.
+    pub(crate) target: String,
+    pub(crate) ok: bool,
+    pub(crate) message: String,
+}
+
+/// Where new requests go: the running pods, resized in place without a restart (they return
+/// to the template's values when replaced), or the workload's pod template (permanent, rolls
+/// the pods).
+#[derive(Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub enum ApplyTo {
+    Pods,
+    Workload,
+}
+
+const TEMPLATED: &[&str] = &["deployments", "statefulsets", "daemonsets"];
+
+fn quantities(r: &NewRequests) -> CmdResult<serde_json::Map<String, Value>> {
+    let mut requests = serde_json::Map::new();
+    if let Some(cpu) = r.cpu_millis.filter(|v| *v > 0.0) {
+        requests.insert("cpu".into(), format!("{}m", cpu.round() as u64).into());
+    }
+    if let Some(mem) = r.memory_bytes.filter(|v| *v > 0.0) {
+        let mem = mem.round() as u64;
+        const MI: u64 = 1024 * 1024;
+        requests.insert("memory".into(), if mem.is_multiple_of(MI) { format!("{}Mi", mem / MI) } else { mem.to_string() }.into());
+    }
+    if requests.is_empty() {
+        return Err("Nothing to change: give a CPU or memory request".into());
+    }
+    Ok(requests)
+}
+
+/// A strategic merge patch that sets one container's requests, in whichever list holds it
+/// (sidecars live in initContainers); both lists merge by container name.
+fn requests_patch(spec: &PodSpec, container: &str, requests: &serde_json::Map<String, Value>) -> CmdResult<Value> {
+    let list = match running_containers(spec).find(|(c, _)| c.name == container) {
+        Some((_, false)) => "containers",
+        Some((_, true)) => "initContainers",
+        None => return Err(format!("No container named {container}")),
+    };
+    Ok(json!({ "spec": { list: [{ "name": container, "resources": { "requests": requests } }] } }))
+}
+
+/// Sets new requests on a workload container, either on its running pods through the
+/// pods/resize subresource (Kubernetes 1.33+, no restart) or on the workload's template.
+#[tauri::command]
+pub async fn apply_requests(request: NewRequests, to: ApplyTo, dry_run: bool, state: Session) -> CmdResult<Vec<ApplyOutcome>> {
+    if !dry_run {
+        state.writable()?;
+    }
+    let requests = quantities(&request)?;
+    let conn = state.connection().await?;
+    let pp = PatchParams { dry_run, ..Default::default() };
+
+    if to == ApplyTo::Workload {
+        if !TEMPLATED.contains(&request.kind_key.as_str()) {
+            return Err("Only Deployments, StatefulSets and DaemonSets have a pod template to update; resize the running pods instead".into());
+        }
+        let ar = conn.kind(&request.kind_key)?.api_resource();
+        let api: Api<DynamicObject> = Api::namespaced_with(conn.client, &request.namespace, &ar);
+        let object = api.get(&request.workload).await.map_err(|e| kube_err(&e))?;
+        let spec: PodSpec = serde_json::from_value(object.data["spec"]["template"]["spec"].clone()).map_err(|e| e.to_string())?;
+        let patch = json!({ "spec": { "template": requests_patch(&spec, &request.container, &requests)? } });
+        api.patch(&request.workload, &pp, &Patch::Strategic(&patch)).await.map_err(|e| kube_err(&e))?;
+        let message = if dry_run { "the server accepts the new template" } else { "template updated; its pods are replaced as in a rollout" };
+        return Ok(vec![ApplyOutcome { target: request.workload, ok: true, message: message.into() }]);
+    }
+
+    let api = Api::<Pod>::namespaced(conn.client, &request.namespace);
+    let pods = api.list(&ListParams::default().fields("status.phase=Running")).await.map_err(|e| kube_err(&e))?.items;
+    // Pods on their way out (a rollout in progress) would only waste a resize.
+    let pods: Vec<Pod> = pods
+        .into_iter()
+        .filter(|p| p.metadata.deletion_timestamp.is_none() && owner(p) == (request.kind_key.clone(), request.workload.clone()))
+        .collect();
+    if pods.is_empty() {
+        return Err(format!("{} has no running pods to resize", request.workload));
+    }
+    let mut out = Vec::new();
+    for pod in pods {
+        let name = pod.metadata.name.clone().unwrap_or_default();
+        let result = match pod.spec.as_ref().map(|s| requests_patch(s, &request.container, &requests)) {
+            Some(Ok(patch)) => api.patch_subresource("resize", &name, &pp, &Patch::Strategic(&patch)).await.map_err(|e| kube_err(&e)),
+            Some(Err(e)) => Err(e),
+            None => Err("pod without a spec".into()),
+        };
+        out.push(match result {
+            Ok(_) if dry_run => ApplyOutcome { target: name, ok: true, message: "the server accepts the resize".into() },
+            Ok(_) => ApplyOutcome { target: name, ok: true, message: "resized in place; the kubelet applies it without a restart".into() },
+            Err(e) => ApplyOutcome { target: name, ok: false, message: e },
+        });
+    }
+    Ok(out)
 }
 
 fn max(a: Option<f64>, b: Option<f64>) -> Option<f64> {
@@ -212,5 +333,22 @@ mod tests {
         assert_eq!(owner(&pod(Some("ReplicaSet"), "plain-rs", None)), ("pods".into(), "p-1".into()));
         assert_eq!(owner(&pod(Some("StatefulSet"), "db", None)), ("statefulsets".into(), "db".into()));
         assert_eq!(owner(&pod(None, "", None)), ("pods".into(), "p-1".into()));
+    }
+
+    #[test]
+    fn builds_resize_patches() {
+        let spec: PodSpec = serde_json::from_value(json!({
+            "containers": [{ "name": "app" }],
+            "initContainers": [{ "name": "setup" }, { "name": "proxy", "restartPolicy": "Always" }]
+        }))
+        .unwrap();
+        let r = NewRequests { namespace: "n".into(), kind_key: "pods".into(), workload: "w".into(), container: "app".into(), cpu_millis: Some(249.6), memory_bytes: Some(96.0 * 1024.0 * 1024.0) };
+        let q = quantities(&r).unwrap();
+        assert_eq!(Value::Object(q.clone()), json!({ "cpu": "250m", "memory": "96Mi" }));
+        assert_eq!(requests_patch(&spec, "app", &q).unwrap(), json!({ "spec": { "containers": [{ "name": "app", "resources": { "requests": { "cpu": "250m", "memory": "96Mi" } } }] } }));
+        assert!(requests_patch(&spec, "proxy", &q).unwrap()["spec"]["initContainers"].is_array());
+        // Plain init containers have finished by the time anyone resizes.
+        assert!(requests_patch(&spec, "setup", &q).is_err());
+        assert!(quantities(&NewRequests { cpu_millis: None, memory_bytes: None, ..r }).is_err());
     }
 }

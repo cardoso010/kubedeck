@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use k8s_openapi::api::core::v1::Namespace;
 use k8s_openapi::apiextensions_apiserver::pkg::apis::apiextensions::v1::CustomResourceDefinition;
-use kube::api::{Api, ListParams};
+use kube::api::{Api, ListParams, WatchParams};
 use kube::config::{KubeConfigOptions, Kubeconfig};
 use kube::{Client, Config};
 use serde::Serialize;
@@ -110,9 +110,18 @@ pub async fn connect(context: String, state: Session) -> CmdResult<Connected> {
     let mut all_kinds = kinds::builtins();
     all_kinds.extend(custom_kinds(&client).await);
     let kinds = Arc::new(all_kinds);
+    let streaming_lists = supports_streaming_lists(&client).await;
 
-    *state.conn.write().await = Some(Connection { client, context: context.clone(), default_namespace: default_namespace.clone(), kinds, prometheus: Default::default() });
+    *state.conn.write().await = Some(Connection { client, context: context.clone(), default_namespace: default_namespace.clone(), kinds, prometheus: Default::default(), streaming_lists });
     Ok(Connected { context, server_version: version.git_version, default_namespace, auth })
+}
+
+/// Whether the API server streams a watch's initial state (WatchList, on by default in recent
+/// Kubernetes): servers without it reject `sendInitialEvents`, so one short watch on namespaces
+/// tells. Users who may not watch namespaces keep the classic list-then-watch.
+async fn supports_streaming_lists(client: &Client) -> bool {
+    let wp = WatchParams { timeout: Some(1), ..WatchParams::streaming_lists() };
+    Api::<Namespace>::all(client.clone()).watch(&wp, "0").await.is_ok()
 }
 
 /// Custom resources from the cluster's CRDs. Users who may not list CRDs just get none.
