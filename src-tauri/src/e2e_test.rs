@@ -678,7 +678,7 @@ async fn workload_actions_against_real_cluster() {
 
     // Scale and pause.
     workloads::scale("deployments".into(), "demo".into(), "rollme".into(), 1, state()).await.unwrap();
-    assert_eq!(deployments.get("rollme").await.unwrap().spec.unwrap().replicas, Some(1));
+    assert_eq!(deployments.get("rollme").await.unwrap().spec.replicas, Some(1));
     workloads::scale("deployments".into(), "demo".into(), "rollme".into(), 2, state()).await.unwrap();
     assert!(workloads::scale("deployments".into(), "demo".into(), "rollme".into(), -1, state()).await.is_err());
     workloads::set_paused("demo".into(), "rollme".into(), true, state()).await.unwrap();

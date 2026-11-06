@@ -145,13 +145,13 @@ pub async fn cluster_problems(namespaces: Vec<String>, state: Session) -> CmdRes
     let mut out: Vec<Problem> = pods.iter().flat_map(pod_problems).collect();
 
     for d in &deployments {
-        let spec = d.spec.clone().unwrap_or_default();
+        let spec = &d.spec;
         let status = d.status.clone().unwrap_or_default();
         let want = spec.replicas.unwrap_or(1);
         let available = status.available_replicas.unwrap_or(0);
-        let stuck = status.conditions.iter().flatten().find(|c| c.type_ == "Progressing" && c.reason.as_deref() == Some("ProgressDeadlineExceeded"));
+        let stuck = status.conditions.iter().flatten().find(|c| c.type_.as_deref() == Some("Progressing") && c.reason.as_deref() == Some("ProgressDeadlineExceeded"));
         if stuck.is_some() || (available < want && !spec.paused.unwrap_or(false)) {
-            let deployment_since = ts(status.conditions.iter().flatten().find(|c| c.type_ == "Available").and_then(|c| c.last_transition_time.as_ref()));
+            let deployment_since = ts(status.conditions.iter().flatten().find(|c| c.type_.as_deref() == Some("Available")).and_then(|c| c.last_transition_time.as_ref()));
             if stuck.is_none() && !older_than(deployment_since.as_ref(), GRACE_SECONDS) {
                 continue;
             }
@@ -167,7 +167,7 @@ pub async fn cluster_problems(namespaces: Vec<String>, state: Session) -> CmdRes
         }
     }
     for s in &statefulsets {
-        let want = s.spec.as_ref().and_then(|sp| sp.replicas).unwrap_or(1);
+        let want = s.spec.replicas.unwrap_or(1);
         let ready = s.status.as_ref().and_then(|st| st.ready_replicas).unwrap_or(0);
         if ready < want {
             out.push(Problem { severity: "warning", kind_key: "statefulsets", namespace: s.metadata.namespace.clone(), name: s.metadata.name.clone().unwrap_or_default(), reason: "NotReady".into(), message: format!("{ready}/{want} replicas ready"), since: None });
@@ -392,9 +392,9 @@ pub async fn related(kind_key: String, namespace: Option<String>, name: String, 
         }
         "deployments" | "statefulsets" | "daemonsets" | "jobs" => {
             let selector = match kind_key.as_str() {
-                "deployments" => Api::<Deployment>::namespaced(client.clone(), ns).get(&name).await.map_err(|e| kube_err(&e))?.spec.and_then(|s| s.selector.match_labels),
-                "statefulsets" => Api::<StatefulSet>::namespaced(client.clone(), ns).get(&name).await.map_err(|e| kube_err(&e))?.spec.and_then(|s| s.selector.match_labels),
-                "daemonsets" => Api::<DaemonSet>::namespaced(client.clone(), ns).get(&name).await.map_err(|e| kube_err(&e))?.spec.and_then(|s| s.selector.match_labels),
+                "deployments" => Api::<Deployment>::namespaced(client.clone(), ns).get(&name).await.map_err(|e| kube_err(&e))?.spec.selector.match_labels,
+                "statefulsets" => Api::<StatefulSet>::namespaced(client.clone(), ns).get(&name).await.map_err(|e| kube_err(&e))?.spec.selector.match_labels,
+                "daemonsets" => Api::<DaemonSet>::namespaced(client.clone(), ns).get(&name).await.map_err(|e| kube_err(&e))?.spec.selector.match_labels,
                 _ => Api::<Job>::namespaced(client.clone(), ns).get(&name).await.map_err(|e| kube_err(&e))?.spec.and_then(|s| s.selector).and_then(|s| s.match_labels),
             }
             .unwrap_or_default();

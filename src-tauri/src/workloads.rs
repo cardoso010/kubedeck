@@ -97,8 +97,9 @@ async fn owned_replica_sets(api_rs: &Api<ReplicaSet>, deployment: &Deployment) -
     let uid = deployment.metadata.uid.clone().unwrap_or_default();
     let labels = deployment
         .spec
-        .as_ref()
-        .and_then(|s| s.selector.match_labels.clone())
+        .selector
+        .match_labels
+        .clone()
         .unwrap_or_default()
         .iter()
         .map(|(k, v)| format!("{k}={v}"))
@@ -118,7 +119,7 @@ fn revision_of(rs: &ReplicaSet) -> i64 {
 
 /// A ReplicaSet's pod template as the deployment would carry it (without the hash label).
 fn template_of(rs: &ReplicaSet) -> Option<k8s_openapi::api::core::v1::PodTemplateSpec> {
-    let mut template = rs.spec.as_ref()?.template.clone()?;
+    let mut template = rs.spec.template.clone()?;
     if let Some(labels) = template.metadata.as_mut().and_then(|m| m.labels.as_mut()) {
         labels.remove("pod-template-hash");
     }
@@ -151,7 +152,7 @@ pub async fn rollout_status(namespace: String, name: String, state: Session) -> 
         .collect();
     revisions.sort_by_key(|r| std::cmp::Reverse(r.revision));
     let status = deployment.status.unwrap_or_default();
-    let spec = deployment.spec.unwrap_or_default();
+    let spec = deployment.spec;
     Ok(RolloutStatus {
         replicas: spec.replicas.unwrap_or(1),
         ready: status.ready_replicas.unwrap_or(0),
