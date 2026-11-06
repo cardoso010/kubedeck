@@ -338,8 +338,10 @@ async fn several_namespaces_against_real_cluster() {
     let usage_ns = namespaces(&usage);
     assert!(usage_ns.contains("demo") && !usage_ns.contains("kube-system"), "{usage_ns:?}");
     let releases = serde_json::to_value(helm::helm_list(vec!["demo".into(), "demo2".into()], state()).await.unwrap()).unwrap();
-    assert!(releases.as_array().unwrap().iter().any(|r| r["name"] == "hello"));
-    assert_eq!(namespaces(&releases), ["demo".to_owned()].into());
+    assert!(releases.as_array().unwrap().iter().any(|r| r["name"] == "hello" && r["namespace"] == "demo"));
+    // Not an equality: the chart install test runs in parallel and may have a release in demo2 right now.
+    let release_ns = namespaces(&releases);
+    assert!(release_ns.iter().all(|ns| ns == "demo" || ns == "demo2"), "{release_ns:?}");
 }
 
 /// Serves the files of `dir` over HTTP on 127.0.0.1; enough for a Helm chart repository.
