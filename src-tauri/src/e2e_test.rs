@@ -713,15 +713,31 @@ async fn workload_actions_against_real_cluster() {
     workloads::set_paused("demo".into(), "rollme".into(), false, state()).await.unwrap();
     assert_eq!(status().await["paused"], false);
 
-    // Logs of the previous (crashed) run.
-    // The kubelet can briefly lack the previous run's logs while the container restarts.
-    eventually("previous logs", || async {
+    // Logs of the previous (crashed) run. There is no previous run until the kubelet has
+    // restarted the container once, which on a cluster created moments ago (CI) can take
+    // minutes: the image pull and the first back-off come first.
+    let pods: kube::Api<k8s_openapi::api::core::v1::Pod> = kube::Api::namespaced(state().connection().await.unwrap().client, "demo");
+    for _ in 0..360 {
+        let restarts = pods.get("broken").await.unwrap().status.and_then(|s| s.container_statuses).and_then(|c| c.first().map(|c| c.restart_count));
+        if restarts.is_some_and(|r| r > 0) {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(500)).await;
+    }
+    // The kubelet can still briefly lack the previous run's logs while the container restarts.
+    for attempt in 0.. {
         let (ch, logs) = channel();
         streams::stream_logs("demo".into(), "broken".into(), None, None, Some(true), ch, state()).await.unwrap();
         wait_for(&logs, "previous logs end", |m| m.iter().any(|m| m["type"] == "end")).await;
-        logs.lock().unwrap().iter().any(|m| m["data"] == "boom")
-    })
-    .await;
+        if logs.lock().unwrap().iter().any(|m| m["data"] == "boom") {
+            break;
+        }
+        if attempt == 120 {
+            let status = pods.get("broken").await.unwrap().status;
+            panic!("no previous logs; got {:?}; pod status {status:?}", logs.lock().unwrap());
+        }
+        tokio::time::sleep(Duration::from_millis(500)).await;
+    }
 
     // Logs of every replica, tagged with their pod.
     let (ch, merged) = channel();
@@ -736,7 +752,6 @@ async fn workload_actions_against_real_cluster() {
     resources::stop_stream(id, state());
 
     // Events of one object.
-    let pods: kube::Api<k8s_openapi::api::core::v1::Pod> = kube::Api::namespaced(state().connection().await.unwrap().client, "demo");
     let uid = pods.get("broken").await.unwrap().metadata.uid.unwrap();
     let events = serde_json::to_value(workloads::object_events(Some("demo".into()), uid, state()).await.unwrap()).unwrap();
     assert!(events.as_array().unwrap().iter().any(|e| e["type"] == "Warning" && e["reason"] == "BackOff"), "{events}");
