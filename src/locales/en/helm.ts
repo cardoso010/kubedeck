@@ -22,6 +22,7 @@ export default {
   uninstall: "Uninstall",
   working: "Working…",
   defaultValues: "Installed with the chart's default values.",
+  revealToUpgrade: "Reveal the release's values to upgrade it: masked values would replace the real ones.",
   upgraded: "Upgraded.",
   noNotes: "This chart has no notes.",
   rollback: "Roll back",

@@ -467,6 +467,9 @@ async fn helm_charts_against_real_cluster() {
     assert!(upgrade_dry.contains("port: 8080"));
     assert_eq!(release(state()).await.unwrap()["revision"], "1", "dry run must not upgrade");
     helm_charts::helm_upgrade(action(false, "0.2.0", "replicaCount: 0\nservice:\n  port: 8080\n"), state()).await.unwrap();
+    let masked = format!("replicaCount: 0\npassword: {}\n", crate::secrets::MASK);
+    let refused = helm_charts::helm_upgrade(action(true, "0.2.0", &masked), state()).await.unwrap_err();
+    assert!(refused.contains("masked"), "{refused}");
     let upgraded = release(state()).await.unwrap();
     assert_eq!(upgraded["chart"], "greeter-0.2.0");
     assert_eq!(upgraded["revision"], "2");
