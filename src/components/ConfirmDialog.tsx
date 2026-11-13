@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import TypeToConfirm, { confirms } from "./TypeToConfirm";
+import Modal from "./Modal";
 
 interface Props {
   title: string;
@@ -18,18 +19,16 @@ export default function ConfirmDialog({ title, message, confirmLabel, typeToConf
   const [typed, setTyped] = useState("");
   const ok = !typeToConfirm || confirms(typed, typeToConfirm);
   return (
-    <div className="modal-backdrop" onClick={onCancel}>
-      <div className="modal" onClick={(e) => e.stopPropagation()}>
-        <h3>{title}</h3>
-        <p>{message}</p>
-        {typeToConfirm && <TypeToConfirm expected={typeToConfirm} value={typed} onChange={setTyped} />}
-        <div className="modal-actions">
-          <button onClick={onCancel}>{t("common.cancel")}</button>
-          <button className="danger" disabled={!ok} onClick={onConfirm}>
-            {confirmLabel}
-          </button>
-        </div>
+    <Modal onClose={onCancel}>
+      <h3>{title}</h3>
+      <p>{message}</p>
+      {typeToConfirm && <TypeToConfirm expected={typeToConfirm} value={typed} onChange={setTyped} />}
+      <div className="modal-actions">
+        <button onClick={onCancel}>{t("common.cancel")}</button>
+        <button className="danger" disabled={!ok} onClick={onConfirm}>
+          {confirmLabel}
+        </button>
       </div>
-    </div>
+    </Modal>
   );
 }

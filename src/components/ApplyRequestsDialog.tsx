@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { applyRequests, errorText, type ApplyOutcome, type NewRequests } from "../api";
 import TypeToConfirm, { confirms } from "./TypeToConfirm";
+import Modal from "./Modal";
 
 const MI = 1024 * 1024;
 const TEMPLATED = ["deployments", "statefulsets", "daemonsets"];
@@ -58,63 +59,61 @@ export default function ApplyRequestsDialog({ namespace, kindKey, kindLabel, wor
   }
 
   return (
-    <div className="modal-backdrop" onClick={() => onClose(!!outcomes)}>
-      <div className="modal modal-wide" onClick={(e) => e.stopPropagation()}>
-        <h3>
-          {t("rightsizing.applyDialog.title", { container })} <span className="faint">{t("rightsizing.applyDialog.in", { workload })}</span>
-        </h3>
-        {outcomes ? (
-          <div className="apply-outcomes">
-            {outcomes.map((o) => (
-              <div key={o.target}>
-                <span className={`status-dot ${o.ok ? "ok" : "bad"}`} /> <code>{o.target}</code> <span className={o.ok ? "faint" : "bad"}>{o.message}</span>
-              </div>
-            ))}
+    <Modal className="modal-wide" onClose={() => onClose(!!outcomes)}>
+      <h3>
+        {t("rightsizing.applyDialog.title", { container })} <span className="faint">{t("rightsizing.applyDialog.in", { workload })}</span>
+      </h3>
+      {outcomes ? (
+        <div className="apply-outcomes">
+          {outcomes.map((o) => (
+            <div key={o.target}>
+              <span className={`status-dot ${o.ok ? "ok" : "bad"}`} /> <code>{o.target}</code> <span className={o.ok ? "faint" : "bad"}>{o.message}</span>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <>
+          <div className="apply-fields">
+            <label>
+              {t("rightsizing.applyDialog.cpu")} <input value={cpu} onChange={(e) => setCpu(e.target.value)} inputMode="numeric" /> <span className="faint">m</span>
+            </label>
+            <label>
+              {t("rightsizing.applyDialog.memory")} <input value={memory} onChange={(e) => setMemory(e.target.value)} inputMode="numeric" /> <span className="faint">Mi</span>
+            </label>
           </div>
+          <label className="apply-choice">
+            <input type="radio" checked={to === "pods"} onChange={() => setTo("pods")} />
+            <span>
+              <strong>{t("rightsizing.applyDialog.pods")}</strong>
+              <span className="faint">{t("rightsizing.applyDialog.podsHint")}</span>
+            </span>
+          </label>
+          <label className={`apply-choice ${hasTemplate ? "" : "disabled"}`}>
+            <input type="radio" checked={to === "workload"} disabled={!hasTemplate} onChange={() => setTo("workload")} />
+            <span>
+              <strong>{t("rightsizing.applyDialog.workload", { kind: kindLabel })}</strong>
+              <span className="faint">{hasTemplate ? t("rightsizing.applyDialog.workloadHint") : t("rightsizing.applyDialog.noTemplate")}</span>
+            </span>
+          </label>
+          <p>{t("rightsizing.applyDialog.note", { cluster: context })}</p>
+          {production && <TypeToConfirm expected={workload} value={typed} onChange={setTyped} />}
+        </>
+      )}
+      {error && <div className="bad">{error}</div>}
+      <div className="modal-actions">
+        {outcomes ? (
+          <button className="primary" onClick={() => onClose(true)}>
+            {t("common.close")}
+          </button>
         ) : (
           <>
-            <div className="apply-fields">
-              <label>
-                {t("rightsizing.applyDialog.cpu")} <input value={cpu} onChange={(e) => setCpu(e.target.value)} inputMode="numeric" /> <span className="faint">m</span>
-              </label>
-              <label>
-                {t("rightsizing.applyDialog.memory")} <input value={memory} onChange={(e) => setMemory(e.target.value)} inputMode="numeric" /> <span className="faint">Mi</span>
-              </label>
-            </div>
-            <label className="apply-choice">
-              <input type="radio" checked={to === "pods"} onChange={() => setTo("pods")} />
-              <span>
-                <strong>{t("rightsizing.applyDialog.pods")}</strong>
-                <span className="faint">{t("rightsizing.applyDialog.podsHint")}</span>
-              </span>
-            </label>
-            <label className={`apply-choice ${hasTemplate ? "" : "disabled"}`}>
-              <input type="radio" checked={to === "workload"} disabled={!hasTemplate} onChange={() => setTo("workload")} />
-              <span>
-                <strong>{t("rightsizing.applyDialog.workload", { kind: kindLabel })}</strong>
-                <span className="faint">{hasTemplate ? t("rightsizing.applyDialog.workloadHint") : t("rightsizing.applyDialog.noTemplate")}</span>
-              </span>
-            </label>
-            <p>{t("rightsizing.applyDialog.note", { cluster: context })}</p>
-            {production && <TypeToConfirm expected={workload} value={typed} onChange={setTyped} />}
+            <button onClick={() => onClose(false)}>{t("common.cancel")}</button>
+            <button className="primary" disabled={!ok} onClick={() => void apply()}>
+              {busy ? t("rightsizing.applyDialog.applying") : to === "pods" ? t("rightsizing.applyDialog.resize") : t("rightsizing.applyDialog.update")}
+            </button>
           </>
         )}
-        {error && <div className="bad">{error}</div>}
-        <div className="modal-actions">
-          {outcomes ? (
-            <button className="primary" onClick={() => onClose(true)}>
-              {t("common.close")}
-            </button>
-          ) : (
-            <>
-              <button onClick={() => onClose(false)}>{t("common.cancel")}</button>
-              <button className="primary" disabled={!ok} onClick={() => void apply()}>
-                {busy ? t("rightsizing.applyDialog.applying") : to === "pods" ? t("rightsizing.applyDialog.resize") : t("rightsizing.applyDialog.update")}
-              </button>
-            </>
-          )}
-        </div>
       </div>
-    </div>
+    </Modal>
   );
 }

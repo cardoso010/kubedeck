@@ -301,6 +301,7 @@ kbd { font-size: 10px; padding: 1px 5px; border: 1px solid var(--line-2); border
 
 .modal-backdrop { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.55); display: grid; place-items: center; z-index: 60; }
 .modal { background: var(--bg-1); border: 1px solid var(--line-2); border-radius: var(--radius-lg); padding: 18px 20px; width: min(440px, 90vw); display: flex; flex-direction: column; gap: 12px; box-shadow: 0 24px 64px rgba(0, 0, 0, 0.45); }
+.modal:focus { outline: none; }
 .modal h3 { margin: 0; font-size: 15px; }
 .modal p { margin: 0; color: var(--text-2); line-height: 1.45; }
 .modal code { color: var(--text); }

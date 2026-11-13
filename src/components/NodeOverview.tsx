@@ -7,6 +7,7 @@ import ConfirmDialog from "./ConfirmDialog";
 import { useReadOnly } from "../readOnly";
 import TypeToConfirm, { confirms } from "./TypeToConfirm";
 import { usePoll } from "../usePoll";
+import Modal from "./Modal";
 
 interface Props {
   name: string;
@@ -147,17 +148,15 @@ export default function NodeOverview({ name, production, context }: Props) {
         />
       )}
       {result && (
-        <div className="modal-backdrop" onClick={() => setResult(null)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <h3>{t("nodes.drainResult", { name })}</h3>
-            <DrainList report={result} done />
-            <div className="modal-actions">
-              <button className="primary" onClick={() => setResult(null)}>
-                {t("common.close")}
-              </button>
-            </div>
+        <Modal onClose={() => setResult(null)}>
+          <h3>{t("nodes.drainResult", { name })}</h3>
+          <DrainList report={result} done />
+          <div className="modal-actions">
+            <button className="primary" onClick={() => setResult(null)}>
+              {t("common.close")}
+            </button>
           </div>
-        </div>
+        </Modal>
       )}
     </div>
   );
@@ -231,19 +230,17 @@ function DrainDialog({ name, preview, production, context, onConfirm, onCancel }
   const [typed, setTyped] = useState("");
   const ok = !production || confirms(typed, name);
   return (
-    <div className="modal-backdrop" onClick={onCancel}>
-      <div className="modal modal-wide" onClick={(e) => e.stopPropagation()}>
-        <h3>{t("nodes.drainTitle", { name })}</h3>
-        <p>{t("nodes.drainMessage", { cluster: context })}</p>
-        <DrainList report={preview} />
-        {production && <TypeToConfirm expected={name} value={typed} onChange={setTyped} />}
-        <div className="modal-actions">
-          <button onClick={onCancel}>{t("common.cancel")}</button>
-          <button className="danger" disabled={!ok} onClick={onConfirm}>
-            {t("nodes.drain")}
-          </button>
-        </div>
+    <Modal className="modal-wide" onClose={onCancel}>
+      <h3>{t("nodes.drainTitle", { name })}</h3>
+      <p>{t("nodes.drainMessage", { cluster: context })}</p>
+      <DrainList report={preview} />
+      {production && <TypeToConfirm expected={name} value={typed} onChange={setTyped} />}
+      <div className="modal-actions">
+        <button onClick={onCancel}>{t("common.cancel")}</button>
+        <button className="danger" disabled={!ok} onClick={onConfirm}>
+          {t("nodes.drain")}
+        </button>
       </div>
-    </div>
+    </Modal>
   );
 }

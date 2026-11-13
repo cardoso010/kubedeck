@@ -5,6 +5,7 @@ import { createResources, errorText } from "../api";
 import { useCurrentTheme } from "../theme";
 import { useReadOnly } from "../readOnly";
 import TypeToConfirm, { confirms } from "./TypeToConfirm";
+import Modal from "./Modal";
 
 interface Props {
   /** Kind key of the current view, used to pick a starting template. */
@@ -52,39 +53,37 @@ export default function CreateDialog({ kindKey, namespaces, defaultNamespace, pr
 
   const validated = result?.ok && result.dry;
   return (
-    <div className="modal-backdrop" onClick={onClose}>
-      <div className="modal modal-large" onClick={(e) => e.stopPropagation()}>
-        <div className="modal-header">
-          <strong>{t("dialogs.create.title")}</strong>
-          <label className="create-ns">
-            <span className="faint">{t("dialogs.create.namespace")}</span>
-            <select value={namespace} onChange={(e) => setNamespace(e.target.value)}>
-              {[...new Set([defaultNamespace, ...namespaces])].map((n) => (
-                <option key={n}>{n}</option>
-              ))}
-            </select>
-          </label>
-          <button onClick={onClose} aria-label={t("common.close")}>
-            ✕
-          </button>
-        </div>
-        <div className="create-editor">
-          <Editor language="yaml" theme={monacoTheme} value={yaml} onChange={(v) => (setYaml(v ?? ""), setResult(null))} options={{ minimap: { enabled: false }, fontSize: 12, scrollBeyondLastLine: false, tabSize: 2 }} />
-        </div>
-        {result && <pre className={`create-result ${result.ok ? "ok" : "bad"}`}>{result.text}</pre>}
-        <div className="modal-actions create-actions">
-          {readOnly && <span className="faint">{t("dialogs.create.readOnly")}</span>}
-          {production && validated && !readOnly && (
-            <TypeToConfirm expected={clusterName} value={typed} onChange={setTyped} />
-          )}
-          <button disabled={busy} onClick={() => void run(true)}>
-            {t("dialogs.create.validate")}
-          </button>
-          <button className="primary" disabled={busy || readOnly || !validated || (production && !confirms(typed, clusterName))} title={validated ? undefined : t("dialogs.create.validateFirst")} onClick={() => void run(false)}>
-            {t("dialogs.create.create")}
-          </button>
-        </div>
+    <Modal className="modal-large" onClose={onClose}>
+      <div className="modal-header">
+        <strong>{t("dialogs.create.title")}</strong>
+        <label className="create-ns">
+          <span className="faint">{t("dialogs.create.namespace")}</span>
+          <select value={namespace} onChange={(e) => setNamespace(e.target.value)}>
+            {[...new Set([defaultNamespace, ...namespaces])].map((n) => (
+              <option key={n}>{n}</option>
+            ))}
+          </select>
+        </label>
+        <button onClick={onClose} aria-label={t("common.close")}>
+          ✕
+        </button>
       </div>
-    </div>
+      <div className="create-editor">
+        <Editor language="yaml" theme={monacoTheme} value={yaml} onChange={(v) => (setYaml(v ?? ""), setResult(null))} options={{ minimap: { enabled: false }, fontSize: 12, scrollBeyondLastLine: false, tabSize: 2 }} />
+      </div>
+      {result && <pre className={`create-result ${result.ok ? "ok" : "bad"}`}>{result.text}</pre>}
+      <div className="modal-actions create-actions">
+        {readOnly && <span className="faint">{t("dialogs.create.readOnly")}</span>}
+        {production && validated && !readOnly && (
+          <TypeToConfirm expected={clusterName} value={typed} onChange={setTyped} />
+        )}
+        <button disabled={busy} onClick={() => void run(true)}>
+          {t("dialogs.create.validate")}
+        </button>
+        <button className="primary" disabled={busy || readOnly || !validated || (production && !confirms(typed, clusterName))} title={validated ? undefined : t("dialogs.create.validateFirst")} onClick={() => void run(false)}>
+          {t("dialogs.create.create")}
+        </button>
+      </div>
+    </Modal>
   );
 }
