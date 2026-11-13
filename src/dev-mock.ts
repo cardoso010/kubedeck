@@ -432,7 +432,7 @@ async function invoke(cmd: string, args: Record<string, any>): Promise<unknown> 
         { name: "broken-upgrade", namespace: "demo", revision: "4", updated: ago(7200), status: "failed", chart: "api-2.3.0", appVersion: "2.3.0" },
       ].filter((r) => !args.namespaces?.length || args.namespaces.includes(r.namespace));
     case "helm_details":
-      return { values: "replicaCount: 2\nimage:\n  tag: 1.16.0\n", manifest: "---\n# Source: hello/templates/deployment.yaml\napiVersion: apps/v1\nkind: Deployment\n", notes: "1. Get the application URL by running these commands: ...", history: HISTORY };
+      return { values: `replicaCount: 2\nimage:\n  tag: 1.16.0\nauth:\n  password: ${args.reveal ? "hunter2" : "<hidden: reveal to see or edit>"}\n`, manifest: "---\n# Source: hello/templates/deployment.yaml\napiVersion: apps/v1\nkind: Deployment\n", notes: "1. Get the application URL by running these commands: ...", history: HISTORY };
     case "helm_repo_list":
       return [{ name: "bitnami", url: "https://charts.bitnami.com/bitnami" }];
     case "helm_search":

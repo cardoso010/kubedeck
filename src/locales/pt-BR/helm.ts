@@ -25,6 +25,7 @@ export default {
   uninstall: "Desinstalar",
   working: "Processando…",
   defaultValues: "Instalado com os values padrão do chart.",
+  revealToUpgrade: "Revele os values do release para fazer o upgrade: valores mascarados substituiriam os reais.",
   upgraded: "Upgrade concluído.",
   noNotes: "Este chart não tem notas.",
   rollback: "Reverter",

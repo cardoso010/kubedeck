@@ -119,6 +119,10 @@ async fn chart_action(verb: &str, r: ChartAction, state: &AppState) -> CmdResult
     if !r.dry_run {
         state.writable()?;
     }
+    // Release details mask credentials; writing them back would replace the real ones.
+    if r.values.contains(crate::secrets::MASK) {
+        return Err("These values still contain masked entries. Reveal the release's values and try again.".into());
+    }
     let values_file = std::env::temp_dir().join(format!("kubedeck-values-{}-{}.yaml", std::process::id(), state.next_id()));
     std::fs::write(&values_file, &r.values).map_err(err)?;
     let values_path = values_file.to_string_lossy().into_owned();

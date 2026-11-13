@@ -25,6 +25,7 @@ export default {
   uninstall: "卸载",
   working: "处理中…",
   defaultValues: "使用 Chart 的默认 values 安装。",
+  revealToUpgrade: "请先显示该 release 的 values 再升级：被遮盖的值会替换真实值。",
   upgraded: "已升级。",
   noNotes: "此 Chart 没有说明。",
   rollback: "回滚",

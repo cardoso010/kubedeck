@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Editor } from "./CodeEditor";
 import { useTranslation } from "react-i18next";
+import { IconEye, IconEyeOff } from "@tabler/icons-react";
 import { useCurrentTheme } from "../theme";
 import { errorText, helmDetails, helmList, helmRollback, helmSearch, helmUninstall, splitChart, type HelmDetails, type HelmRelease, type KindInfo, type Row } from "../api";
 import ResourceTable from "./ResourceTable";
@@ -130,11 +131,16 @@ function HelmPanel({
   const [busy, setBusy] = useState(false);
   const readOnly = useReadOnly();
   const [pending, setPending] = useState<Pending | null>(null);
+  // Credentials in values and rendered Secrets come masked until revealed (confirmed on production).
+  const [revealed, setRevealed] = useState(false);
+  const [askReveal, setAskReveal] = useState(false);
 
-  const load = () => helmDetails(release.namespace, release.name).then(setDetails, (e) => setStatus({ kind: "error", text: errorText(e) }));
+  const load = () => helmDetails(release.namespace, release.name, revealed).then(setDetails, (e) => setStatus({ kind: "error", text: errorText(e) }));
   // Reload whenever the release gets a new revision (rollback here, or an upgrade elsewhere).
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => void load(), [release.revision]);
+  useEffect(() => void load(), [release.revision, revealed]);
+
+  const toggleReveal = () => (revealed ? setRevealed(false) : production ? setAskReveal(true) : setRevealed(true));
 
   async function run(p: Pending) {
     setPending(null);
@@ -177,6 +183,9 @@ function HelmPanel({
           </span>
         </div>
         <div className="details-actions">
+          <button onClick={toggleReveal} title={revealed ? t("resources.yaml.hide") : t("resources.yaml.reveal")}>
+            {revealed ? <IconEyeOff size={14} /> : <IconEye size={14} />} {revealed ? t("resources.secrets.hide") : t("resources.secrets.reveal")}
+          </button>
           <button className="danger" disabled={busy || readOnly} onClick={() => setPending({ action: "uninstall" })}>
             {t("helm.uninstall")}
           </button>
@@ -201,6 +210,13 @@ function HelmPanel({
           <ReadOnlyCode text={details.values || `# ${t("helm.defaultValues")}`} language="yaml" />
         ) : tab === "manifest" ? (
           <ReadOnlyCode text={details.manifest} language="yaml" />
+        ) : tab === "upgrade" && !revealed ? (
+          <div className="empty">
+            <p>{t("helm.revealToUpgrade")}</p>
+            <button onClick={toggleReveal}>
+              <IconEye size={14} /> {t("resources.yaml.reveal")}
+            </button>
+          </div>
         ) : tab === "upgrade" ? (
           <UpgradeTab
             release={release}
@@ -245,6 +261,15 @@ function HelmPanel({
           </div>
         )}
       </div>
+      {askReveal && (
+        <ConfirmDialog
+          title={t("resources.secrets.revealTitle")}
+          message={t("resources.secrets.revealMessage", { name: release.name })}
+          confirmLabel={t("resources.secrets.reveal")}
+          onConfirm={() => (setAskReveal(false), setRevealed(true))}
+          onCancel={() => setAskReveal(false)}
+        />
+      )}
       {pending && (
         <ConfirmDialog
           title={
