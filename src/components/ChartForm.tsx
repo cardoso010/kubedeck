@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import Editor from "@monaco-editor/react";
+import { Editor } from "./CodeEditor";
 import { useTranslation } from "react-i18next";
 import { useCurrentTheme } from "../theme";
 import { errorText, helmChartVersions, helmInstall, helmShowValues, helmUpgrade, type HelmChart } from "../api";

@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
-import { DiffEditor } from "@monaco-editor/react";
+import { DiffEditor } from "./CodeEditor";
 import { useCurrentTheme } from "../theme";
 import TypeToConfirm, { confirms } from "./TypeToConfirm";
 

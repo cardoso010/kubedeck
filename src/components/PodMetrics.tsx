@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Trans, useTranslation } from "react-i18next";
 import { errorText, formatCpu, formatMemory, formatRate, podHistory, podUsage, prometheusTarget, type ContainerUsage, type PodHistory, type PodUsage, type Series } from "../api";
 import LineChart, { type RefLine } from "./LineChart";
+import { usePoll } from "../usePoll";
 
 interface Props {
   namespace: string;
@@ -44,35 +45,30 @@ export default function PodMetrics({ namespace, pod, container }: Props) {
   }, []);
 
   // Current usage; in live mode each sample also feeds the charts.
-  useEffect(() => {
-    let stopped = false;
-    const tick = () =>
+  usePoll(
+    (alive) =>
       podUsage(namespace, pod).then(
         (u) => {
-          if (stopped) return;
+          if (!alive()) return;
           setUsage(u);
           setUsageError(null);
           if (u.metricsServer) setLive((prev) => [...prev, { t: Date.now() / 1000, containers: u.containers }].slice(-LIVE_MAX));
         },
-        (e) => !stopped && setUsageError(errorText(e)),
-      );
-    void tick();
-    const timer = setInterval(tick, USAGE_EVERY_MS);
-    return () => ((stopped = true), clearInterval(timer));
-  }, [namespace, pod]);
+        (e) => alive() && setUsageError(errorText(e)),
+      ),
+    USAGE_EVERY_MS,
+    [namespace, pod],
+  );
 
-  useEffect(() => {
-    if (!prometheus) return;
-    let stopped = false;
-    const load = () =>
+  usePoll(
+    (alive) =>
       podHistory(namespace, pod, minutes).then(
-        (h) => !stopped && (setHistory(h), setHistoryError(null)),
-        (e) => !stopped && setHistoryError(errorText(e)),
-      );
-    void load();
-    const timer = setInterval(load, HISTORY_EVERY_MS);
-    return () => ((stopped = true), clearInterval(timer));
-  }, [prometheus, namespace, pod, minutes]);
+        (h) => alive() && (setHistory(h), setHistoryError(null)),
+        (e) => alive() && setHistoryError(errorText(e)),
+      ),
+    prometheus ? HISTORY_EVERY_MS : null,
+    [prometheus, namespace, pod, minutes],
+  );
 
   const containers = usage?.containers ?? [];
   const shown = container ? containers.filter((c) => c.name === container) : containers;

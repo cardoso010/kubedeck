@@ -5,6 +5,7 @@ import { errorText, expandVolume, formatMemory, prometheusTarget, setVolumeAttri
 import { useReadOnly } from "../readOnly";
 import LineChart from "./LineChart";
 import ConfirmDialog from "./ConfirmDialog";
+import { usePoll } from "../usePoll";
 
 interface Props {
   namespace: string;
@@ -37,17 +38,18 @@ export default function VolumeView({ namespace, name, production, context }: Pro
   const [status, setStatus] = useState<{ ok: boolean; text: string } | null>(null);
 
   const loadInfo = () => volumeExpandInfo(namespace, name).then(setInfo, () => {});
-  useEffect(() => {
-    const load = () =>
+  usePoll(
+    (alive) =>
       volumeUsage([namespace]).then(
-        (u) => (setSource(u.source), setStats(u.volumes.find((v) => v.claim === name) ?? null)),
-        () => setStats(null),
-      );
-    void load();
+        (u) => alive() && (setSource(u.source), setStats(u.volumes.find((v) => v.claim === name) ?? null)),
+        () => alive() && setStats(null),
+      ),
+    REFRESH_MS,
+    [namespace, name],
+  );
+  useEffect(() => {
     void loadInfo();
     prometheusTarget().then((t) => setHasProm(!!t), () => {});
-    const timer = setInterval(load, REFRESH_MS);
-    return () => clearInterval(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [namespace, name]);
 

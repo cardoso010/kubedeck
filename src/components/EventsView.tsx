@@ -1,6 +1,7 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { age, errorText, objectEvents, type EventRow } from "../api";
+import { usePoll } from "../usePoll";
 
 const REFRESH_MS = 10_000;
 
@@ -11,17 +12,15 @@ export default function EventsView({ namespace, uid }: { namespace: string | nul
   const [error, setError] = useState<string | null>(null);
   const [now, setNow] = useState(Date.now());
 
-  useEffect(() => {
-    let stopped = false;
-    const load = () =>
+  usePoll(
+    (alive) =>
       objectEvents(namespace, uid).then(
-        (e) => !stopped && (setEvents(e), setError(null), setNow(Date.now())),
-        (e) => !stopped && setError(errorText(e)),
-      );
-    void load();
-    const timer = setInterval(load, REFRESH_MS);
-    return () => ((stopped = true), clearInterval(timer));
-  }, [namespace, uid]);
+        (e) => alive() && (setEvents(e), setError(null), setNow(Date.now())),
+        (e) => alive() && setError(errorText(e)),
+      ),
+    REFRESH_MS,
+    [namespace, uid],
+  );
 
   if (error) return <div className="error-bar">{error}</div>;
   if (!events) return <div className="empty">{t("common.loading")}</div>;

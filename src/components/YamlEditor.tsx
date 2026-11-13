@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import Editor from "@monaco-editor/react";
+import { Editor } from "./CodeEditor";
 import { useCurrentTheme } from "../theme";
 import { errorText, getYaml, replaceYaml, type Target } from "../api";
 import ConfirmDialog from "./ConfirmDialog";
