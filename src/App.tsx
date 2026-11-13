@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import Logo from "./components/Logo";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { IconAlertTriangle, IconAppWindow, IconBell, IconBellOff, IconGauge, IconLock, IconLockOpen, IconPlus, IconHexagons, IconInfoCircle, IconLink, IconLayersSubtract, IconPackage, IconPalette, IconPin, IconServer2, IconWorld } from "@tabler/icons-react";
 import * as api from "./api";
@@ -600,7 +601,7 @@ function Welcome({ contexts, pins, connecting, onChoose, onPalette }: { contexts
     <div className="welcome">
       <div className="welcome-card">
         <div className="welcome-logo">
-          <IconHexagons size={28} stroke={1.5} />
+          <Logo size={28} />
         </div>
         <h1>kubedeck</h1>
         <p className="faint">{connecting ? "Connecting…" : "Pick a cluster to start."}</p>

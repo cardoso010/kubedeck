@@ -17,6 +17,7 @@ npm run tauri dev                 # native app with hot reload (fetches the Helm
 npm run dev                       # UI only in a browser, with sample data from src/dev-mock.ts
 npm run screenshots               # with npm run dev running: regenerate docs/screenshots (README images)
 npm run binaries                  # fetch the Helm sidecar; needed once before plain cargo commands
+npm run icons                     # regenerate every app icon from src-tauri/icons/source/kubedeck.svg
 scripts/build-site.sh             # project page (site/ + screenshots + icon) into _site/, published by pages.yml
 npx tsc --noEmit                  # typecheck UI
 cd src-tauri && cargo clippy --all-targets -- -D warnings
@@ -59,7 +60,7 @@ Layout: `Rail` (sections, with the Problems badge from `sections.ts`, pinned clu
 - Secret values never go into table rows (`summarize` counts keys only), `get_yaml` masks them unless `reveal`, and `ai.rs` refuses Secrets and redacts env values. Keep it that way.
 - **Read-only mode**: every command that changes the cluster calls `state.writable()?` first (dry runs excepted). The UI locks production contexts by default (`readOnly.ts`), but the backend is what enforces it; new write commands must call it and get a line in the read-only e2e test.
 - **Claude** is called with raw HTTP from `ai.rs` (no Rust SDK): model `claude-opus-5-5`, streamed, with server-side fallback (`content_block_start` of type `fallback` restarts the text). Only on an explicit click, never automatically.
-- **Styling**: use only the theme tokens from the top of `App.css` (`--bg*`, `--line*`, `--text*`, `--accent*`, `--ok/--warn/--bad`, `--font-ui/--font-mono`, `--radius*`); never hard-code colors, or a theme will break. A new theme is one `[data-theme]` block plus an entry in `theme.ts` (with Monaco and xterm colors). Icons come from `@tabler/icons-react`; fonts are bundled (`@fontsource-variable/*`), never loaded from a CDN.
+- **Styling**: use only the theme tokens from the top of `App.css` (`--bg*`, `--line*`, `--text*`, `--accent*`, `--ok/--warn/--bad`, `--font-ui/--font-mono`, `--radius*`); never hard-code colors, or a theme will break. A new theme is one `[data-theme]` block plus an entry in `theme.ts` (with Monaco and xterm colors). Icons come from `@tabler/icons-react`, except the kubedeck mark (`components/Logo.tsx`, same drawing as the app icon's SVG: change both together); fonts are bundled (`@fontsource-variable/*`), never loaded from a CDN.
 - After visible UI changes, regenerate the README images with `npm run screenshots` (scenes are in `scripts/screenshots.mjs`; keep `dev-mock.ts` realistic enough to photograph).
 - New global actions belong in the command palette (`commands` in `App.tsx`) as well as wherever they have a button.
 - Comments explain *why* (constraints, API quirks), not what the code does. Match the surrounding density.
