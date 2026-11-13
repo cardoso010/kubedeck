@@ -52,6 +52,8 @@ const saveNamespaces = (context: string, selected: string[]) => {
 /** First kind of each section, used when the rail switches sections. */
 const SECTION_DEFAULT: Partial<Record<SectionId, string>> = { storage: "persistentvolumeclaims", problems: PROBLEMS, rightsizing: RIGHTSIZING, workloads: "pods", network: "services", config: "configmaps", cluster: "nodes", helm: HELM, forwards: FORWARDS };
 
+const NO_ROWS: Row[] = [];
+
 export default function App() {
   const { t, i18n } = useTranslation();
   const { theme, setTheme } = useTheme();
@@ -208,7 +210,7 @@ export default function App() {
           setRowsKind(kind.key);
           setWatchError(null);
           setSelected(null);
-          // Busy clusters send many events per second: apply them once per frame.
+          // The backend batches changes every 100ms; this also folds whatever arrives within a frame.
           let queue: api.WatchMsg[] = [];
           const flush = () => {
             const batch = queue;
@@ -217,8 +219,10 @@ export default function App() {
               let next = new Map(prev ?? []);
               for (const msg of batch) {
                 if (msg.type === "snapshot") next = new Map(msg.rows.map((r) => [r.uid, r]));
-                else if (msg.type === "upsert") next.set(msg.row.uid, msg.row);
-                else if (msg.type === "delete") next.delete(msg.uid);
+                else if (msg.type === "changes") {
+                  for (const row of msg.upserts) next.set(row.uid, row);
+                  for (const uid of msg.deletes) next.delete(uid);
+                }
               }
               return next;
             });
@@ -355,6 +359,8 @@ export default function App() {
     return () => window.removeEventListener("keydown", onKey);
   });
 
+  // Row commands only while the palette is open, so watch updates do not rebuild the list.
+  const paletteRows = paletteOpen ? rowList : NO_ROWS;
   const commands = useMemo<Command[]>(() => {
     const list: Command[] = [];
     if (conn) {
@@ -372,7 +378,7 @@ export default function App() {
       for (const k of kinds.filter((x) => x.group)) {
         list.push({ id: `kind:${k.key}`, group: t("app.palette.groups.custom"), title: k.label, subtitle: k.group!, icon: <IconLayersSubtract size={16} />, run: () => openView(k.key) });
       }
-      for (const r of rowList.slice(0, 500)) {
+      for (const r of paletteRows.slice(0, 500)) {
         list.push({ id: `row:${r.uid}`, group: kind?.label ?? t("app.palette.groups.resources"), title: r.name, subtitle: r.namespace ?? undefined, icon: <IconHexagons size={16} />, run: () => setSelected(r) });
       }
       list.push({ id: "ns:all", group: t("app.palette.groups.namespaces"), title: t("app.palette.allNamespaces"), icon: <IconWorld size={16} />, run: () => chooseNamespaces([]) });
@@ -428,7 +434,7 @@ export default function App() {
     }
     return list;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [conn, kinds, contexts, namespaces, rowList, kind?.label, pins, openView, problems, locked, lockPrefs, notifyOn, i18n.language]);
+  }, [conn, kinds, contexts, namespaces, paletteRows, kind?.label, pins, openView, problems, locked, lockPrefs, notifyOn, i18n.language]);
 
   const viewLabel = view === RIGHTSIZING ? t("app.views.rightsizing") : view === PROBLEMS ? t("app.views.problems") : view === HELM ? t("app.views.helm") : view === FORWARDS ? t("app.views.forwards") : (kind?.label ?? "");
 

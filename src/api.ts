@@ -44,8 +44,7 @@ export interface Row {
 
 export type WatchMsg =
   | { type: "snapshot"; rows: Row[] }
-  | { type: "upsert"; row: Row }
-  | { type: "delete"; uid: string }
+  | { type: "changes"; upserts: Row[]; deletes: string[] }
   | { type: "error"; message: string; unauthorized: boolean };
 
 export type StreamMsg = { type: "data"; data: string } | { type: "end"; message: string | null };

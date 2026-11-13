@@ -50,7 +50,7 @@ Layout: `Rail` (sections, with the Problems badge from `sections.ts`, pinned clu
 ## Conventions
 
 - **Commands** take `state: Session` (never `State<AppState>`, which would share one cluster across windows) and return `CmdResult<T>` (`Result<T, String>`); map errors with `state::err`. The UI shows these strings as-is, so make them readable.
-- **Namespaces**: commands that list across namespaces take `namespaces: Vec<String>` (empty = all); the UI passes the picker selection. `watch_resources` runs one watch per namespace and merges them.
+- **Namespaces**: commands that list across namespaces take `namespaces: Vec<String>` (empty = all); the UI passes the picker selection. `watch_resources` runs one watch per namespace and merges them. It sends a `Snapshot`, then `Changes` batched every 100ms, holding only rows whose summary changed (`Row: PartialEq`).
 - **Streaming** (watch, logs, exec): the command spawns a task, sends events over a `tauri::ipc::Channel`, registers it with `AppState::track` (or the exec/forward maps) and returns an id. The UI must stop it with `stop_stream(id)`; use `useStream` rather than hand-rolled effects. Batch what streams fast: logs go out as `LogMsg::Lines` every 50ms (or 1000 lines), never one message per line. `connect` stops everything.
 - **Serde**: structs sent to the UI use `#[serde(rename_all = "camelCase")]`; tagged enums use `#[serde(tag = "type")]` (or `"status"`). Keep `api.ts` types in sync.
 - **New command checklist**: Rust fn + register in `lib.rs` + wrapper in `api.ts` + case in `dev-mock.ts` + e2e coverage in `e2e_test.rs`.

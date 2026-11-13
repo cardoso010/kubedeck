@@ -36,6 +36,14 @@ fn log_lines(msgs: &[Value]) -> impl Iterator<Item = &Value> {
     msgs.iter().filter(|m| m["type"] == "lines").flat_map(|m| m["lines"].as_array().unwrap())
 }
 
+/// Rows upserted and uids deleted across the `changes` messages of a watch.
+fn upserts(msgs: &[Value]) -> impl Iterator<Item = &Value> {
+    msgs.iter().filter(|m| m["type"] == "changes").flat_map(|m| m["upserts"].as_array().unwrap())
+}
+fn deletes(msgs: &[Value]) -> impl Iterator<Item = &Value> {
+    msgs.iter().filter(|m| m["type"] == "changes").flat_map(|m| m["deletes"].as_array().unwrap())
+}
+
 async fn wait_for(inbox: &Inbox, what: &str, pred: impl Fn(&[Value]) -> bool) {
     for _ in 0..300 {
         if pred(&inbox.lock().unwrap()) {
@@ -118,12 +126,12 @@ async fn backend_against_real_cluster() {
     let web_name = web["name"].as_str().unwrap().to_owned();
     let web_uid = web["uid"].clone();
     resources::delete_resource("pods".into(), opt("demo"), web_name.clone(), state()).await.unwrap();
-    wait_for(&pods, "delete event", |m| m.iter().any(|m| m["type"] == "delete" && m["uid"] == web_uid)).await;
-    wait_for(&pods, "replacement pod", |m| {
-        m.iter().any(|m| m["type"] == "upsert" && m["row"]["name"].as_str().unwrap().starts_with("web-") && m["row"]["name"] != web_name.as_str())
-    })
-    .await;
+    wait_for(&pods, "delete event", |m| deletes(m).any(|uid| *uid == web_uid)).await;
+    wait_for(&pods, "replacement pod", |m| upserts(m).any(|r| r["name"].as_str().unwrap().starts_with("web-") && r["name"] != web_name.as_str())).await;
     resources::stop_stream(watch_id, state());
+    // Changes come batched, and only when something the table shows changed.
+    let batches: Vec<Value> = pods.lock().unwrap().iter().filter(|m| m["type"] == "changes").cloned().collect();
+    assert!(batches.iter().all(|b| !b["upserts"].as_array().unwrap().is_empty() || !b["deletes"].as_array().unwrap().is_empty()), "{batches:?}");
 
     // Logs
     let (ch, logs) = channel();
@@ -341,7 +349,7 @@ async fn several_namespaces_against_real_cluster() {
     // The worker ignores SIGTERM; skip the 30s grace period.
     k8s.delete(victim.name.as_deref().unwrap(), &kube::api::DeleteParams { grace_period_seconds: Some(0), ..Default::default() }).await.unwrap();
     let uid = Value::from(victim.uid.unwrap());
-    wait_for(&inbox, "delete from demo2", |m| m.iter().any(|m| m["type"] == "delete" && m["uid"] == uid)).await;
+    wait_for(&inbox, "delete from demo2", |m| deletes(m).any(|d| *d == uid)).await;
     resources::stop_stream(id, state());
 
     // A namespace that does not exist just contributes nothing.

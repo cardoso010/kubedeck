@@ -17,11 +17,15 @@ use crate::state::{err, is_unauthorized, kube_err, AppState, CmdResult, Session}
 pub enum WatchMsg {
     /// Full list, sent once the initial listing finishes and again after every re-list.
     Snapshot { rows: Vec<Row> },
-    Upsert { row: Row },
-    Delete { uid: String },
+    /// Rows that changed or appeared, and uids that went away, gathered over [`BATCH_EVERY`].
+    Changes { upserts: Vec<Row>, deletes: Vec<String> },
     /// `unauthorized`: the cluster rejected the credentials, so retrying the same ones is pointless.
     Error { message: String, unauthorized: bool },
 }
+
+/// Busy clusters update objects many times a second, mostly in fields the table does not show;
+/// changed rows are sent at most this often, in one message, instead of one per event.
+const BATCH_EVERY: std::time::Duration = std::time::Duration::from_millis(100);
 
 /// Built-in kinds before connecting; built-ins plus the cluster's custom resources after.
 #[tauri::command]
@@ -84,8 +88,33 @@ pub async fn watch_resources(
         let mut listed = vec![false; n];
         let snapshot = |current: &[HashMap<String, Row>]| WatchMsg::Snapshot { rows: current.iter().flat_map(|m| m.values().cloned()).collect() };
 
-        while let Some((i, event)) = merged.next().await {
+        // uid -> new row, or None when deleted; sent when `flush_at` comes.
+        let mut pending: HashMap<String, Option<Row>> = HashMap::new();
+        let mut flush_at: Option<tokio::time::Instant> = None;
+        let changes = |pending: &mut HashMap<String, Option<Row>>| {
+            let (mut upserts, mut deletes) = (Vec::new(), Vec::new());
+            for (uid, row) in pending.drain() {
+                match row {
+                    Some(row) => upserts.push(row),
+                    None => deletes.push(uid),
+                }
+            }
+            WatchMsg::Changes { upserts, deletes }
+        };
+
+        loop {
             let mut msgs = Vec::new();
+            let next = tokio::select! {
+                next = merged.next() => next,
+                _ = tokio::time::sleep_until(flush_at.unwrap_or_else(tokio::time::Instant::now)), if flush_at.is_some() => {
+                    flush_at = None;
+                    if on_event.send(changes(&mut pending)).is_err() {
+                        return;
+                    }
+                    continue;
+                }
+            };
+            let Some((i, event)) = next else { break };
             match event {
                 Ok(watcher::Event::Init) => initial[i].clear(),
                 Ok(watcher::Event::InitApply(obj)) => initial[i].push(kinds::summarize(&def, &obj)),
@@ -94,18 +123,22 @@ pub async fn watch_resources(
                     listed[i] = true;
                     // Fill the table in one go once every scope has listed; later re-lists resend all.
                     if listed.iter().all(|l| *l) {
+                        pending.clear();
+                        flush_at = None;
                         msgs.push(snapshot(&current));
                     }
                 }
                 Ok(watcher::Event::Apply(obj)) => {
                     let row = kinds::summarize(&def, &obj);
-                    current[i].insert(row.uid.clone(), row.clone());
-                    msgs.push(WatchMsg::Upsert { row });
+                    if current[i].get(&row.uid) != Some(&row) {
+                        current[i].insert(row.uid.clone(), row.clone());
+                        pending.insert(row.uid.clone(), Some(row));
+                    }
                 }
                 Ok(watcher::Event::Delete(obj)) => {
                     let uid = obj.metadata.uid.unwrap_or_default();
                     current[i].remove(&uid);
-                    msgs.push(WatchMsg::Delete { uid });
+                    pending.insert(uid, None);
                 }
                 // The backoff keeps the watch alive; the UI just shows the latest error.
                 Err(e) => {
@@ -119,9 +152,15 @@ pub async fn watch_resources(
                     };
                     msgs.push(WatchMsg::Error { message, unauthorized });
                     if !std::mem::replace(&mut listed[i], true) && listed.iter().all(|l| *l) {
+                        pending.clear();
+                        flush_at = None;
                         msgs.push(snapshot(&current));
                     }
                 }
+            }
+            // Changes only flow once the table has its snapshot.
+            if !pending.is_empty() && flush_at.is_none() && listed.iter().all(|l| *l) {
+                flush_at = Some(tokio::time::Instant::now() + BATCH_EVERY);
             }
             for msg in msgs {
                 if on_event.send(msg).is_err() {
