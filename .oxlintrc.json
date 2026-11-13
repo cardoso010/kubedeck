@@ -1,0 +1,27 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "plugins": ["typescript", "react", "unicorn", "oxc"],
+  "categories": { "correctness": "error", "suspicious": "warn" },
+  "rules": {
+    "react-hooks/rules-of-hooks": "error",
+    "react-hooks/exhaustive-deps": "warn",
+    // The automatic JSX runtime needs no React import.
+    "react/react-in-jsx-scope": "off",
+    // `(a(), b())` in arrow bodies and handlers is the house style.
+    "no-unused-expressions": "off",
+    // React Compiler rules: the app does not use the compiler.
+    "react/purity": "off",
+    "react/immutability": "off",
+    "react/set-state-in-effect": "off",
+    "react/incompatible-library": "off",
+    // Same check as react-hooks/exhaustive-deps, which the eslint-disable comments in src/ name.
+    "react/exhaustive-effect-dependencies": "off",
+    // `t` from useTranslation is routinely shadowed in small callbacks.
+    "no-shadow": "off",
+    "unicorn/consistent-function-scoping": "off",
+    "unicorn/prefer-add-event-listener": "off",
+    "unicorn/no-array-sort": "off",
+    "no-underscore-dangle": "off"
+  },
+  "ignorePatterns": ["dist", "src-tauri", "_site", "node_modules"]
+}

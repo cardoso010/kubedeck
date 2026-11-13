@@ -593,9 +593,9 @@ function AuthBanner({ problem, auth, onRetry }: { problem: { context: string; tr
       <div className="auth-banner-text">
         <strong>{t("app.auth.rejected", { name: api.shortContextName(problem.context) })}</strong> {t("app.auth.expired")}{" "}
         {auth?.awsProfile ? (
-          <Trans i18nKey="app.auth.aws" values={{ command: auth.command, profile: auth.awsProfile }} components={[<code />, <code />, <code />, <code />]} />
+          <Trans i18nKey="app.auth.aws" values={{ command: auth.command, profile: auth.awsProfile }} components={[<code key={0} />, <code key={1} />, <code key={2} />, <code key={3} />]} />
         ) : auth ? (
-          <Trans i18nKey="app.auth.exec" values={{ command: auth.command }} components={[<code />]} />
+          <Trans i18nKey="app.auth.exec" values={{ command: auth.command }} components={[<code key={0} />]} />
         ) : (
           <>{t("app.auth.kubeconfig")}</>
         )}{" "}
