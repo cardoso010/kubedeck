@@ -30,7 +30,6 @@ tokio = { version = "1", features = ["sync", "io-util", "macros", "time", "net",
 futures = "0.3"
 serde_yaml = "0.9"
 regex = "1"
-anyhow = "1"
 tauri-plugin-updater = "2"
 reqwest = { version = "0.13", features = ["json", "stream"] }
 rustls = { version = "0.23", default-features = false, features = ["aws_lc_rs"] }
@@ -51,7 +50,9 @@ keyring = "4"
 codegen-units = 16
 lto = "thin"
 opt-level = 3
-panic = "abort"
+# Not abort: a panic in one command or stream task then ends that task (the async runtime
+# catches it) instead of closing every window at once.
+panic = "unwind"
 strip = true
 
 [dev-dependencies]

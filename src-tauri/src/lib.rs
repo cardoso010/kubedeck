@@ -9,6 +9,7 @@ mod kinds;
 mod metrics;
 mod nodes;
 mod pod_insights;
+mod prometheus;
 mod portforward;
 mod resources;
 mod rightsizing;
@@ -132,7 +133,7 @@ pub fn run() {
             metrics::pod_metrics,
             metrics::node_metrics,
             pod_insights::pod_usage,
-            pod_insights::prometheus_target,
+            prometheus::prometheus_target,
             pod_insights::pod_history,
             pod_insights::node_history,
             diagnostics::cluster_problems,

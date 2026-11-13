@@ -4,10 +4,11 @@ use std::sync::Arc;
 
 use k8s_openapi::api::core::v1::Namespace;
 use k8s_openapi::apiextensions_apiserver::pkg::apis::apiextensions::v1::CustomResourceDefinition;
-use kube::api::{Api, ListParams, WatchParams};
+use kube::api::{Api, ApiResource, DynamicObject, ListParams, WatchParams};
 use kube::config::{KubeConfigOptions, Kubeconfig};
 use kube::{Client, Config};
 use serde::Serialize;
+use serde_json::Value;
 
 use crate::kinds;
 use crate::state::{err, kube_err, CmdResult, Connection, Session};
@@ -105,12 +106,13 @@ pub async fn connect(context: String, state: Session) -> CmdResult<Connected> {
     let config = Config::from_custom_kubeconfig(kubeconfig, &options).await.map_err(err)?;
     let default_namespace = config.default_namespace.clone();
     let client = Client::try_from(config).map_err(err)?;
-    let version = client.apiserver_version().await.map_err(|e| kube_err(&e))?;
+    // Independent round trips; the streaming probe alone can take up to a second.
+    let (version, custom, streaming_lists) = tokio::join!(client.apiserver_version(), custom_kinds(&client), supports_streaming_lists(&client));
+    let version = version.map_err(|e| kube_err(&e))?;
 
     let mut all_kinds = kinds::builtins();
-    all_kinds.extend(custom_kinds(&client).await);
+    all_kinds.extend(custom);
     let kinds = Arc::new(all_kinds);
-    let streaming_lists = supports_streaming_lists(&client).await;
 
     *state.conn.write().await = Some(Connection { client, context: context.clone(), default_namespace: default_namespace.clone(), kinds, prometheus: Default::default(), streaming_lists });
     Ok(Connected { context, server_version: version.git_version, default_namespace, auth })
@@ -125,11 +127,14 @@ async fn supports_streaming_lists(client: &Client) -> bool {
 }
 
 /// Custom resources from the cluster's CRDs. Users who may not list CRDs just get none.
+///
+/// CRDs carry their whole OpenAPI schema, megabytes on clusters with many operators: they are
+/// read as plain JSON (not typed and converted back) and served from the API server's cache.
 async fn custom_kinds(client: &Client) -> Vec<kinds::KindDef> {
-    let api: Api<CustomResourceDefinition> = Api::all(client.clone());
-    match api.list(&ListParams::default()).await {
+    let api: Api<DynamicObject> = Api::all_with(client.clone(), &ApiResource::erase::<CustomResourceDefinition>(&()));
+    match api.list(&ListParams::default().match_any()).await {
         Ok(list) => {
-            let crds: Vec<_> = list.items.iter().filter_map(|c| serde_json::to_value(c).ok()).collect();
+            let crds: Vec<Value> = list.items.into_iter().map(|c| c.data).collect();
             kinds::from_crds(&crds)
         }
         Err(_) => vec![],

@@ -218,7 +218,7 @@ pub async fn cluster_problems(namespaces: Vec<String>, state: Session) -> CmdRes
     }
     // Volumes filling up. Only from Prometheus: asking every kubelet on each poll would be
     // too heavy for big clusters (the Storage view does that on demand instead).
-    if let Ok((prom_client, Some(target))) = crate::pod_insights::prometheus(&state).await {
+    if let Ok((prom_client, Some(target))) = crate::prometheus::prometheus(&state).await {
         for v in crate::storage::from_prometheus(&prom_client, &target, &namespaces).await.unwrap_or_default() {
             if let Some(severity) = fullness(&v) {
                 out.push(Problem {
