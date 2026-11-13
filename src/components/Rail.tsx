@@ -1,12 +1,11 @@
 import { useEffect, useState } from "react";
-import { IconAppWindow, IconBrandGithub, IconBug, IconCheck, IconDownload, IconHexagons, IconInfoCircle, IconLink, IconNews, IconPalette, IconTerminal2, IconWorld } from "@tabler/icons-react";
+import { IconAppWindow, IconBrandGithub, IconBug, IconCheck, IconDownload, IconHexagons, IconInfoCircle, IconLink, IconNews, IconSettings, IconTerminal2, IconWorld } from "@tabler/icons-react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { checkForUpdate, errorText, installUpdate, isProduction, openWindow, shortContextName, type UpdateStatus } from "../api";
 import { getVersion } from "@tauri-apps/api/app";
 import { bugReportUrl, INSTALL_COMMAND, REPO_URL, SITE_URL } from "../about";
 import { clusterColor } from "../pins";
 import { SECTIONS, type SectionId } from "../sections";
-import { THEMES, type Theme, type ThemeId } from "../theme";
 
 interface Props {
   section: SectionId;
@@ -17,8 +16,7 @@ interface Props {
   onSwitchCluster: (context: string) => void;
   onUnpin: (context: string) => void;
   onMoveUp: (context: string) => void;
-  theme: Theme;
-  onTheme: (id: ThemeId) => void;
+  onSettings: () => void;
   /** Critical problems in the selected namespaces, shown as a badge on Problems. */
   problemCount: number;
   /** Bumped by the command palette to open the About popover. */
@@ -33,13 +31,13 @@ const initials = (context: string) =>
     .map((p) => p[0]!.toUpperCase())
     .join("") || "?";
 
-type Popover = { kind: "theme" } | { kind: "update" } | { kind: "about" } | { kind: "cluster"; context: string; x: number; y: number };
+type Popover = { kind: "update" } | { kind: "about" } | { kind: "cluster"; context: string; x: number; y: number };
 
 /**
  * The thin left rail: sections, pinned clusters, and app actions. Clusters: click switches
  * this window, ⌘/Ctrl-click opens a new window, right-click for more.
  */
-export default function Rail({ section, onSection, connected, pins, current, onSwitchCluster, onUnpin, onMoveUp, theme, onTheme, problemCount, aboutRequest }: Props) {
+export default function Rail({ section, onSection, connected, pins, current, onSwitchCluster, onUnpin, onMoveUp, onSettings, problemCount, aboutRequest }: Props) {
   const [popover, setPopover] = useState<Popover | null>(null);
   const update = useUpdate();
 
@@ -95,8 +93,8 @@ export default function Rail({ section, onSection, connected, pins, current, onS
       <button className="rail-button" data-tip="New window  ⌘N" aria-label="New window" onClick={() => void openWindow(null)}>
         <IconAppWindow size={18} stroke={1.6} />
       </button>
-      <button className="rail-button" data-tip="Theme" aria-label="Theme" onClick={() => setPopover({ kind: "theme" })}>
-        <IconPalette size={18} stroke={1.6} />
+      <button className="rail-button" data-tip="Settings  ⌘," aria-label="Settings" onClick={onSettings}>
+        <IconSettings size={18} stroke={1.6} />
       </button>
       <button className="rail-button" data-tip={update.label} aria-label="Updates" onClick={() => setPopover({ kind: "update" })}>
         <IconDownload size={18} stroke={1.6} />
@@ -106,21 +104,6 @@ export default function Rail({ section, onSection, connected, pins, current, onS
         <IconInfoCircle size={18} stroke={1.6} />
       </button>
 
-      {popover?.kind === "theme" && (
-        <div className="rail-popover" style={{ bottom: 108 }}>
-          <div className="popover-title">Theme</div>
-          {THEMES.map((t) => (
-            <button key={t.id} className="popover-item" onClick={() => onTheme(t.id)}>
-              <span className={`theme-swatch swatch-${t.id}`} />
-              <span className="popover-item-text">
-                <span>{t.label}</span>
-                <span className="faint">{t.description}</span>
-              </span>
-              {t.id === theme.id && <IconCheck size={14} />}
-            </button>
-          ))}
-        </div>
-      )}
       {popover?.kind === "update" && (
         <div className="rail-popover" style={{ bottom: 64 }}>
           <div className="popover-title">kubedeck {update.version && `v${update.version}`}</div>
