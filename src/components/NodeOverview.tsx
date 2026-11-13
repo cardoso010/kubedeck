@@ -6,6 +6,7 @@ import LineChart from "./LineChart";
 import ConfirmDialog from "./ConfirmDialog";
 import { useReadOnly } from "../readOnly";
 import TypeToConfirm, { confirms } from "./TypeToConfirm";
+import { usePoll } from "../usePoll";
 
 interface Props {
   name: string;
@@ -28,16 +29,14 @@ export default function NodeOverview({ name, production, context }: Props) {
   const readOnly = useReadOnly();
 
   const load = () => nodeSummary(name).then((s) => (setSummary(s), setError(null)), (e) => setError(errorText(e)));
+  usePoll(load, REFRESH_MS, [name]);
   useEffect(() => {
-    void load();
-    const timer = setInterval(load, REFRESH_MS);
     prometheusTarget().then(
       (target) => {
         if (target) nodeHistory(name, 360).then(setHistory, () => {});
       },
       () => {},
     );
-    return () => clearInterval(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [name]);
 

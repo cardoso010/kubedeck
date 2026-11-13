@@ -1,9 +1,10 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { IconStar, IconStarFilled } from "@tabler/icons-react";
 import { errorText, listPortForwards, startPortForward, stopStream, type ForwardInfo } from "../api";
 import { favoriteId, loadFavorites, saveFavorites, type Favorite } from "../favorites";
+import { usePoll } from "../usePoll";
 
 /**
  * Active port forwards of the connected cluster (they stop when switching clusters), and
@@ -39,12 +40,8 @@ export default function PortForwardsView({ context }: { context: string }) {
 
   const refresh = () => listPortForwards().then(setForwards, (e) => setError(errorText(e)));
 
-  useEffect(() => {
-    void refresh();
-    // Connection counts and errors change in the background.
-    const timer = setInterval(refresh, 2000);
-    return () => clearInterval(timer);
-  }, []);
+  // Connection counts and errors change in the background.
+  usePoll(refresh, 2000, []);
 
   async function stop(id: number) {
     await stopStream(id);
