@@ -7,7 +7,7 @@ use kube::api::{Api, ListParams, Patch, PatchParams};
 use serde::Serialize;
 use serde_json::json;
 
-use crate::state::{kube_err, CmdResult, Session};
+use crate::state::{CmdResult, Session};
 
 /// Kinds that have a pod template (restart) or a replica count (scale), by kind key.
 const RESTARTABLE: &[&str] = &["deployments", "statefulsets", "daemonsets"];
@@ -24,7 +24,7 @@ async fn dynamic_api(state: &Session, kind_key: &str, namespace: &str) -> CmdRes
 pub async fn rollout_restart(kind_key: String, namespace: String, name: String, state: Session) -> CmdResult<()> {
     state.writable()?;
     if !RESTARTABLE.contains(&kind_key.as_str()) {
-        return Err(format!("{kind_key} cannot be restarted"));
+        return Err(format!("{kind_key} cannot be restarted").into());
     }
     // Like kubectl: an RFC 3339 timestamp, so every restart changes the template.
     let now = jiff::Timestamp::now().to_string();
@@ -32,8 +32,7 @@ pub async fn rollout_restart(kind_key: String, namespace: String, name: String, 
     dynamic_api(&state, &kind_key, &namespace)
         .await?
         .patch(&name, &PatchParams::default(), &Patch::Merge(&patch))
-        .await
-        .map_err(|e| kube_err(&e))?;
+        .await?;
     Ok(())
 }
 
@@ -41,7 +40,7 @@ pub async fn rollout_restart(kind_key: String, namespace: String, name: String, 
 pub async fn scale(kind_key: String, namespace: String, name: String, replicas: i32, state: Session) -> CmdResult<()> {
     state.writable()?;
     if !SCALABLE.contains(&kind_key.as_str()) {
-        return Err(format!("{kind_key} cannot be scaled"));
+        return Err(format!("{kind_key} cannot be scaled").into());
     }
     if !(0..=1000).contains(&replicas) {
         return Err("Replicas must be between 0 and 1000".into());
@@ -50,8 +49,7 @@ pub async fn scale(kind_key: String, namespace: String, name: String, replicas: 
     dynamic_api(&state, &kind_key, &namespace)
         .await?
         .patch(&name, &PatchParams::default(), &Patch::Merge(&patch))
-        .await
-        .map_err(|e| kube_err(&e))?;
+        .await?;
     Ok(())
 }
 
@@ -61,8 +59,7 @@ pub async fn set_paused(namespace: String, name: String, paused: bool, state: Se
     state.writable()?;
     let api: Api<Deployment> = Api::namespaced(state.connection().await?.client, &namespace);
     api.patch(&name, &PatchParams::default(), &Patch::Merge(&json!({ "spec": { "paused": paused } })))
-        .await
-        .map_err(|e| kube_err(&e))?;
+        .await?;
     Ok(())
 }
 
@@ -105,7 +102,7 @@ async fn owned_replica_sets(api_rs: &Api<ReplicaSet>, deployment: &Deployment) -
         .map(|(k, v)| format!("{k}={v}"))
         .collect::<Vec<_>>()
         .join(",");
-    let list = api_rs.list(&ListParams::default().labels(&labels)).await.map_err(|e| kube_err(&e))?;
+    let list = api_rs.list(&ListParams::default().labels(&labels)).await?;
     Ok(list
         .items
         .into_iter()
@@ -130,7 +127,7 @@ fn template_of(rs: &ReplicaSet) -> Option<k8s_openapi::api::core::v1::PodTemplat
 #[tauri::command]
 pub async fn rollout_status(namespace: String, name: String, state: Session) -> CmdResult<RolloutStatus> {
     let client = state.connection().await?.client;
-    let deployment = Api::<Deployment>::namespaced(client.clone(), &namespace).get(&name).await.map_err(|e| kube_err(&e))?;
+    let deployment = Api::<Deployment>::namespaced(client.clone(), &namespace).get(&name).await?;
     let current = deployment.metadata.annotations.as_ref().and_then(|a| a.get(REVISION)).and_then(|r| r.parse::<i64>().ok());
     let mut revisions: Vec<Revision> = owned_replica_sets(&Api::namespaced(client, &namespace), &deployment)
         .await?
@@ -170,7 +167,7 @@ pub async fn rollback(namespace: String, name: String, revision: i64, state: Ses
     state.writable()?;
     let client = state.connection().await?.client;
     let api: Api<Deployment> = Api::namespaced(client.clone(), &namespace);
-    let deployment = api.get(&name).await.map_err(|e| kube_err(&e))?;
+    let deployment = api.get(&name).await?;
     let target = owned_replica_sets(&Api::namespaced(client, &namespace), &deployment)
         .await?
         .into_iter()
@@ -185,7 +182,7 @@ pub async fn rollback(namespace: String, name: String, revision: i64, state: Ses
         { "op": "replace", "path": "/spec/template", "value": template }
     ]))
     .map_err(|e| e.to_string())?;
-    api.patch(&name, &PatchParams::default(), &Patch::Json::<()>(patch)).await.map_err(|e| kube_err(&e))?;
+    api.patch(&name, &PatchParams::default(), &Patch::Json::<()>(patch)).await?;
     Ok(())
 }
 
@@ -209,7 +206,7 @@ pub async fn object_events(namespace: Option<String>, uid: String, state: Sessio
         Some(ns) => Api::namespaced(client, ns),
         None => Api::all(client),
     };
-    let list = api.list(&ListParams::default().fields(&format!("involvedObject.uid={uid}"))).await.map_err(|e| kube_err(&e))?;
+    let list = api.list(&ListParams::default().fields(&format!("involvedObject.uid={uid}"))).await?;
     let time = |v: Option<serde_json::Value>| v.and_then(|v| v.as_str().map(str::to_owned));
     let mut rows: Vec<EventRow> = list
         .items

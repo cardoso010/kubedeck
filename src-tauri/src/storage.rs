@@ -18,7 +18,7 @@ use serde_json::{json, Value};
 
 use crate::metrics::quantity;
 use crate::prometheus::{prom_get, prometheus, Series};
-use crate::state::{err, kube_err, CmdResult, Session};
+use crate::state::{err, CmdResult, Session};
 
 #[derive(Serialize, Clone, Default, Debug, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -205,7 +205,7 @@ pub async fn volume_expand_info(namespace: String, name: String, state: Session)
 }
 
 async fn expand_info(client: &Client, namespace: &str, name: &str) -> CmdResult<ExpandInfo> {
-    let pvc = Api::<PersistentVolumeClaim>::namespaced(client.clone(), namespace).get(name).await.map_err(|e| kube_err(&e))?;
+    let pvc = Api::<PersistentVolumeClaim>::namespaced(client.clone(), namespace).get(name).await?;
     let requested = requested_size(&pvc);
     let status = pvc.status.clone().unwrap_or_default();
     let spec = pvc.spec.unwrap_or_default();
@@ -252,21 +252,21 @@ pub async fn expand_volume(namespace: String, name: String, size: String, state:
     let info = expand_info(&client, &namespace, &name).await?;
     let new = quantity(&Value::String(size.trim().into()));
     if !size.trim().chars().next().is_some_and(|c| c.is_ascii_digit()) || new <= 0.0 {
-        return Err(format!("\"{size}\" is not a size; use something like 20Gi"));
+        return Err(format!("\"{size}\" is not a size; use something like 20Gi").into());
     }
     if new <= quantity(&Value::String(info.requested.clone())) {
-        return Err(format!("Volumes can only grow: {name} already requests {}", info.requested));
+        return Err(format!("Volumes can only grow: {name} already requests {}", info.requested).into());
     }
     if !info.expandable {
         return Err(match info.storage_class {
             Some(sc) => format!("The StorageClass {sc} does not allow volume expansion (allowVolumeExpansion is not true)"),
             None => format!("{name} has no StorageClass, so it cannot be expanded"),
-        });
+        }
+        .into());
     }
     let api = Api::<PersistentVolumeClaim>::namespaced(client, &namespace);
     api.patch(&name, &PatchParams::default(), &Patch::Merge(&json!({ "spec": { "resources": { "requests": { "storage": size.trim() } } } })))
-        .await
-        .map_err(|e| kube_err(&e))?;
+        .await?;
     Ok(())
 }
 
@@ -281,12 +281,12 @@ pub async fn set_volume_attributes_class(namespace: String, name: String, class:
         return Err(match info.storage_class {
             Some(sc) => format!("No VolumeAttributesClass named {class} for the driver of StorageClass {sc}"),
             None => format!("{name} has no StorageClass, so its attributes class cannot change"),
-        });
+        }
+        .into());
     }
     Api::<PersistentVolumeClaim>::namespaced(client, &namespace)
         .patch(&name, &PatchParams::default(), &Patch::Merge(&json!({ "spec": { "volumeAttributesClassName": class } })))
-        .await
-        .map_err(|e| kube_err(&e))?;
+        .await?;
     Ok(())
 }
 

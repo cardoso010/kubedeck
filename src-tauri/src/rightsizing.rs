@@ -13,7 +13,7 @@ use serde_json::{json, Value};
 
 use crate::metrics::quantity;
 use crate::prometheus::{prom_get, prometheus};
-use crate::state::{kube_err, CmdResult, Session};
+use crate::state::{CmdError, CmdResult, Session};
 
 #[derive(Serialize, Default)]
 #[serde(rename_all = "camelCase")]
@@ -133,7 +133,7 @@ pub async fn rightsizing(namespaces: Vec<String>, state: Session) -> CmdResult<R
     let client = state.connection().await?.client;
     let lp = ListParams::default().fields("status.phase=Running");
     let pods: Vec<Pod> = if namespaces.is_empty() {
-        Api::<Pod>::all(client.clone()).list(&lp).await.map_err(|e| kube_err(&e))?.items
+        Api::<Pod>::all(client.clone()).list(&lp).await?.items
     } else {
         let lists = futures::future::join_all(namespaces.iter().map(|ns| {
             let api = Api::<Pod>::namespaced(client.clone(), ns);
@@ -143,7 +143,7 @@ pub async fn rightsizing(namespaces: Vec<String>, state: Session) -> CmdResult<R
         .await;
         let mut pods = Vec::new();
         for list in lists {
-            pods.extend(list.map_err(|e| kube_err(&e))?.items);
+            pods.extend(list?.items);
         }
         pods
     };
@@ -248,7 +248,7 @@ fn requests_patch(spec: &PodSpec, container: &str, requests: &serde_json::Map<St
     let list = match running_containers(spec).find(|(c, _)| c.name == container) {
         Some((_, false)) => "containers",
         Some((_, true)) => "initContainers",
-        None => return Err(format!("No container named {container}")),
+        None => return Err(format!("No container named {container}").into()),
     };
     Ok(json!({ "spec": { list: [{ "name": container, "resources": { "requests": requests } }] } }))
 }
@@ -270,36 +270,36 @@ pub async fn apply_requests(request: NewRequests, to: ApplyTo, dry_run: bool, st
         }
         let ar = conn.kind(&request.kind_key)?.api_resource();
         let api: Api<DynamicObject> = Api::namespaced_with(conn.client, &request.namespace, &ar);
-        let object = api.get(&request.workload).await.map_err(|e| kube_err(&e))?;
+        let object = api.get(&request.workload).await?;
         let spec: PodSpec = serde_json::from_value(object.data["spec"]["template"]["spec"].clone()).map_err(|e| e.to_string())?;
         let patch = json!({ "spec": { "template": requests_patch(&spec, &request.container, &requests)? } });
-        api.patch(&request.workload, &pp, &Patch::Strategic(&patch)).await.map_err(|e| kube_err(&e))?;
+        api.patch(&request.workload, &pp, &Patch::Strategic(&patch)).await?;
         let message = if dry_run { "the server accepts the new template" } else { "template updated; its pods are replaced as in a rollout" };
         return Ok(vec![ApplyOutcome { target: request.workload, ok: true, message: message.into() }]);
     }
 
     let api = Api::<Pod>::namespaced(conn.client, &request.namespace);
-    let pods = api.list(&ListParams::default().fields("status.phase=Running")).await.map_err(|e| kube_err(&e))?.items;
+    let pods = api.list(&ListParams::default().fields("status.phase=Running")).await?.items;
     // Pods on their way out (a rollout in progress) would only waste a resize.
     let pods: Vec<Pod> = pods
         .into_iter()
         .filter(|p| p.metadata.deletion_timestamp.is_none() && owner(p) == (request.kind_key.clone(), request.workload.clone()))
         .collect();
     if pods.is_empty() {
-        return Err(format!("{} has no running pods to resize", request.workload));
+        return Err(format!("{} has no running pods to resize", request.workload).into());
     }
     let mut out = Vec::new();
     for pod in pods {
         let name = pod.metadata.name.clone().unwrap_or_default();
         let result = match pod.spec.as_ref().map(|s| requests_patch(s, &request.container, &requests)) {
-            Some(Ok(patch)) => api.patch_subresource("resize", &name, &pp, &Patch::Strategic(&patch)).await.map_err(|e| kube_err(&e)),
+            Some(Ok(patch)) => api.patch_subresource("resize", &name, &pp, &Patch::Strategic(&patch)).await.map_err(CmdError::from),
             Some(Err(e)) => Err(e),
             None => Err("pod without a spec".into()),
         };
         out.push(match result {
             Ok(_) if dry_run => ApplyOutcome { target: name, ok: true, message: "the server accepts the resize".into() },
             Ok(_) => ApplyOutcome { target: name, ok: true, message: "resized in place; the kubelet applies it without a restart".into() },
-            Err(e) => ApplyOutcome { target: name, ok: false, message: e },
+            Err(e) => ApplyOutcome { target: name, ok: false, message: e.to_string() },
         });
     }
     Ok(out)

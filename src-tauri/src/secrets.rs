@@ -6,7 +6,7 @@ use kube::api::{Api, DynamicObject};
 use serde::Serialize;
 use serde_json::Value;
 
-use crate::state::{kube_err, CmdResult, Session};
+use crate::state::{CmdResult, Session};
 
 /// Stands in for each value of a masked Secret. Not valid base64, so a masked Secret that
 /// is saved by mistake is rejected by the API server instead of wiping the values.
@@ -38,7 +38,7 @@ pub struct SecretKey {
 #[tauri::command]
 pub async fn secret_keys(namespace: String, name: String, state: Session) -> CmdResult<Vec<SecretKey>> {
     let api: Api<Secret> = Api::namespaced(state.connection().await?.client, &namespace);
-    let secret = api.get(&name).await.map_err(|e| kube_err(&e))?;
+    let secret = api.get(&name).await?;
     Ok(secret.data.unwrap_or_default().into_iter().map(|(key, v)| SecretKey { key, bytes: v.0.len() }).collect())
 }
 
@@ -54,7 +54,7 @@ pub struct SecretValue {
 #[tauri::command]
 pub async fn secret_value(namespace: String, name: String, key: String, state: Session) -> CmdResult<SecretValue> {
     let api: Api<Secret> = Api::namespaced(state.connection().await?.client, &namespace);
-    let secret = api.get(&name).await.map_err(|e| kube_err(&e))?;
+    let secret = api.get(&name).await?;
     let bytes = secret.data.unwrap_or_default().remove(&key).ok_or_else(|| format!("{name} has no key {key}"))?.0;
     // ByteString serializes as base64.
     let base64 = serde_json::to_value(k8s_openapi::ByteString(bytes.clone())).ok().and_then(|v| v.as_str().map(str::to_owned)).unwrap_or_default();

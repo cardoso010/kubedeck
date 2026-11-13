@@ -86,7 +86,7 @@ async fn run(state: &AppState, args: &[&str], context: Option<&str>) -> CmdResul
         Ok(String::from_utf8_lossy(&output.stdout).into_owned())
     } else {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        Err(stderr.trim().trim_start_matches("Error: ").to_owned())
+        Err(stderr.trim().trim_start_matches("Error: ").to_owned().into())
     }
 }
 

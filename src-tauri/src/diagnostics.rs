@@ -11,7 +11,7 @@ use kube::api::{Api, ListParams};
 use kube::Client;
 use serde::Serialize;
 
-use crate::state::{kube_err, CmdResult, Session};
+use crate::state::{CmdResult, Session};
 
 #[derive(Serialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
@@ -130,14 +130,14 @@ where
                 any_ok = true;
                 items.extend(l.items);
             }
-            Err(e) if crate::state::is_unauthorized(&e) => return Err(kube_err(&e)),
+            Err(e) if crate::state::is_unauthorized(&e) => return Err(e.into()),
             Err(e) => {
                 first_error.get_or_insert(e);
             }
         }
     }
     match first_error {
-        Some(e) if !any_ok => Err(kube_err(&e)),
+        Some(e) if !any_ok => Err(e.into()),
         _ => Ok(items),
     }
 }
@@ -385,7 +385,7 @@ pub async fn related(kind_key: String, namespace: Option<String>, name: String, 
 
     match kind_key.as_str() {
         "pods" => {
-            let pod = Api::<Pod>::namespaced(client.clone(), ns).get(&name).await.map_err(|e| kube_err(&e))?;
+            let pod = Api::<Pod>::namespaced(client.clone(), ns).get(&name).await?;
             // Owner chain: ReplicaSet → Deployment, Job → CronJob, or a direct controller.
             let mut owners = Vec::new();
             for o in pod.metadata.owner_references.iter().flatten().filter(|o| o.controller == Some(true)) {
@@ -419,10 +419,10 @@ pub async fn related(kind_key: String, namespace: Option<String>, name: String, 
         }
         "deployments" | "statefulsets" | "daemonsets" | "jobs" => {
             let selector = match kind_key.as_str() {
-                "deployments" => Api::<Deployment>::namespaced(client.clone(), ns).get(&name).await.map_err(|e| kube_err(&e))?.spec.selector.match_labels,
-                "statefulsets" => Api::<StatefulSet>::namespaced(client.clone(), ns).get(&name).await.map_err(|e| kube_err(&e))?.spec.selector.match_labels,
-                "daemonsets" => Api::<DaemonSet>::namespaced(client.clone(), ns).get(&name).await.map_err(|e| kube_err(&e))?.spec.selector.match_labels,
-                _ => Api::<Job>::namespaced(client.clone(), ns).get(&name).await.map_err(|e| kube_err(&e))?.spec.and_then(|s| s.selector).and_then(|s| s.match_labels),
+                "deployments" => Api::<Deployment>::namespaced(client.clone(), ns).get(&name).await?.spec.selector.match_labels,
+                "statefulsets" => Api::<StatefulSet>::namespaced(client.clone(), ns).get(&name).await?.spec.selector.match_labels,
+                "daemonsets" => Api::<DaemonSet>::namespaced(client.clone(), ns).get(&name).await?.spec.selector.match_labels,
+                _ => Api::<Job>::namespaced(client.clone(), ns).get(&name).await?.spec.and_then(|s| s.selector).and_then(|s| s.match_labels),
             }
             .unwrap_or_default();
             let pods = pods_matching(&client, ns, &selector).await;
@@ -437,7 +437,7 @@ pub async fn related(kind_key: String, namespace: Option<String>, name: String, 
             push("Uses", uses.into_values().collect());
         }
         "services" => {
-            let svc = Api::<Service>::namespaced(client.clone(), ns).get(&name).await.map_err(|e| kube_err(&e))?;
+            let svc = Api::<Service>::namespaced(client.clone(), ns).get(&name).await?;
             let selector = svc.spec.and_then(|s| s.selector).unwrap_or_default();
             push("Routes to", pods_matching(&client, ns, &selector).await.iter().map(pod_item).collect());
             let ingresses = Api::<Ingress>::namespaced(client.clone(), ns).list(&ListParams::default()).await.map(|l| l.items).unwrap_or_default();
@@ -451,7 +451,7 @@ pub async fn related(kind_key: String, namespace: Option<String>, name: String, 
             );
         }
         "ingresses" => {
-            let ing = Api::<Ingress>::namespaced(client.clone(), ns).get(&name).await.map_err(|e| kube_err(&e))?;
+            let ing = Api::<Ingress>::namespaced(client.clone(), ns).get(&name).await?;
             push("Routes to", ingress_services(&ing).iter().map(|s| item("services", Some(ns), s, "")).collect());
         }
         "configmaps" | "secrets" => {
@@ -459,7 +459,7 @@ pub async fn related(kind_key: String, namespace: Option<String>, name: String, 
             push("Used by", pods.iter().filter(|p| pod_uses(p).iter().any(|u| u.kind_key == kind_key && u.name == name)).map(pod_item).collect());
         }
         "persistentvolumeclaims" => {
-            let pvc = Api::<PersistentVolumeClaim>::namespaced(client.clone(), ns).get(&name).await.map_err(|e| kube_err(&e))?;
+            let pvc = Api::<PersistentVolumeClaim>::namespaced(client.clone(), ns).get(&name).await?;
             let pods = Api::<Pod>::namespaced(client.clone(), ns).list(&ListParams::default()).await.map(|l| l.items).unwrap_or_default();
             push("Used by", pods.iter().filter(|p| pod_uses(p).iter().any(|u| u.kind_key == kind_key && u.name == name)).map(pod_item).collect());
             let spec = pvc.spec.unwrap_or_default();
@@ -474,7 +474,7 @@ pub async fn related(kind_key: String, namespace: Option<String>, name: String, 
             }
         }
         "persistentvolumes" => {
-            let pv = Api::<PersistentVolume>::all(client.clone()).get(&name).await.map_err(|e| kube_err(&e))?;
+            let pv = Api::<PersistentVolume>::all(client.clone()).get(&name).await?;
             let spec = pv.spec.unwrap_or_default();
             if let Some(c) = spec.claim_ref {
                 push("Claimed by", vec![item("persistentvolumeclaims", c.namespace.as_deref(), c.name.as_deref().unwrap_or_default(), "")]);
@@ -494,7 +494,7 @@ pub async fn related(kind_key: String, namespace: Option<String>, name: String, 
             );
         }
         "nodes" => {
-            let pods = Api::<Pod>::all(client.clone()).list(&ListParams::default().fields(&format!("spec.nodeName={name}"))).await.map_err(|e| kube_err(&e))?;
+            let pods = Api::<Pod>::all(client.clone()).list(&ListParams::default().fields(&format!("spec.nodeName={name}"))).await?;
             push("Pods", pods.items.iter().map(pod_item).collect());
         }
         _ => {}

@@ -9,7 +9,7 @@ use tauri::ipc::Channel;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::sync::mpsc;
 
-use crate::state::{err, CmdResult, Session};
+use crate::state::{CmdResult, Session};
 
 #[derive(Serialize, Clone)]
 #[serde(tag = "type", rename_all = "camelCase")]
@@ -124,21 +124,19 @@ pub async fn stream_workload_logs(
     let def = conn.kind(&kind_key)?;
     let owner = Api::<kube::api::DynamicObject>::namespaced_with(conn.client.clone(), &namespace, &def.api_resource())
         .get(&name)
-        .await
-        .map_err(|e| crate::state::kube_err(&e))?;
+        .await?;
     let labels = owner.data.pointer("/spec/selector/matchLabels").and_then(|m| m.as_object()).ok_or_else(|| format!("{name} has no label selector"))?;
     let selector = labels.iter().map(|(k, v)| format!("{k}={}", v.as_str().unwrap_or_default())).collect::<Vec<_>>().join(",");
     let pods_api: Api<Pod> = Api::namespaced(conn.client, &namespace);
     let mut pods: Vec<String> = pods_api
         .list(&kube::api::ListParams::default().labels(&selector))
-        .await
-        .map_err(|e| crate::state::kube_err(&e))?
+        .await?
         .items
         .into_iter()
         .filter_map(|p| p.metadata.name)
         .collect();
     if pods.is_empty() {
-        return Err(format!("{name} has no pods right now"));
+        return Err(format!("{name} has no pods right now").into());
     }
     pods.sort();
     pods.truncate(MAX_WORKLOAD_PODS);
@@ -201,7 +199,7 @@ pub async fn exec_start(
     if let Some(c) = container {
         params = params.container(c);
     }
-    let mut proc = api.exec(&pod, SHELL.to_vec(), &params).await.map_err(err)?;
+    let mut proc = api.exec(&pod, SHELL.to_vec(), &params).await?;
     let mut stdin = proc.stdin().ok_or("exec session has no stdin")?;
     let mut stdout = proc.stdout().ok_or("exec session has no stdout")?;
     let mut resize = proc.terminal_size().ok_or("exec session has no tty")?;
@@ -263,7 +261,7 @@ pub async fn exec_start(
 pub fn exec_input(id: u64, data: String, state: Session) -> CmdResult<()> {
     let execs = state.execs.lock().unwrap();
     let exec = execs.get(&id).ok_or("exec session ended")?;
-    exec.input.send(data.into_bytes()).map_err(|_| "exec session ended".to_owned())
+    exec.input.send(data.into_bytes()).map_err(|_| "exec session ended".into())
 }
 
 #[tauri::command]

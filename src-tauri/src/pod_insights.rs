@@ -92,7 +92,7 @@ async fn device_claims(client: &Client, pod: &Pod) -> Vec<DeviceClaim> {
 #[tauri::command]
 pub async fn pod_usage(namespace: String, pod: String, state: Session) -> CmdResult<PodUsage> {
     let client = state.connection().await?.client;
-    let spec_pod = Api::<Pod>::namespaced(client.clone(), &namespace).get(&pod).await.map_err(err)?;
+    let spec_pod = Api::<Pod>::namespaced(client.clone(), &namespace).get(&pod).await?;
 
     let ar = ApiResource::from_gvk_with_plural(&GroupVersionKind::gvk("metrics.k8s.io", "v1beta1", "PodMetrics"), "pods");
     let metrics = Api::<DynamicObject>::namespaced_with(client.clone(), &namespace, &ar).get(&pod).await.ok();

@@ -10,7 +10,7 @@ use serde::Serialize;
 use tauri::async_runtime::JoinHandle;
 use tokio::net::{TcpListener, TcpStream};
 
-use crate::state::{err, kube_err, CmdResult, Session};
+use crate::state::{err, CmdResult, Session};
 
 #[derive(Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
@@ -41,7 +41,7 @@ pub async fn start_port_forward(
     state: Session,
 ) -> CmdResult<ForwardInfo> {
     if kind != "pod" && kind != "service" {
-        return Err(format!("Cannot port-forward a {kind}"));
+        return Err(format!("Cannot port-forward a {kind}").into());
     }
     let client = state.connection().await?.client;
     // Resolve once up front so a typo or a service without ready pods fails here,
@@ -78,7 +78,7 @@ pub async fn start_port_forward(
                     let (client, kind, namespace, name, shared, target) = (client.clone(), kind.clone(), namespace.clone(), name.clone(), shared.clone(), target.clone());
                     connections.spawn(async move {
                         let result = forward_connection(socket, &client, &kind, &namespace, &name, remote_port, &target).await;
-                        shared.lock().unwrap().last_error = result.err();
+                        shared.lock().unwrap().last_error = result.err().map(|e| e.to_string());
                     });
                 }
                 Some(_) = connections.join_next(), if !connections.is_empty() => {}
@@ -118,7 +118,7 @@ async fn forward_connection(
     name: &str,
     remote_port: u16,
     target: &Mutex<Option<Resolved>>,
-) -> Result<(), String> {
+) -> CmdResult<()> {
     let cached = target.lock().unwrap().as_ref().filter(|r| r.at.elapsed() < RESOLVE_FOR).map(|r| (r.pod.clone(), r.port));
     let (pod, port) = match cached {
         Some(hit) => hit,
@@ -135,9 +135,9 @@ async fn forward_connection(
     result
 }
 
-async fn tunnel(socket: &mut TcpStream, client: &Client, namespace: &str, pod: &str, port: u16) -> Result<(), String> {
+async fn tunnel(socket: &mut TcpStream, client: &Client, namespace: &str, pod: &str, port: u16) -> CmdResult<()> {
     let pods: Api<Pod> = Api::namespaced(client.clone(), namespace);
-    let mut forwarder = pods.portforward(pod, &[port]).await.map_err(|e| kube_err(&e))?;
+    let mut forwarder = pods.portforward(pod, &[port]).await?;
     let mut upstream = forwarder.take_stream(port).ok_or("port-forward stream unavailable")?;
     // A reset from either side is the normal way for many clients to end a connection.
     let _ = tokio::io::copy_bidirectional(socket, &mut upstream).await;
@@ -146,20 +146,20 @@ async fn tunnel(socket: &mut TcpStream, client: &Client, namespace: &str, pod: &
 }
 
 /// Returns the pod and container port that traffic for `name:remote_port` should reach.
-async fn resolve(client: &Client, kind: &str, namespace: &str, name: &str, remote_port: u16) -> Result<(String, u16), String> {
+async fn resolve(client: &Client, kind: &str, namespace: &str, name: &str, remote_port: u16) -> CmdResult<(String, u16)> {
     let pods: Api<Pod> = Api::namespaced(client.clone(), namespace);
     if kind == "pod" {
-        pods.get(name).await.map_err(|e| kube_err(&e))?;
+        pods.get(name).await?;
         return Ok((name.to_owned(), remote_port));
     }
 
     let services: Api<Service> = Api::namespaced(client.clone(), namespace);
-    let spec = services.get(name).await.map_err(|e| kube_err(&e))?.spec.unwrap_or_default();
+    let spec = services.get(name).await?.spec.unwrap_or_default();
     let selector = spec.selector.filter(|s| !s.is_empty()).ok_or_else(|| format!("Service {name} has no selector, so it has no pods to forward to"))?;
     let target = spec.ports.unwrap_or_default().into_iter().find(|p| p.port == i32::from(remote_port)).and_then(|p| p.target_port);
 
     let labels = selector.iter().map(|(k, v)| format!("{k}={v}")).collect::<Vec<_>>().join(",");
-    let candidates = pods.list(&ListParams::default().labels(&labels)).await.map_err(err)?;
+    let candidates = pods.list(&ListParams::default().labels(&labels)).await?;
     let pod = candidates
         .items
         .into_iter()
