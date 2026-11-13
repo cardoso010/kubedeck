@@ -7,6 +7,8 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
+use futures::StreamExt;
+
 use k8s_openapi::api::core::v1::{PersistentVolumeClaim, Pod};
 use k8s_openapi::api::storage::v1::{StorageClass, VolumeAttributesClass};
 use kube::api::{Api, ListParams, Patch, PatchParams};
@@ -114,7 +116,7 @@ fn summary_volumes(summary: &Value) -> Vec<VolumeStats> {
 /// nodes that refuse just contribute nothing.
 pub(crate) async fn from_kubelets(client: &Client, namespaces: &[String]) -> Vec<VolumeStats> {
     let scopes: Vec<Api<Pod>> = if namespaces.is_empty() { vec![Api::all(client.clone())] } else { namespaces.iter().map(|ns| Api::namespaced(client.clone(), ns)).collect() };
-    let lp = ListParams::default().fields("status.phase=Running");
+    let lp = ListParams::default().fields("status.phase=Running").match_any();
     let lists = futures::future::join_all(scopes.iter().map(|api| api.list(&lp))).await;
     let nodes: BTreeSet<String> = lists
         .into_iter()
@@ -123,13 +125,18 @@ pub(crate) async fn from_kubelets(client: &Client, namespaces: &[String]) -> Vec
         .filter(|p| p.spec.as_ref().is_some_and(|s| s.volumes.iter().flatten().any(|v| v.persistent_volume_claim.is_some())))
         .filter_map(|p| p.spec.and_then(|s| s.node_name))
         .collect();
-    let summaries = futures::future::join_all(nodes.iter().map(|node| {
+    // A few at a time: on a large cluster this would otherwise be hundreds of proxied
+    // requests at once through the API server.
+    let summaries: Vec<Option<Value>> = futures::stream::iter(nodes.into_iter().map(|node| {
         let client = client.clone();
         async move {
             let request = http::Request::get(format!("/api/v1/nodes/{node}/proxy/stats/summary")).body(Vec::new()).ok()?;
-            serde_json::from_str::<Value>(&client.request_text(request).await.ok()?).ok()
+            let text = tokio::time::timeout(std::time::Duration::from_secs(10), client.request_text(request)).await.ok()?.ok()?;
+            serde_json::from_str::<Value>(&text).ok()
         }
     }))
+    .buffer_unordered(16)
+    .collect()
     .await;
     let mut seen = BTreeSet::new();
     summaries

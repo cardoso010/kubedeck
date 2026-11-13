@@ -204,10 +204,18 @@ fn candidates(services: &[Service]) -> Vec<PromTarget> {
     found.into_iter().map(|(_, t)| t).collect()
 }
 
+/// A query that takes longer is not worth waiting for in a UI.
+const PROM_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(20);
+/// How long a candidate service gets to answer `vector(1)` during detection.
+const PROBE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(3);
+
 pub(crate) async fn prom_get(client: &Client, target: &PromTarget, api: &str, params: &[(&str, String)]) -> Result<Value, String> {
     let query = form_urlencoded::Serializer::new(String::new()).extend_pairs(params.iter().map(|(k, v)| (*k, v.as_str()))).finish();
     let request = http::Request::get(format!("{}?{query}", target.proxy_path(api))).body(Vec::new()).map_err(err)?;
-    let text = client.request_text(request).await.map_err(err)?;
+    let text = tokio::time::timeout(PROM_TIMEOUT, client.request_text(request))
+        .await
+        .map_err(|_| format!("Prometheus did not answer within {}s", PROM_TIMEOUT.as_secs()))?
+        .map_err(err)?;
     let json: Value = serde_json::from_str(&text).map_err(|_| "Prometheus returned something that is not JSON".to_owned())?;
     if json["status"] != "success" {
         return Err(json["error"].as_str().unwrap_or("Prometheus query failed").to_owned());
@@ -226,12 +234,14 @@ async fn detect(client: &Client) -> Option<PromTarget> {
         // Listing services cluster-wide may be forbidden; then there is no history.
         None => candidates(&Api::<Service>::all(client.clone()).list(&ListParams::default()).await.ok()?.items),
     };
-    for target in list {
-        if prom_get(client, &target, "/api/v1/query", &[("query", "vector(1)".into())]).await.is_ok() {
-            return Some(target);
-        }
-    }
-    None
+    // Probe every candidate at once, briefly, and keep the best-ranked one that answers: a
+    // candidate without endpoints would otherwise hold up detection, and every view that
+    // waits for it.
+    let answers = futures::future::join_all(list.iter().map(|target| async move {
+        tokio::time::timeout(PROBE_TIMEOUT, prom_get(client, target, "/api/v1/query", &[("query", "vector(1)".into())])).await.is_ok_and(|r| r.is_ok())
+    }))
+    .await;
+    list.into_iter().zip(answers).find_map(|(target, ok)| ok.then_some(target))
 }
 
 pub(crate) async fn prometheus(state: &Session) -> CmdResult<(Client, Option<PromTarget>)> {

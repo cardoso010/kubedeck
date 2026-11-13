@@ -27,8 +27,31 @@ mod workloads;
 fn inherit_login_shell_path() {
     let default_shell = if cfg!(target_os = "macos") { "/bin/zsh" } else { "/bin/sh" };
     let shell = std::env::var("SHELL").unwrap_or_else(|_| default_shell.into());
-    let output = std::process::Command::new(shell).args(["-ilc", "printf %s \"$PATH\""]).output();
-    if let Ok(out) = output {
+    // An rc file that is slow or waits for input must not hold up the app: give it a few
+    // seconds, then keep the PATH we were started with.
+    let Ok(mut child) = std::process::Command::new(shell)
+        .args(["-ilc", "printf %s \"$PATH\""])
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+    else {
+        return;
+    };
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
+    let finished = loop {
+        match child.try_wait() {
+            Ok(Some(_)) => break true,
+            Ok(None) if std::time::Instant::now() < deadline => std::thread::sleep(std::time::Duration::from_millis(20)),
+            _ => break false,
+        }
+    };
+    if !finished {
+        let _ = child.kill();
+        let _ = child.wait();
+        return;
+    }
+    if let Ok(out) = child.wait_with_output() {
         let path = String::from_utf8_lossy(&out.stdout).trim().to_owned();
         if out.status.success() && !path.is_empty() {
             // SAFETY: runs before any other thread is started.
@@ -120,7 +143,7 @@ pub fn run() {
             updater::check_for_update,
             updater::install_update,
             windows::open_window,
-            windows::write_text_file,
+            windows::save_text_file,
             ai::ai_status,
             ai::ai_set_key,
             ai::ai_clear_key,

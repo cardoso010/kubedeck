@@ -368,6 +368,8 @@ async function invoke(cmd: string, args: Record<string, any>): Promise<unknown> 
       return null;
     case "set_read_only":
       return null;
+    case "save_text_file":
+      return true;
     case "run_login":
       await new Promise((r) => setTimeout(r, 1200));
       loggedIn = true;

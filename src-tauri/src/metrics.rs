@@ -6,7 +6,7 @@ use kube::Client;
 use serde::Serialize;
 use serde_json::Value;
 
-use crate::state::{CmdResult, Session};
+use crate::state::{CmdResult, Session, kube_err};
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -71,14 +71,16 @@ pub async fn pod_metrics(namespaces: Vec<String>, state: Session) -> CmdResult<V
 pub async fn node_metrics(state: Session) -> CmdResult<Vec<Usage>> {
     let client = state.connection().await?.client;
     let usage = metrics_api(client.clone(), "nodes", "NodeMetrics", None).list(&ListParams::default()).await.map_err(metrics_error)?;
-    let nodes = Api::<Node>::all(client).list(&ListParams::default()).await.map_err(|e| e.to_string())?;
+    // Only allocatable is needed; the API server's cache is recent enough for that.
+    let nodes = Api::<Node>::all(client).list(&ListParams::default().match_any()).await.map_err(|e| kube_err(&e))?;
+    let allocatable: std::collections::HashMap<String, _> =
+        nodes.items.into_iter().filter_map(|n| Some((n.metadata.name?, n.status?.allocatable?))).collect();
     Ok(usage
         .items
         .into_iter()
         .map(|m| {
             let name = m.metadata.name.unwrap_or_default();
-            let allocatable = nodes.items.iter().find(|n| n.metadata.name.as_deref() == Some(name.as_str())).and_then(|n| n.status.as_ref()?.allocatable.clone());
-            let alloc = |r: &str| allocatable.as_ref().and_then(|a| a.get(r)).map(|q| quantity(&Value::String(q.0.clone())));
+            let alloc = |r: &str| allocatable.get(&name).and_then(|a| a.get(r)).map(|q| quantity(&Value::String(q.0.clone())));
             Usage {
                 namespace: None,
                 cpu_millis: m.data.pointer("/usage/cpu").map(quantity).unwrap_or(0.0) * 1000.0,

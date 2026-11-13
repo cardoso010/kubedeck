@@ -109,16 +109,37 @@ fn t_reason(r: Option<&str>) -> &str {
     r.unwrap_or("Terminated")
 }
 
-async fn list_scoped<K>(client: &Client, namespaces: &[String]) -> Vec<K>
+/// Lists `K` in `namespaces` (all when empty). A namespace the user may not read just
+/// contributes nothing, but expired credentials, or failing to read anything at all, is an
+/// error: an empty result would look like a healthy cluster.
+async fn list_scoped<K>(client: &Client, namespaces: &[String]) -> CmdResult<Vec<K>>
 where
     K: kube::Resource<Scope = k8s_openapi::NamespaceResourceScope> + Clone + serde::de::DeserializeOwned + std::fmt::Debug,
     K::DynamicType: Default,
 {
     let apis: Vec<Api<K>> = if namespaces.is_empty() { vec![Api::all(client.clone())] } else { namespaces.iter().map(|ns| Api::namespaced(client.clone(), ns)).collect() };
-    let params = ListParams::default();
+    // Served from the API server's cache: a poll does not need a quorum read of etcd.
+    let params = ListParams::default().match_any();
     let lists = futures::future::join_all(apis.iter().map(|a| a.list(&params))).await;
-    // A namespace the user may not read just contributes nothing.
-    lists.into_iter().filter_map(Result::ok).flat_map(|l| l.items).collect()
+    let mut items = Vec::new();
+    let mut first_error = None;
+    let mut any_ok = false;
+    for list in lists {
+        match list {
+            Ok(l) => {
+                any_ok = true;
+                items.extend(l.items);
+            }
+            Err(e) if crate::state::is_unauthorized(&e) => return Err(kube_err(&e)),
+            Err(e) => {
+                first_error.get_or_insert(e);
+            }
+        }
+    }
+    match first_error {
+        Some(e) if !any_ok => Err(kube_err(&e)),
+        _ => Ok(items),
+    }
 }
 
 /// A claim at 85% is worth a look, at 95% it is about to stop writes.
@@ -142,6 +163,7 @@ pub async fn cluster_problems(namespaces: Vec<String>, state: Session) -> CmdRes
         list_scoped::<Job>(&client, &namespaces),
         list_scoped::<PersistentVolumeClaim>(&client, &namespaces),
     );
+    let (pods, deployments, statefulsets, daemonsets, jobs, pvcs) = (pods?, deployments?, statefulsets?, daemonsets?, jobs?, pvcs?);
     let mut out: Vec<Problem> = pods.iter().flat_map(pod_problems).collect();
 
     for d in &deployments {
@@ -212,7 +234,7 @@ pub async fn cluster_problems(namespaces: Vec<String>, state: Session) -> CmdRes
         }
     }
     // PersistentVolumes are cluster-wide: show failed ones whose claim is in scope.
-    if let Ok(pvs) = Api::<PersistentVolume>::all(client.clone()).list(&ListParams::default()).await {
+    if let Ok(pvs) = Api::<PersistentVolume>::all(client.clone()).list(&ListParams::default().match_any()).await {
         for pv in pvs.items {
             let status = pv.status.clone().unwrap_or_default();
             let claim_ns = pv.spec.as_ref().and_then(|s| s.claim_ref.as_ref()).and_then(|c| c.namespace.clone());
@@ -231,7 +253,7 @@ pub async fn cluster_problems(namespaces: Vec<String>, state: Session) -> CmdRes
         }
     }
     // Nodes are cluster-wide; listing them may be forbidden.
-    if let Ok(nodes) = Api::<Node>::all(client).list(&ListParams::default()).await {
+    if let Ok(nodes) = Api::<Node>::all(client).list(&ListParams::default().match_any()).await {
         for n in nodes.items {
             let name = n.metadata.name.clone().unwrap_or_default();
             for c in n.status.iter().flat_map(|s| s.conditions.iter().flatten()) {

@@ -127,6 +127,8 @@ pub struct ExecHandle {
     pub task: JoinHandle<()>,
     input: mpsc::UnboundedSender<Vec<u8>>,
     resize: futures::channel::mpsc::Sender<TerminalSize>,
+    /// Set when the window is locked: the shell ends, since it could change anything.
+    pub close: tokio::sync::watch::Sender<bool>,
 }
 
 /// Prefers bash, falls back to sh — same as most Kubernetes UIs and `kubectl exec -it ... sh`.
@@ -156,14 +158,20 @@ pub async fn exec_start(
     let _ = resize.send(TerminalSize { width: cols, height: rows }).await;
 
     let (input, mut input_rx) = mpsc::unbounded_channel::<Vec<u8>>();
+    let (close, mut closed) = tokio::sync::watch::channel(false);
     let id = state.next_id();
 
     let task = tauri::async_runtime::spawn(async move {
         let mut buf = vec![0u8; 16 * 1024];
         // Bytes of a UTF-8 character split across reads wait here for the next chunk.
         let mut pending: Vec<u8> = Vec::new();
+        let mut locked = false;
         loop {
             tokio::select! {
+                _ = closed.changed() => {
+                    locked = true;
+                    break;
+                }
                 read = stdout.read(&mut buf) => match read {
                     Ok(0) | Err(_) => break,
                     Ok(n) => {
@@ -190,13 +198,14 @@ pub async fn exec_start(
         drop(stdin);
         let status = proc.take_status();
         let message = match status {
+            _ if locked => Some("Closed: this window was locked (read-only mode).".to_owned()),
             Some(status) => status.await.and_then(|s| s.message),
             None => None,
         };
         let _ = on_event.send(StreamMsg::End { message });
     });
 
-    state.execs.lock().unwrap().insert(id, ExecHandle { task, input, resize });
+    state.execs.lock().unwrap().insert(id, ExecHandle { task, input, resize, close });
     Ok(id)
 }
 

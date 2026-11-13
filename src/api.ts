@@ -263,14 +263,8 @@ export function aiExplain(kindKey: string, namespace: string | null, name: strin
   return invoke<number>("ai_explain", { kindKey, namespace, name, onEvent });
 }
 
-/** Asks where to save `contents` and writes it there. Resolves false when cancelled. */
-export async function saveTextFile(defaultName: string, contents: string): Promise<boolean> {
-  const { save } = await import("@tauri-apps/plugin-dialog");
-  const path = await save({ defaultPath: defaultName });
-  if (!path) return false;
-  await invoke("write_text_file", { path, contents });
-  return true;
-}
+/** Asks where to save `contents` (native dialog, in the backend) and writes it there. Resolves false when cancelled. */
+export const saveTextFile = (defaultName: string, contents: string) => invoke<boolean>("save_text_file", { defaultName, contents });
 
 export function execStart(
   namespace: string,
@@ -371,7 +365,7 @@ export function splitChart(chart: string): { name: string; version: string | nul
 }
 
 export const helmList = (namespaces: string[]) => invoke<HelmRelease[]>("helm_list", { namespaces });
-export const helmDetails = (namespace: string, name: string) => invoke<HelmDetails>("helm_details", { namespace, name });
+export const helmDetails = (namespace: string, name: string, reveal = false) => invoke<HelmDetails>("helm_details", { namespace, name, reveal });
 export const helmRollback = (namespace: string, name: string, revision: number) => invoke<string>("helm_rollback", { namespace, name, revision });
 export const helmUninstall = (namespace: string, name: string) => invoke<string>("helm_uninstall", { namespace, name });
 

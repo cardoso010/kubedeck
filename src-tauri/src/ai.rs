@@ -70,9 +70,33 @@ pub fn ai_clear_key() -> CmdResult<()> {
     }
 }
 
+const REDACTED: &str = "<redacted>";
+
+/// `--password=x`, `token: x`, `api_key=x`: a credential-looking name followed by a value.
+static SECRET_ASSIGNMENT: std::sync::LazyLock<regex::Regex> =
+    std::sync::LazyLock::new(|| regex::Regex::new(r"(?i)\b([\w.-]*(?:pass(?:wd|word)?|secret|token|api[_-]?key|access[_-]?key|private[_-]?key|credential)[\w.-]*)(\s*[=:]\s*)(\S+)").unwrap());
+/// Tokens recognizable by their shape: JWTs, AWS access keys, `sk-…` API keys, bearer tokens.
+static TOKEN_SHAPES: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| {
+    regex::Regex::new(r"(?i)\beyJ[\w-]{8,}\.[\w-]{8,}\.[\w-]{8,}|\b(?:AKIA|ASIA)[0-9A-Z]{16}\b|\bsk-[\w-]{16,}|\bbearer\s+[\w.~+/-]{16,}=*").unwrap()
+});
+
+/// Replaces credential-looking values in free text (container args, logs).
+pub fn scrub(text: &str) -> String {
+    let text = SECRET_ASSIGNMENT.replace_all(text, format!("${{1}}${{2}}{REDACTED}"));
+    TOKEN_SHAPES.replace_all(&text, REDACTED).into_owned()
+}
+
 /// Removes values that may be secret before anything leaves the machine: env var values,
-/// last-applied-configuration (a full copy of the manifest, env included) and managedFields.
+/// ConfigMap data, credential-looking command arguments, last-applied-configuration (a full
+/// copy of the manifest, env included) and managedFields.
 pub fn redact(obj: &mut Value) {
+    if obj.get("kind").and_then(Value::as_str) == Some("ConfigMap") {
+        for field in ["data", "binaryData"] {
+            if let Some(map) = obj.get_mut(field).and_then(Value::as_object_mut) {
+                map.values_mut().for_each(|v| *v = Value::String(REDACTED.into()));
+            }
+        }
+    }
     if let Some(meta) = obj.get_mut("metadata").and_then(Value::as_object_mut) {
         meta.remove("managedFields");
         if let Some(a) = meta.get_mut("annotations").and_then(Value::as_object_mut) {
@@ -87,7 +111,16 @@ pub fn redact(obj: &mut Value) {
                         if let Some(o) = e.as_object_mut()
                             && o.contains_key("value")
                         {
-                            o.insert("value".into(), Value::String("<redacted>".into()));
+                            o.insert("value".into(), Value::String(REDACTED.into()));
+                        }
+                    }
+                }
+                for field in ["command", "args"] {
+                    if let Some(items) = map.get_mut(field).and_then(Value::as_array_mut) {
+                        for item in items.iter_mut() {
+                            if let Value::String(text) = item {
+                                *text = scrub(text);
+                            }
                         }
                     }
                 }
@@ -109,6 +142,9 @@ async fn gather(state: &Session, kind_key: &str, namespace: Option<&str>, name: 
         return Err("kubedeck never sends Secrets to Claude".into());
     }
     let def = conn.kind(kind_key)?;
+    if def.kind == "Secret" {
+        return Err("kubedeck never sends Secrets to Claude".into());
+    }
     let ar = def.api_resource();
     let api: Api<DynamicObject> = match (def.namespaced, namespace) {
         (true, Some(ns)) => Api::namespaced_with(conn.client.clone(), ns, &ar),
@@ -147,7 +183,7 @@ async fn gather(state: &Session, kind_key: &str, namespace: Option<&str>, name: 
                 if let Ok(logs) = pods.logs(name, &params).await
                     && !logs.trim().is_empty()
                 {
-                    out.push_str(&format!("\n## Logs of container {container} ({label}, last {LOG_LINES} lines)\n\n```\n{}\n```\n", logs.trim_end()));
+                    out.push_str(&format!("\n## Logs of container {container} ({label}, last {LOG_LINES} lines)\n\n```\n{}\n```\n", scrub(logs.trim_end())));
                 }
             }
         }
@@ -290,5 +326,25 @@ mod tests {
         let text = pod.to_string();
         assert!(!text.contains("hunter2") && !text.contains("managedFields") && !text.contains("last-applied"));
         assert!(text.contains("DB_PASSWORD") && text.contains("<redacted>") && text.contains("secretKeyRef") && text.contains("payments"));
+    }
+
+    #[test]
+    fn redacts_config_map_data_and_credential_arguments() {
+        let mut cm = json!({ "kind": "ConfigMap", "metadata": { "name": "cfg" }, "data": { "DB_URL": "postgres://u:hunter2@db" } });
+        redact(&mut cm);
+        assert!(!cm.to_string().contains("hunter2") && cm.to_string().contains("DB_URL"));
+
+        let mut pod = json!({ "kind": "Pod", "spec": { "containers": [{ "name": "c", "args": ["--db-password=hunter2", "--port=8080"], "command": ["app", "--api-key", "x"] }] } });
+        redact(&mut pod);
+        let text = pod.to_string();
+        assert!(!text.contains("hunter2") && text.contains("--port=8080") && text.contains("--db-password=<redacted>"), "{text}");
+    }
+
+    #[test]
+    fn scrubs_tokens_from_logs() {
+        let logs = "login ok token=abc123def\nAuthorization: Bearer eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTYifQ.c2lnbmF0dXJlLXZhbHVl\nkey AKIAABCDEFGHIJKLMNOP used\nGET /health 200";
+        let clean = super::scrub(logs);
+        assert!(!clean.contains("abc123def") && !clean.contains("eyJhbGci") && !clean.contains("AKIAABCDEFGHIJKLMNOP"), "{clean}");
+        assert!(clean.contains("GET /health 200") && clean.contains("token=<redacted>"), "{clean}");
     }
 }
