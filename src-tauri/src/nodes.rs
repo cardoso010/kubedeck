@@ -161,7 +161,7 @@ pub async fn drain(name: String, pod_selector: Option<String>, dry_run: bool, st
         let ns = p.metadata.namespace.clone().unwrap_or_default();
         let pod_name = p.metadata.name.clone().unwrap_or_default();
         let id = format!("{ns}/{pod_name}");
-        let controller = p.metadata.owner_references.iter().flatten().find(|o| o.controller == Some(true));
+        let controller = crate::owners::controller(&p.metadata);
         let skip = if p.metadata.deletion_timestamp.is_some() {
             Some("already terminating")
         } else if p.metadata.annotations.as_ref().is_some_and(|a| a.contains_key("kubernetes.io/config.mirror")) {

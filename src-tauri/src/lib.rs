@@ -8,6 +8,7 @@ mod helm_charts;
 mod kinds;
 mod metrics;
 mod nodes;
+mod owners;
 mod pod_insights;
 mod prometheus;
 mod portforward;
