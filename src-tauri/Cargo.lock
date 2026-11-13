@@ -2581,7 +2581,7 @@ dependencies = [
 
 [[package]]
 name = "kubedeck"
-version = "0.6.1"
+version = "0.6.2"
 dependencies = [
  "form_urlencoded",
  "futures",
