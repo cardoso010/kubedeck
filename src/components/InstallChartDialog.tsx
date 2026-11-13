@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { errorText, helmRepoAdd, helmRepoList, helmRepoRemove, helmRepoUpdate, helmSearch, type HelmChart, type HelmRepo } from "../api";
 import ChartForm from "./ChartForm";
+import Modal from "./Modal";
 
 interface Props {
   namespaces: string[];
@@ -41,71 +42,69 @@ export default function InstallChartDialog({ namespaces, defaultNamespace, produ
   const releaseName = chartRef.split("/").pop()?.replace(/[^a-z0-9-]/g, "-") ?? "";
 
   return (
-    <div className="modal-backdrop">
-      <div className="modal modal-large">
-        <header className="modal-header">
-          <h3>{notes !== null ? t("helm.install.installed") : t("helm.install.title")}</h3>
-          <div className="details-actions">
-            <button onClick={() => setShowRepos(!showRepos)}>{showRepos ? t("helm.install.hideRepos") : t("helm.repos.title")}</button>
-            <button onClick={onClose} aria-label={t("common.close")}>
-              ✕
+    <Modal className="modal-large" onClose={null}>
+      <header className="modal-header">
+        <h3>{notes !== null ? t("helm.install.installed") : t("helm.install.title")}</h3>
+        <div className="details-actions">
+          <button onClick={() => setShowRepos(!showRepos)}>{showRepos ? t("helm.install.hideRepos") : t("helm.repos.title")}</button>
+          <button onClick={onClose} aria-label={t("common.close")}>
+            ✕
+          </button>
+        </div>
+      </header>
+
+      {notes !== null ? (
+        <div className="chart-output dry">
+          <pre>{notes || t("helm.install.releaseInstalled")}</pre>
+          <div className="modal-actions">
+            <button className="primary" onClick={onClose}>
+              {t("helm.install.done")}
             </button>
           </div>
-        </header>
-
-        {notes !== null ? (
-          <div className="chart-output dry">
-            <pre>{notes || t("helm.install.releaseInstalled")}</pre>
-            <div className="modal-actions">
-              <button className="primary" onClick={onClose}>
-                {t("helm.install.done")}
-              </button>
+        </div>
+      ) : (
+        <div className="install-layout">
+          <aside className="install-search">
+            {showRepos && repos && <RepoManager repos={repos} onChanged={loadRepos} />}
+            <input autoFocus placeholder={t("helm.install.search")} value={query} onChange={(e) => setQuery(e.target.value)} />
+            {error && <div className="bad">{error}</div>}
+            <div className="chart-results">
+              {charts?.map((c) => (
+                <button key={c.name} className={`chart-result ${chosen?.name === c.name ? "active" : ""}`} onClick={() => (setChosen(c), setManualRef(""))}>
+                  <div className="chart-result-title">
+                    <strong>{c.name}</strong> <span className="muted">{c.version}</span>
+                  </div>
+                  <div className="muted chart-result-desc">{c.description}</div>
+                </button>
+              ))}
+              {charts?.length === 0 && !error && <div className="muted">{t("helm.install.noCharts")}</div>}
             </div>
-          </div>
-        ) : (
-          <div className="install-layout">
-            <aside className="install-search">
-              {showRepos && repos && <RepoManager repos={repos} onChanged={loadRepos} />}
-              <input autoFocus placeholder={t("helm.install.search")} value={query} onChange={(e) => setQuery(e.target.value)} />
-              {error && <div className="bad">{error}</div>}
-              <div className="chart-results">
-                {charts?.map((c) => (
-                  <button key={c.name} className={`chart-result ${chosen?.name === c.name ? "active" : ""}`} onClick={() => (setChosen(c), setManualRef(""))}>
-                    <div className="chart-result-title">
-                      <strong>{c.name}</strong> <span className="muted">{c.version}</span>
-                    </div>
-                    <div className="muted chart-result-desc">{c.description}</div>
-                  </button>
-                ))}
-                {charts?.length === 0 && !error && <div className="muted">{t("helm.install.noCharts")}</div>}
-              </div>
-              <label className="field">
-                <span>{t("helm.install.reference")}</span>
-                <input placeholder={t("helm.install.referencePlaceholder")} value={manualRef} onChange={(e) => (setManualRef(e.target.value), setChosen(null))} />
-              </label>
-            </aside>
-            <section className="install-form">
-              {chartRef ? (
-                <ChartForm
-                  key={chartRef}
-                  mode="install"
-                  chart={chartRef}
-                  version={null}
-                  release={{ name: releaseName, namespace: defaultNamespace }}
-                  values={null}
-                  namespaces={namespaces}
-                  production={production}
-                  context={context}
-                  onDone={(out) => (setNotes(out), onInstalled())}
-                />
-              ) : (
-                <div className="empty">{t("helm.install.pick")}</div>
-              )}
-            </section>
-          </div>
-        )}
-      </div>
-    </div>
+            <label className="field">
+              <span>{t("helm.install.reference")}</span>
+              <input placeholder={t("helm.install.referencePlaceholder")} value={manualRef} onChange={(e) => (setManualRef(e.target.value), setChosen(null))} />
+            </label>
+          </aside>
+          <section className="install-form">
+            {chartRef ? (
+              <ChartForm
+                key={chartRef}
+                mode="install"
+                chart={chartRef}
+                version={null}
+                release={{ name: releaseName, namespace: defaultNamespace }}
+                values={null}
+                namespaces={namespaces}
+                production={production}
+                context={context}
+                onDone={(out) => (setNotes(out), onInstalled())}
+              />
+            ) : (
+              <div className="empty">{t("helm.install.pick")}</div>
+            )}
+          </section>
+        </div>
+      )}
+    </Modal>
   );
 }
 

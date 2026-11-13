@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import { DiffEditor } from "./CodeEditor";
 import { useCurrentTheme } from "../theme";
 import TypeToConfirm, { confirms } from "./TypeToConfirm";
+import Modal from "./Modal";
 
 interface Props {
   title: string;
@@ -21,23 +22,21 @@ export default function DiffDialog({ title, original, modified, confirmLabel, ty
   const { t } = useTranslation();
   const [typed, setTyped] = useState("");
   return (
-    <div className="modal-backdrop" onClick={onCancel}>
-      <div className="modal modal-large" onClick={(e) => e.stopPropagation()}>
-        <div className="modal-header">
-          <strong>{title}</strong>
-          <span className="faint">{t("dialogs.diff.sides")}</span>
-        </div>
-        <div className="create-editor">
-          <DiffEditor language="yaml" theme={monacoTheme} original={original} modified={modified} options={{ readOnly: true, renderSideBySide: true, minimap: { enabled: false }, fontSize: 12, scrollBeyondLastLine: false }} />
-        </div>
-        <div className="modal-actions create-actions">
-          {typeToConfirm && <TypeToConfirm expected={typeToConfirm} value={typed} onChange={setTyped} />}
-          <button onClick={onCancel}>{t("common.cancel")}</button>
-          <button className="primary" disabled={!!typeToConfirm && !confirms(typed, typeToConfirm)} onClick={onConfirm}>
-            {confirmLabel}
-          </button>
-        </div>
+    <Modal className="modal-large" onClose={onCancel}>
+      <div className="modal-header">
+        <strong>{title}</strong>
+        <span className="faint">{t("dialogs.diff.sides")}</span>
       </div>
-    </div>
+      <div className="create-editor">
+        <DiffEditor language="yaml" theme={monacoTheme} original={original} modified={modified} options={{ readOnly: true, renderSideBySide: true, minimap: { enabled: false }, fontSize: 12, scrollBeyondLastLine: false }} />
+      </div>
+      <div className="modal-actions create-actions">
+        {typeToConfirm && <TypeToConfirm expected={typeToConfirm} value={typed} onChange={setTyped} />}
+        <button onClick={onCancel}>{t("common.cancel")}</button>
+        <button className="primary" disabled={!!typeToConfirm && !confirms(typed, typeToConfirm)} onClick={onConfirm}>
+          {confirmLabel}
+        </button>
+      </div>
+    </Modal>
   );
 }

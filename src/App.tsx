@@ -1,17 +1,16 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import Logo from "./components/Logo";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { Trans, useTranslation } from "react-i18next";
-import { IconAlertTriangle, IconAppWindow, IconBell, IconBellOff, IconGauge, IconLock, IconLockOpen, IconPlus, IconHexagons, IconInfoCircle, IconLink, IconLayersSubtract, IconPackage, IconPalette, IconSettings, IconPin, IconServer2, IconWorld } from "@tabler/icons-react";
+import { useTranslation } from "react-i18next";
+import { IconAlertTriangle, IconAppWindow, IconBell, IconBellOff, IconGauge, IconLock, IconLockOpen, IconPlus, IconHexagons, IconInfoCircle, IconLink, IconLayersSubtract, IconPackage, IconPalette, IconSettings, IconPin, IconWorld } from "@tabler/icons-react";
 import * as api from "./api";
 import type { Connected, Contexts, KindInfo, Row, Target } from "./api";
-import { useStream } from "./useStream";
+import { useResourceWatch } from "./useResourceWatch";
 import { METRIC_COLUMNS, useMetrics } from "./useMetrics";
 import { VOLUME_COLUMNS, useVolumeUsage } from "./useVolumeUsage";
 import { usePins, clusterColor } from "./pins";
 import { FORWARDS, HELM, PROBLEMS, RIGHTSIZING, SECTIONS, sectionOf, type SectionId } from "./sections";
 import { ThemeContext, THEMES, useTheme } from "./theme";
-import { lockedByDefault, ReadOnlyContext, saveLoginCommand, savedLoginCommand, setLockedByDefault, UNLOCK_MINUTES } from "./readOnly";
+import { lockedByDefault, ReadOnlyContext, setLockedByDefault, UNLOCK_MINUTES } from "./readOnly";
 import ConfirmDialog from "./components/ConfirmDialog";
 import ResourceTable from "./components/ResourceTable";
 import DetailsPanel from "./components/DetailsPanel";
@@ -31,6 +30,8 @@ import KindTabs from "./components/KindTabs";
 import CommandPalette, { type Command } from "./components/CommandPalette";
 import SettingsDialog from "./components/SettingsDialog";
 import { usePoll } from "./usePoll";
+import AuthBanner from "./components/AuthBanner";
+import Welcome from "./components/Welcome";
 
 /** The namespace selection is remembered per cluster context (per viewer, best effort). */
 const savedNamespaces = (context: string): string[] | null => {
@@ -68,9 +69,6 @@ export default function App() {
   /** A kind key, or PROBLEMS / HELM / FORWARDS. */
   const [view, setView] = useState("pods");
   const [recentCustom, setRecentCustom] = useState<string[]>([]);
-  const [rows, setRows] = useState<Map<string, Row> | null>(null);
-  /** The kind `rows` belongs to (it lags `view` for a render after switching). */
-  const [rowsKind, setRowsKind] = useState<string | null>(null);
   /** An object to select once its kind's rows arrive (from Problems or Related). */
   const [pending, setPending] = useState<{ kindKey: string; namespace: string | null; name: string } | null>(null);
   /** Read-only mode of this window (enforced by the backend). */
@@ -88,7 +86,6 @@ export default function App() {
   const seenProblems = useRef<Set<string> | null>(null);
   const [problems, setProblems] = useState<api.Problem[] | null>(null);
   const [problemsError, setProblemsError] = useState<string | null>(null);
-  const [watchError, setWatchError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [selected, setSelected] = useState<Row | null>(null);
   const [paletteOpen, setPaletteOpen] = useState(false);
@@ -194,7 +191,6 @@ export default function App() {
   const kind = kinds.find((k) => k.key === view);
   // Cluster-scoped kinds ignore the namespace selection.
   const scopedNs = useMemo(() => (kind?.namespaced ? selectedNs : []), [kind?.namespaced, selectedNs]);
-  const nsKey = scopedNs.join(",");
   const metricCells = useMetrics(view, scopedNs, conn);
   const volumeCells = useVolumeUsage(view, scopedNs, conn);
 
@@ -203,43 +199,10 @@ export default function App() {
     if (conn) saveNamespaces(conn.context, next);
   }
 
-  useStream(
-    conn && kind
-      ? () => {
-          setRows(null);
-          setRowsKind(kind.key);
-          setWatchError(null);
-          setSelected(null);
-          // The backend batches changes every 100ms; this also folds whatever arrives within a frame.
-          let queue: api.WatchMsg[] = [];
-          const flush = () => {
-            const batch = queue;
-            queue = [];
-            setRows((prev) => {
-              let next = new Map(prev ?? []);
-              for (const msg of batch) {
-                if (msg.type === "snapshot") next = new Map(msg.rows.map((r) => [r.uid, r]));
-                else if (msg.type === "changes") {
-                  for (const row of msg.upserts) next.set(row.uid, row);
-                  for (const uid of msg.deletes) next.delete(uid);
-                }
-              }
-              return next;
-            });
-          };
-          return api.watchResources(kind.key, scopedNs, (msg) => {
-            if (msg.type === "error") {
-              if (msg.unauthorized && conn) setAuthProblem((p) => p ?? { context: conn.context, auth: conn.auth, tries: 0 });
-              return setWatchError(msg.unauthorized ? null : msg.message);
-            }
-            setWatchError(null);
-            if (queue.push(msg) === 1) requestAnimationFrame(flush);
-          });
-        }
-      : null,
-    (e) => setWatchError(api.errorText(e)),
-    [conn, kind?.key, nsKey],
-  );
+  const { rows, rowsKind, error: watchError } = useResourceWatch(conn, kind ?? null, scopedNs, {
+    onStart: () => setSelected(null),
+    onUnauthorized: () => conn && setAuthProblem((p) => p ?? { context: conn.context, auth: conn.auth, tries: 0 }),
+  });
 
   // Problems are checked in the background so the rail badge stays current.
   const allNsKey = selectedNs.join(",");
@@ -570,84 +533,5 @@ export default function App() {
       </DockContext.Provider>
       </ReadOnlyContext.Provider>
     </ThemeContext.Provider>
-  );
-}
-
-function AuthBanner({ problem, auth, onRetry }: { problem: { context: string; tries: number }; auth: Connected["auth"]; onRetry: () => void }) {
-  const { t } = useTranslation();
-  const [retrying, setRetrying] = useState(false);
-  const [command, setCommand] = useState(() => savedLoginCommand(problem.context) ?? (auth?.awsProfile ? `aws sso login --profile ${auth.awsProfile}` : ""));
-  const [login, setLogin] = useState<{ state: "running" | "ok" | "failed"; output: string } | null>(null);
-  async function runLogin() {
-    saveLoginCommand(problem.context, command);
-    setLogin({ state: "running", output: "" });
-    try {
-      const output = await api.runLogin(command);
-      setLogin({ state: "ok", output });
-      onRetry();
-    } catch (e) {
-      setLogin({ state: "failed", output: api.errorText(e) });
-    }
-  }
-  const retry = () => {
-    setRetrying(true);
-    onRetry();
-    setTimeout(() => setRetrying(false), 1500);
-  };
-  return (
-    <div className="auth-banner" role="alert">
-      <div className="auth-banner-text">
-        <strong>{t("app.auth.rejected", { name: api.shortContextName(problem.context) })}</strong> {t("app.auth.expired")}{" "}
-        {auth?.awsProfile ? (
-          <Trans i18nKey="app.auth.aws" values={{ command: auth.command, profile: auth.awsProfile }} components={[<code key={0} />, <code key={1} />, <code key={2} />, <code key={3} />]} />
-        ) : auth ? (
-          <Trans i18nKey="app.auth.exec" values={{ command: auth.command }} components={[<code key={0} />]} />
-        ) : (
-          <>{t("app.auth.kubeconfig")}</>
-        )}{" "}
-        <span className="faint">{t("app.auth.retries")}</span>
-        <div className="auth-login">
-          <input value={command} onChange={(e) => setCommand(e.target.value)} placeholder={t("app.auth.commandPlaceholder")} spellCheck={false} aria-label={t("app.auth.commandLabel")} />
-          <button disabled={!command.trim() || login?.state === "running"} onClick={() => void runLogin()} title={t("app.auth.runTitle")}>
-            {login?.state === "running" ? t("app.auth.waiting") : t("app.auth.run")}
-          </button>
-        </div>
-        {login?.state === "ok" && <div className="ok auth-output">{t("app.auth.finished")}</div>}
-        {login?.state === "failed" && <pre className="bad auth-output">{login.output}</pre>}
-      </div>
-      <button className="primary" disabled={retrying} onClick={retry}>
-        {retrying ? t("app.auth.reconnecting") : t("app.auth.reconnect")}
-      </button>
-    </div>
-  );
-}
-
-function Welcome({ contexts, pins, connecting, onChoose, onPalette }: { contexts: Contexts | null; pins: string[]; connecting: boolean; onChoose: (c: string) => void; onPalette: () => void }) {
-  const { t } = useTranslation();
-  const ordered = contexts ? [...pins, ...contexts.contexts.map((c) => c.name).filter((c) => !pins.includes(c))] : [];
-  return (
-    <div className="welcome">
-      <div className="welcome-card">
-        <div className="welcome-logo">
-          <Logo size={28} />
-        </div>
-        <h1>kubedeck</h1>
-        <p className="faint">{connecting ? t("app.welcome.connecting") : t("app.welcome.pick")}</p>
-        <div className="welcome-list">
-          {ordered.slice(0, 8).map((c) => (
-            <button key={c} className="welcome-item" disabled={connecting} onClick={() => onChoose(c)}>
-              <span className="cluster-dot" style={{ background: clusterColor(c) }} />
-              <span className="welcome-item-name">{api.shortContextName(c)}</span>
-              {api.isProduction(c) && <span className="prod-badge small">{t("app.welcome.prod")}</span>}
-              {c === contexts?.current && <span className="faint">{t("app.welcome.current")}</span>}
-              <IconServer2 size={14} className="faint" />
-            </button>
-          ))}
-        </div>
-        <button className="link" onClick={onPalette}>
-          {t("app.welcome.or")} <kbd>⌘K</kbd> {t("app.welcome.toSearch")}
-        </button>
-      </div>
-    </div>
   );
 }
