@@ -136,7 +136,7 @@ impl From<&KindDef> for KindInfo {
     }
 }
 
-#[derive(Serialize, Clone)]
+#[derive(Serialize, Clone, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct Row {
     pub uid: String,
