@@ -39,7 +39,11 @@ export default function SecretData({ namespace, name, production }: Props) {
         setCopied(key);
         setTimeout(() => setCopied((c) => (c === key ? null : c)), 1500);
       } else if (key in values) {
-        setValues(({ [key]: _, ...rest }) => rest);
+        setValues((prev) => {
+          const next = { ...prev };
+          delete next[key];
+          return next;
+        });
       } else {
         const text = await fetchValue(key);
         setValues((v) => ({ ...v, [key]: text }));

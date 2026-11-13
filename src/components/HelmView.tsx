@@ -57,11 +57,12 @@ export default function HelmView({ namespaces, allNamespaces, defaultNamespace, 
       (e) => setError(errorText(e)),
     );
 
+  const nsKey = namespaces.join(",");
   useEffect(() => {
     setReleases(null);
     setSelected(null);
-  }, [namespaces.join(",")]);
-  usePoll(refresh, POLL_MS, [namespaces.join(",")]);
+  }, [nsKey]);
+  usePoll(refresh, POLL_MS, [nsKey]);
 
   const rows = useMemo(() => (releases ?? []).map(toRow).sort((a, b) => a.name.localeCompare(b.name)), [releases]);
   const release = releases?.find((r) => `${r.namespace}/${r.name}` === selected) ?? null;

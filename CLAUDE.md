@@ -20,6 +20,8 @@ npm run binaries                  # fetch the Helm sidecar; needed once before p
 npm run icons                     # regenerate every app icon from src-tauri/icons/source/kubedeck.svg
 scripts/build-site.sh             # project page (site/ + screenshots + icon) into _site/, published by pages.yml
 npx tsc --noEmit                  # typecheck UI
+npm run lint                      # oxlint (.oxlintrc.json); typescript-eslint does not support TypeScript 7 yet
+npm test                          # vitest: UI helpers and locale placeholders (src/**/*.test.ts)
 cd src-tauri && cargo clippy --all-targets -- -D warnings
 cd src-tauri && cargo test        # unit tests (e2e tests are #[ignore])
 
@@ -29,7 +31,7 @@ cd src-tauri && KUBECONFIG=$PWD/../.kind-kubeconfig KUBEDECK_E2E_CONTEXT=kind-ku
   KUBEDECK_HELM=$PWD/binaries/helm-$(rustc -vV | sed -n 's/host: //p') cargo test -- --include-ignored
 ```
 
-CI (`.github/workflows/ci.yml`) runs all of the above on Linux, including e2e on kind. Run clippy, tsc and the e2e suite before saying a change works.
+CI (`.github/workflows/ci.yml`) runs all of the above on Linux, including e2e on kind. Run clippy, tsc, lint, the UI tests and the e2e suite before saying a change works.
 
 ## Architecture
 

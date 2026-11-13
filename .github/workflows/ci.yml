@@ -71,6 +71,8 @@ jobs:
           nohup bash -c 'e2e/setup.sh > /tmp/e2e-setup.log 2>&1; echo $? > /tmp/e2e-setup.exit' >/dev/null 2>&1 &
 
       - run: npx tsc --noEmit
+      - run: npm run lint
+      - run: npm test
       - run: cargo clippy --all-targets -- -D warnings
         working-directory: src-tauri
       - name: Build tests
