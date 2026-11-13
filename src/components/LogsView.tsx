@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import { useTranslation } from "react-i18next";
 import { IconBraces, IconCopy, IconDownload, IconHistory } from "@tabler/icons-react";
-import { errorText, saveTextFile, streamLogs, streamWorkloadLogs } from "../api";
+import { errorText, saveTextFile, streamLogs, streamWorkloadLogs, type LogMsg } from "../api";
 import { useStream } from "../useStream";
 import { clusterColor } from "../pins";
 
@@ -10,6 +11,8 @@ export type LogSource =
   | { kind: "workload"; kindKey: string; namespace: string; name: string };
 
 interface Line {
+  /** Stable across trimming, so rows keep their measured height and DOM node. */
+  id: number;
   text: string;
   source?: string;
 }
@@ -31,7 +34,7 @@ export default function LogsView({ source }: { source: LogSource }) {
   const [query, setQuery] = useState("");
   const [onlyMatches, setOnlyMatches] = useState(true);
   const [notice, setNotice] = useState<string | null>(null);
-  const bottom = useRef<HTMLDivElement>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
   const key = source.kind === "pod" ? `${source.namespace}/${source.pod}/${source.container}/${previous}` : `${source.kindKey}/${source.namespace}/${source.name}`;
 
   useStream(
@@ -39,9 +42,12 @@ export default function LogsView({ source }: { source: LogSource }) {
       setLines([]);
       setEnded(null);
       let queue: Line[] = [];
-      const onMessage = (msg: { type: "data"; data: string; source?: string } | { type: "end"; message: string | null }) => {
+      let seq = 0;
+      const onMessage = (msg: LogMsg) => {
         if (msg.type === "end") return setEnded(msg.message ?? (previous ? t("workloads.logs.previousEnded") : t("workloads.logs.ended")));
-        if (queue.push({ text: msg.data, source: msg.source }) > 1) return;
+        const pending = queue.length;
+        for (const l of msg.lines) queue.push({ id: seq++, text: l.text, source: l.source });
+        if (pending > 0 || queue.length === 0) return;
         requestAnimationFrame(() => {
           const batch = queue;
           queue = [];
@@ -62,9 +68,21 @@ export default function LogsView({ source }: { source: LogSource }) {
   const q = query.trim().toLowerCase();
   const shown = useMemo(() => (q && onlyMatches ? lines.filter((l) => l.text.toLowerCase().includes(q) || l.source?.toLowerCase().includes(q)) : lines), [lines, q, onlyMatches]);
 
+  // Only the lines on screen are rendered: 5000 wrapped, highlighted lines made every batch slow.
+  const virtualizer = useVirtualizer({
+    count: shown.length,
+    getScrollElement: () => scrollRef.current,
+    estimateSize: () => 18,
+    overscan: 30,
+    getItemKey: (i) => shown[i].id,
+  });
+
+  // Wrapped lines grow once measured, after the scroll: follow the total height, not the count.
+  const totalSize = virtualizer.getTotalSize();
   useEffect(() => {
-    if (follow) bottom.current?.scrollIntoView({ block: "end" });
-  }, [shown, follow]);
+    const el = scrollRef.current;
+    if (follow && el) el.scrollTop = el.scrollHeight;
+  }, [shown, follow, totalSize]);
 
   const asText = () => shown.map((l) => (l.source ? `[${l.source}] ${l.text}` : l.text)).join("\n");
   const flash = (text: string) => (setNotice(text), setTimeout(() => setNotice(null), 2000));
@@ -111,19 +129,23 @@ export default function LogsView({ source }: { source: LogSource }) {
           </button>
         </span>
       </div>
-      <div className="logs-body">
-        {shown.map((l, i) => (
-          <div key={i} className={`log-line ${json ? levelClass(l.text) : ""}`}>
-            {l.source && (
-              <span className="log-source" style={{ color: clusterColor(l.source).replace("36%)", "62%)") }}>
-                {shortPod(l.source)}
-              </span>
-            )}
-            <span className="log-text">{highlight(json ? pretty(l.text) : l.text, q)}</span>
-          </div>
-        ))}
+      <div className="logs-body" ref={scrollRef}>
+        <div className="log-lines" style={{ height: totalSize }}>
+          {virtualizer.getVirtualItems().map((v) => {
+            const l = shown[v.index];
+            return (
+              <div key={v.key} data-index={v.index} ref={virtualizer.measureElement} className={`log-line ${json ? levelClass(l.text) : ""}`} style={{ transform: `translateY(${v.start}px)` }}>
+                {l.source && (
+                  <span className="log-source" style={{ color: clusterColor(l.source).replace("36%)", "62%)") }}>
+                    {shortPod(l.source)}
+                  </span>
+                )}
+                <span className="log-text">{highlight(json ? pretty(l.text) : l.text, q)}</span>
+              </div>
+            );
+          })}
+        </div>
         {ended && <div className="faint log-end">— {ended}</div>}
-        <div ref={bottom} />
       </div>
     </div>
   );

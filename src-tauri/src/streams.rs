@@ -23,6 +23,59 @@ pub enum StreamMsg {
     End { message: Option<String> },
 }
 
+#[derive(Serialize, Clone)]
+#[serde(tag = "type", rename_all = "camelCase")]
+pub enum LogMsg {
+    /// Lines gathered over [`LOG_BATCH_EVERY`] (a chatty pod writes thousands a second).
+    Lines { lines: Vec<LogLine> },
+    End { message: Option<String> },
+}
+
+#[derive(Serialize, Clone)]
+pub struct LogLine {
+    text: String,
+    /// The pod a line came from, for logs merged from several pods.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    source: Option<String>,
+}
+
+const LOG_BATCH_EVERY: std::time::Duration = std::time::Duration::from_millis(50);
+const LOG_BATCH_MAX: usize = 1000;
+
+/// Sends `lines` in batches until the stream ends or fails. Returns false once the window went away.
+async fn send_batched<E>(mut lines: impl futures::Stream<Item = Result<LogLine, E>> + Unpin, on_event: &Channel<LogMsg>) -> Result<bool, E> {
+    let mut batch = Vec::new();
+    let mut flush_at: Option<tokio::time::Instant> = None;
+    let send = |batch: &mut Vec<LogLine>| batch.is_empty() || on_event.send(LogMsg::Lines { lines: std::mem::take(batch) }).is_ok();
+    loop {
+        tokio::select! {
+            next = lines.next() => match next {
+                Some(Ok(line)) => {
+                    batch.push(line);
+                    flush_at.get_or_insert_with(|| tokio::time::Instant::now() + LOG_BATCH_EVERY);
+                    if batch.len() >= LOG_BATCH_MAX {
+                        flush_at = None;
+                        if !send(&mut batch) {
+                            return Ok(false);
+                        }
+                    }
+                }
+                Some(Err(e)) => {
+                    send(&mut batch);
+                    return Err(e);
+                }
+                None => return Ok(send(&mut batch)),
+            },
+            _ = tokio::time::sleep_until(flush_at.unwrap_or_else(tokio::time::Instant::now)), if flush_at.is_some() => {
+                flush_at = None;
+                if !send(&mut batch) {
+                    return Ok(false);
+                }
+            }
+        }
+    }
+}
+
 #[tauri::command]
 pub async fn stream_logs(
     namespace: String,
@@ -30,7 +83,7 @@ pub async fn stream_logs(
     container: Option<String>,
     tail_lines: Option<i64>,
     previous: Option<bool>,
-    on_event: Channel<StreamMsg>,
+    on_event: Channel<LogMsg>,
     state: Session,
 ) -> CmdResult<u64> {
     let api: Api<Pod> = Api::namespaced(state.connection().await?.client, &namespace);
@@ -40,17 +93,14 @@ pub async fn stream_logs(
     let id = state.next_id();
 
     let task = tauri::async_runtime::spawn(async move {
-        let result: Result<(), kube::Error> = async {
-            let mut lines = api.log_stream(&pod, &params).await?.lines();
-            while let Some(line) = lines.try_next().await.map_err(kube::Error::ReadEvents)? {
-                if on_event.send(StreamMsg::Data { data: line, source: None }).is_err() {
-                    break;
-                }
-            }
-            Ok(())
+        let result: Result<bool, kube::Error> = async {
+            let lines = api.log_stream(&pod, &params).await?.lines().map_ok(|text| LogLine { text, source: None });
+            send_batched(lines, &on_event).await.map_err(kube::Error::ReadEvents)
         }
         .await;
-        let _ = on_event.send(StreamMsg::End { message: result.err().map(|e| e.to_string()) });
+        if !matches!(result, Ok(false)) {
+            let _ = on_event.send(LogMsg::End { message: result.err().map(|e| e.to_string()) });
+        }
     });
     state.track(id, task);
     Ok(id)
@@ -67,7 +117,7 @@ pub async fn stream_workload_logs(
     namespace: String,
     name: String,
     tail_lines: Option<i64>,
-    on_event: Channel<StreamMsg>,
+    on_event: Channel<LogMsg>,
     state: Session,
 ) -> CmdResult<u64> {
     let conn = state.connection().await?;
@@ -97,27 +147,27 @@ pub async fn stream_workload_logs(
     let id = state.next_id();
 
     let task = tauri::async_runtime::spawn(async move {
+        // Open every pod's stream at once: one at a time, 20 pods cost 20 round trips.
+        let params = LogParams { follow: true, tail_lines: Some(tail), ..Default::default() };
+        let opened = futures::future::join_all(pods.iter().map(|pod| pods_api.log_stream(pod, &params))).await;
         let mut streams = Vec::new();
-        for pod in &pods {
-            let params = LogParams { follow: true, tail_lines: Some(tail), ..Default::default() };
-            match pods_api.log_stream(pod, &params).await {
+        let mut failures = Vec::new();
+        for (pod, reader) in pods.into_iter().zip(opened) {
+            match reader {
                 Ok(reader) => {
-                    let pod = pod.clone();
-                    streams.push(reader.lines().map(move |line| (pod.clone(), line)).boxed());
+                    let source = Some(pod);
+                    // A broken line ends nothing: the other pods keep going.
+                    streams.push(reader.lines().filter_map(move |line| futures::future::ready(line.ok().map(|text| Ok::<_, std::convert::Infallible>(LogLine { text, source: source.clone() })))).boxed());
                 }
-                Err(e) => {
-                    let _ = on_event.send(StreamMsg::Data { data: format!("[kubedeck] cannot read logs: {e}"), source: Some(pod.clone()) });
-                }
+                Err(e) => failures.push(LogLine { text: format!("[kubedeck] cannot read logs: {e}"), source: Some(pod) }),
             }
         }
-        let mut merged = futures::stream::select_all(streams);
-        while let Some((pod, line)) = merged.next().await {
-            let Ok(data) = line else { continue };
-            if on_event.send(StreamMsg::Data { data, source: Some(pod) }).is_err() {
-                return;
-            }
+        if !failures.is_empty() && on_event.send(LogMsg::Lines { lines: failures }).is_err() {
+            return;
         }
-        let _ = on_event.send(StreamMsg::End { message: None });
+        if let Ok(true) = send_batched(futures::stream::select_all(streams), &on_event).await {
+            let _ = on_event.send(LogMsg::End { message: None });
+        }
     });
     state.track(id, task);
     Ok(id)

@@ -426,7 +426,8 @@ kbd { font-size: 10px; padding: 1px 5px; border: 1px solid var(--line-2); border
 .logs-actions { margin-left: auto; display: flex; align-items: center; gap: 2px; }
 button.toggle { display: inline-flex; align-items: center; gap: 5px; padding: 3px 8px; color: var(--text-2); }
 button.toggle.active { color: var(--accent); border-color: var(--accent); background: var(--accent-soft); }
-.log-line { display: flex; gap: 10px; white-space: pre-wrap; word-break: break-all; }
+.log-lines { position: relative; }
+.log-line { position: absolute; top: 0; left: 0; right: 0; display: flex; gap: 10px; white-space: pre-wrap; word-break: break-all; }
 .log-line.level-error .log-text { color: var(--bad); }
 .log-line.level-warn .log-text { color: var(--warn); }
 .log-source { flex: none; min-width: 64px; font-weight: 600; }
