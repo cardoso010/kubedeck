@@ -13,13 +13,57 @@ use crate::kinds::KindDef;
 use crate::portforward::Forward;
 use crate::streams::ExecHandle;
 
-/// Commands return plain strings as errors so the UI can show them directly.
-pub type CmdResult<T> = Result<T, String>;
+/// What commands fail with. It reaches the UI as a plain string the UI shows as-is; the type
+/// exists so `?` turns each source of errors into readable text, above all `kube::Error`
+/// (through [`kube_err`], whose "(401)" the UI matches to show the credentials banner).
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+#[serde(transparent)]
+pub struct CmdError(String);
+
+pub type CmdResult<T> = Result<T, CmdError>;
+
+impl std::fmt::Display for CmdError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+impl std::ops::Deref for CmdError {
+    type Target = str;
+    fn deref(&self) -> &str {
+        &self.0
+    }
+}
+
+impl PartialEq<&str> for CmdError {
+    fn eq(&self, other: &&str) -> bool {
+        self.0 == *other
+    }
+}
+
+impl From<String> for CmdError {
+    fn from(s: String) -> Self {
+        CmdError(s)
+    }
+}
+
+impl From<&str> for CmdError {
+    fn from(s: &str) -> Self {
+        CmdError(s.to_owned())
+    }
+}
+
+impl From<kube::Error> for CmdError {
+    fn from(e: kube::Error) -> Self {
+        CmdError(kube_err(&e))
+    }
+}
 
 pub const READ_ONLY: &str = "Read-only mode: this window does not change the cluster. Unlock it to make changes.";
 
-pub fn err(e: impl std::fmt::Display) -> String {
-    e.to_string()
+/// For errors with no better wording than their own (I/O, parsing, the OS).
+pub fn err(e: impl std::fmt::Display) -> CmdError {
+    CmdError(e.to_string())
 }
 
 /// The cluster rejected the credentials (expired or revoked token, e.g. expired AWS session).
@@ -53,7 +97,7 @@ pub struct Connection {
 
 impl Connection {
     pub fn kind(&self, key: &str) -> CmdResult<KindDef> {
-        self.kinds.iter().find(|k| k.key == key).cloned().ok_or_else(|| format!("Unknown kind: {key}"))
+        self.kinds.iter().find(|k| k.key == key).cloned().ok_or_else(|| format!("Unknown kind: {key}").into())
     }
 }
 
@@ -89,7 +133,7 @@ impl AppState {
     }
 
     pub async fn connection(&self) -> CmdResult<Connection> {
-        self.conn.read().await.clone().ok_or_else(|| "Not connected to a cluster".to_owned())
+        self.conn.read().await.clone().ok_or_else(|| "Not connected to a cluster".into())
     }
 
     pub fn track(&self, id: u64, task: JoinHandle<()>) {
@@ -193,5 +237,22 @@ impl<'de, R: Runtime> CommandArg<'de, R> for Session {
     fn from_command(command: CommandItem<'de, R>) -> Result<Self, InvokeError> {
         let webview = command.message.webview();
         Ok(Session::of(&webview, webview.label()))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn api_error(code: u16, reason: &str, message: &str) -> kube::Error {
+        kube::Error::Api(Box::new(kube::core::Status::failure(message, reason).with_code(code)))
+    }
+
+    #[test]
+    fn api_errors_read_well_and_reach_the_ui_as_text() {
+        let unauthorized = CmdError::from(api_error(401, "Unauthorized", "Unauthorized"));
+        assert!(unauthorized.contains("(401)"), "the UI shows the credentials banner on this: {unauthorized}");
+        assert_eq!(CmdError::from(api_error(404, "NotFound", "pods \"x\" not found")), "NotFound (404): pods \"x\" not found");
+        assert_eq!(serde_json::to_string(&CmdError::from("plain")).unwrap(), "\"plain\"");
     }
 }

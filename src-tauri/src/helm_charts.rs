@@ -46,7 +46,7 @@ pub struct ChartAction {
 #[tauri::command]
 pub async fn helm_repo_list(state: Session) -> CmdResult<Vec<Repo>> {
     match helm_local(&state, &["repo", "list", "--output", "json"]).await {
-        Ok(json) => serde_json::from_str(&json).map_err(|e| format!("Unexpected helm output: {e}")),
+        Ok(json) => serde_json::from_str(&json).map_err(|e| format!("Unexpected helm output: {e}").into()),
         // Helm treats "no repositories configured" as an error.
         Err(e) if e.contains("no repositories") => Ok(vec![]),
         Err(e) => Err(e),
@@ -77,7 +77,7 @@ pub async fn helm_search(query: String, state: Session) -> CmdResult<Vec<Chart>>
         args.push(query.trim());
     }
     let json = helm_local(&state, &args).await?;
-    serde_json::from_str(&json).map_err(|e| format!("Unexpected helm output: {e}"))
+    serde_json::from_str(&json).map_err(|e| format!("Unexpected helm output: {e}").into())
 }
 
 /// Every version of `chart` (a `repo/chart` reference), newest first. Other references

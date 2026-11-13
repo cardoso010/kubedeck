@@ -12,7 +12,7 @@ use serde::Serialize;
 use serde_json::{json, Value};
 use tauri::ipc::Channel;
 
-use crate::state::{err, kube_err, CmdResult, Session};
+use crate::state::{err, CmdResult, Session};
 
 const KEYCHAIN_SERVICE: &str = "kubedeck";
 const KEYCHAIN_USER: &str = "anthropic-api-key";
@@ -66,7 +66,7 @@ pub fn ai_clear_key() -> CmdResult<()> {
     match keychain()?.delete_credential() {
         Ok(()) => Ok(()),
         Err(keyring::Error::NoEntry) => Ok(()),
-        Err(e) => Err(e.to_string()),
+        Err(e) => Err(err(e)),
     }
 }
 
@@ -150,7 +150,7 @@ async fn gather(state: &Session, kind_key: &str, namespace: Option<&str>, name: 
         (true, Some(ns)) => Api::namespaced_with(conn.client.clone(), ns, &ar),
         _ => Api::all_with(conn.client.clone(), &ar),
     };
-    let obj = api.get(name).await.map_err(|e| kube_err(&e))?;
+    let obj = api.get(name).await?;
     let uid = obj.metadata.uid.clone().unwrap_or_default();
     let mut value = serde_json::to_value(&obj).map_err(err)?;
     redact(&mut value);
@@ -171,7 +171,7 @@ async fn gather(state: &Session, kind_key: &str, namespace: Option<&str>, name: 
         && let Some(ns) = namespace
     {
         let pods: Api<Pod> = Api::namespaced(conn.client, ns);
-        let pod = pods.get(name).await.map_err(|e| kube_err(&e))?;
+        let pod = pods.get(name).await?;
         for status in pod.status.and_then(|s| s.container_statuses).unwrap_or_default() {
             let container = status.name.clone();
             let mut sections = vec![(false, "current run")];
@@ -229,14 +229,14 @@ pub async fn ai_explain(kind_key: String, namespace: Option<String>, name: Strin
 
     let task = tauri::async_runtime::spawn(async move {
         if let Err(message) = stream_explanation(&base, &key, &context, &on_event).await {
-            let _ = on_event.send(ExplainMsg::Error { message });
+            let _ = on_event.send(ExplainMsg::Error { message: message.to_string() });
         }
     });
     state.track(id, task);
     Ok(id)
 }
 
-async fn stream_explanation(base: &str, key: &str, context: &str, on_event: &Channel<ExplainMsg>) -> Result<(), String> {
+async fn stream_explanation(base: &str, key: &str, context: &str, on_event: &Channel<ExplainMsg>) -> CmdResult<()> {
     let body = json!({
         "model": MODEL,
         "max_tokens": 16000,
@@ -264,9 +264,9 @@ async fn stream_explanation(base: &str, key: &str, context: &str, on_event: &Cha
         let detail = serde_json::from_str::<Value>(&text).ok().and_then(|v| v.pointer("/error/message").and_then(Value::as_str).map(str::to_owned)).unwrap_or(text);
         return Err(match status.as_u16() {
             401 => "The Anthropic API rejected the key (401). Check it in Settings.".into(),
-            429 => format!("Rate limited by the Anthropic API (429). Try again shortly. {detail}"),
+            429 => format!("Rate limited by the Anthropic API (429). Try again shortly. {detail}").into(),
             529 => "The Anthropic API is overloaded (529). Try again shortly.".into(),
-            code => format!("Anthropic API error ({code}): {detail}"),
+            code => format!("Anthropic API error ({code}): {detail}").into(),
         });
     }
 
@@ -298,7 +298,7 @@ async fn stream_explanation(base: &str, key: &str, context: &str, on_event: &Cha
                 }
             }
             Some("message_delta") => refused = event.pointer("/delta/stop_reason") == Some(&json!("refusal")),
-            Some("error") => return Err(event.pointer("/error/message").and_then(Value::as_str).unwrap_or("The stream failed").to_owned()),
+            Some("error") => return Err(event.pointer("/error/message").and_then(Value::as_str).unwrap_or("The stream failed").into()),
             Some("message_stop") => break,
             _ => {}
         }

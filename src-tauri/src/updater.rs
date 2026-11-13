@@ -60,7 +60,7 @@ async fn github_token() -> Option<String> {
 }
 
 /// Finds the API URL of `latest.json` in the newest published release.
-async fn manifest_url(token: Option<&str>) -> Result<String, String> {
+async fn manifest_url(token: Option<&str>) -> CmdResult<String> {
     let mut request = reqwest::Client::new().get(format!("https://api.github.com/repos/{}/releases/latest", repo()));
     if let Some(token) = token {
         request = request.bearer_auth(token);
@@ -74,11 +74,11 @@ async fn manifest_url(token: Option<&str>) -> Result<String, String> {
     match response.status().as_u16() {
         200 => {}
         // GitHub answers 404 both for "no release yet" and "no access to this repository".
-        404 if token.is_none() => return Err(format!("No published release found in {}. If the repository is private, run `gh auth login`.", repo())),
-        404 => return Err(format!("No published release found in {}, or your GitHub account cannot access it.", repo())),
+        404 if token.is_none() => return Err(format!("No published release found in {}. If the repository is private, run `gh auth login`.", repo()).into()),
+        404 => return Err(format!("No published release found in {}, or your GitHub account cannot access it.", repo()).into()),
         401 => return Err("GitHub rejected the token. Run `gh auth login` again.".into()),
         403 | 429 if token.is_none() => return Err("GitHub's anonymous rate limit was reached; try again later, or run `gh auth login`.".into()),
-        code => return Err(format!("GitHub API returned HTTP {code}")),
+        code => return Err(format!("GitHub API returned HTTP {code}").into()),
     }
     let release: Release = response.json().await.map_err(err)?;
     release
@@ -94,7 +94,7 @@ pub async fn check_for_update(app: AppHandle, pending: State<'_, PendingUpdate>)
     let token = github_token().await;
     let url = match manifest_url(token.as_deref()).await {
         Ok(url) => url,
-        Err(message) => return Ok(UpdateStatus::Error { message }),
+        Err(message) => return Ok(UpdateStatus::Error { message: message.to_string() }),
     };
     let mut builder = app.updater_builder().endpoints(vec![url.parse().map_err(err)?]).map_err(err)?;
     if let Some(token) = &token {

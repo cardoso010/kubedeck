@@ -50,11 +50,10 @@ fn running(p: &Pod) -> bool {
 #[tauri::command]
 pub async fn node_summary(name: String, state: Session) -> CmdResult<NodeSummary> {
     let client = state.connection().await?.client;
-    let node = Api::<Node>::all(client.clone()).get(&name).await.map_err(|e| kube_err(&e))?;
+    let node = Api::<Node>::all(client.clone()).get(&name).await?;
     let pods: Vec<Pod> = Api::<Pod>::all(client.clone())
         .list(&ListParams::default().fields(&format!("spec.nodeName={name}")))
-        .await
-        .map_err(|e| kube_err(&e))?
+        .await?
         .items
         .into_iter()
         .filter(running)
@@ -122,8 +121,7 @@ pub async fn cordon(name: String, unschedulable: bool, state: Session) -> CmdRes
     state.writable()?;
     let api: Api<Node> = Api::all(state.connection().await?.client);
     api.patch(&name, &PatchParams::default(), &Patch::Merge(&json!({ "spec": { "unschedulable": unschedulable } })))
-        .await
-        .map_err(|e| kube_err(&e))?;
+        .await?;
     Ok(())
 }
 
@@ -151,14 +149,13 @@ pub async fn drain(name: String, pod_selector: Option<String>, dry_run: bool, st
     if !dry_run {
         Api::<Node>::all(client.clone())
             .patch(&name, &PatchParams::default(), &Patch::Merge(&json!({ "spec": { "unschedulable": true } })))
-            .await
-            .map_err(|e| kube_err(&e))?;
+            .await?;
     }
     let mut params = ListParams::default().fields(&format!("spec.nodeName={name}"));
     if let Some(sel) = pod_selector.as_deref().filter(|s| !s.trim().is_empty()) {
         params = params.labels(sel);
     }
-    let pods = Api::<Pod>::all(client.clone()).list(&params).await.map_err(|e| kube_err(&e))?.items;
+    let pods = Api::<Pod>::all(client.clone()).list(&params).await?.items;
     let mut report = DrainReport::default();
     for p in pods {
         let ns = p.metadata.namespace.clone().unwrap_or_default();
