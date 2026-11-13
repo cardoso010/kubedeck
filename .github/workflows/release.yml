@@ -6,19 +6,13 @@ name: Release
 # Every other run only builds, without publishing anything:
 # - by hand (Actions → Release → Run workflow): keeps the bundles as workflow artifacts, to
 #   check packaging;
-# - on main when dependencies change, and weekly: warms the build caches. Caches are scoped
-#   to the ref that saved them, and a tag can read main's caches but never another tag's,
-#   so without this every release would compile from scratch.
+# - weekly on main: warms the build caches. Caches are scoped to the ref that saved them, and
+#   a tag can read main's caches but never another tag's; GitHub also evicts caches unused for
+#   a week. Without this, every release would compile from scratch. Merges to main do not
+#   build here (CI covers them).
 on:
   push:
     tags: ["v*"]
-    branches: [main]
-    paths:
-      - src-tauri/Cargo.lock
-      - src-tauri/Cargo.toml
-      - package-lock.json
-      - scripts/fetch-helm.mjs
-      - .github/workflows/release.yml
   schedule:
     - cron: "0 6 * * 1"
   workflow_dispatch:
