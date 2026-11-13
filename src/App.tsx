@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Logo from "./components/Logo";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { IconAlertTriangle, IconAppWindow, IconBell, IconBellOff, IconGauge, IconLock, IconLockOpen, IconPlus, IconHexagons, IconInfoCircle, IconLink, IconLayersSubtract, IconPackage, IconPalette, IconPin, IconServer2, IconWorld } from "@tabler/icons-react";
+import { Trans, useTranslation } from "react-i18next";
+import { IconAlertTriangle, IconAppWindow, IconBell, IconBellOff, IconGauge, IconLock, IconLockOpen, IconPlus, IconHexagons, IconInfoCircle, IconLink, IconLayersSubtract, IconPackage, IconPalette, IconSettings, IconPin, IconServer2, IconWorld } from "@tabler/icons-react";
 import * as api from "./api";
 import type { Connected, Contexts, KindInfo, Row, Target } from "./api";
 import { useStream } from "./useStream";
@@ -28,6 +29,7 @@ import { SITE_URL } from "./about";
 import TopBar from "./components/TopBar";
 import KindTabs from "./components/KindTabs";
 import CommandPalette, { type Command } from "./components/CommandPalette";
+import SettingsDialog from "./components/SettingsDialog";
 
 /** The namespace selection is remembered per cluster context (per viewer, best effort). */
 const savedNamespaces = (context: string): string[] | null => {
@@ -50,6 +52,7 @@ const saveNamespaces = (context: string, selected: string[]) => {
 const SECTION_DEFAULT: Partial<Record<SectionId, string>> = { storage: "persistentvolumeclaims", problems: PROBLEMS, rightsizing: RIGHTSIZING, workloads: "pods", network: "services", config: "configmaps", cluster: "nodes", helm: HELM, forwards: FORWARDS };
 
 export default function App() {
+  const { t, i18n } = useTranslation();
   const { theme, setTheme } = useTheme();
   const { pins, toggle: togglePin, moveUp } = usePins();
   const [contexts, setContexts] = useState<Contexts | null>(null);
@@ -88,6 +91,7 @@ export default function App() {
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [helmInstallRequest, setHelmInstallRequest] = useState(0);
   const [aboutRequest, setAboutRequest] = useState(0);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   /** The cluster rejected this window's credentials (e.g. an expired AWS session). */
   const [authProblem, setAuthProblem] = useState<{ context: string; auth: Connected["auth"]; tries: number } | null>(null);
 
@@ -100,7 +104,7 @@ export default function App() {
         const initial = (window as { __KUBEDECK_INITIAL_CONTEXT__?: string | null }).__KUBEDECK_INITIAL_CONTEXT__;
         if (initial && c.contexts.some((x) => x.name === initial)) void choose(initial);
       },
-      (e) => setError(`Could not read kubeconfig: ${api.errorText(e)}`),
+      (e) => setError(t("app.errors.kubeconfig", { message: api.errorText(e) })),
     );
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -139,7 +143,7 @@ export default function App() {
       setError(null);
       // Connecting stops every port forward; starred ones come back.
       void startFavorites(context).then((failed) => {
-        if (failed.length) setError(`Could not reopen starred port forwards: ${failed.map(([f, why]) => `${f.name}:${f.remotePort} (${why})`).join("; ")}`);
+        if (failed.length) setError(t("app.errors.favorites", { list: failed.map(([f, why]) => `${f.name}:${f.remotePort} (${why})`).join("; ") }));
       });
       // Cosmetic: never let the title fail a connection.
       try {
@@ -159,7 +163,7 @@ export default function App() {
         const auth = await api.contextAuth(context).catch(() => null);
         setAuthProblem((p) => ({ context, auth, tries: (p?.tries ?? 0) + 1 }));
       }
-      else if (!quiet) setError(`Could not connect to ${context}: ${message}`);
+      else if (!quiet) setError(t("app.errors.connect", { cluster: context, message }));
     } finally {
       if (!quiet) setConnecting(false);
     }
@@ -330,12 +334,21 @@ export default function App() {
   const prod = conn ? api.isProduction(conn.context) : false;
   const visiblePins = pins.filter((p) => !contexts || contexts.contexts.some((c) => c.name === p));
 
-  // Global shortcuts: ⌘K palette, ⌘N new window, ⌘1…9 pinned clusters.
+  /** Whether `context` opens read-only; turning it on also locks this window now. */
+  function setLockDefault(context: string, lock: boolean) {
+    setLockedByDefault(context, lock);
+    setLockPrefs((n) => n + 1);
+    if (lock && !locked) void applyLock(true);
+  }
+  const closeSettings = useCallback(() => setSettingsOpen(false), []);
+
+  // Global shortcuts: ⌘K palette, ⌘N new window, ⌘, settings, ⌘1…9 pinned clusters.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (!(e.metaKey || e.ctrlKey) || e.altKey || e.shiftKey) return;
       if (e.key === "k") (e.preventDefault(), setPaletteOpen((o) => !o));
       else if (e.key === "n") (e.preventDefault(), void api.openWindow(null));
+      else if (e.key === ",") (e.preventDefault(), setSettingsOpen(true));
       else if (/^[1-9]$/.test(e.key) && visiblePins[Number(e.key) - 1]) (e.preventDefault(), void choose(visiblePins[Number(e.key) - 1]));
     };
     window.addEventListener("keydown", onKey);
@@ -346,60 +359,56 @@ export default function App() {
     const list: Command[] = [];
     if (conn) {
       for (const s of SECTIONS) {
-        if (s.id === "rightsizing") list.push({ id: "view:rightsizing", group: "Go to", title: "Rightsizing", subtitle: "requests vs real usage", icon: <IconGauge size={16} />, run: () => openView(RIGHTSIZING) });
-        else if (s.id === "problems") list.push({ id: "view:problems", group: "Go to", title: "Problems", subtitle: problems ? `${problems.length} found` : undefined, icon: <IconAlertTriangle size={16} />, run: () => openView(PROBLEMS) });
-        else if (s.id === "helm") list.push({ id: "view:helm", group: "Go to", title: "Helm releases", icon: <IconPackage size={16} />, run: () => openView(HELM) });
-        else if (s.id === "forwards") list.push({ id: "view:forwards", group: "Go to", title: "Port forwards", icon: <s.icon size={16} />, run: () => openView(FORWARDS) });
+        if (s.id === "rightsizing") list.push({ id: "view:rightsizing", group: t("app.palette.groups.goTo"), title: t("app.views.rightsizing"), subtitle: t("app.palette.rightsizingSubtitle"), icon: <IconGauge size={16} />, run: () => openView(RIGHTSIZING) });
+        else if (s.id === "problems") list.push({ id: "view:problems", group: t("app.palette.groups.goTo"), title: t("app.views.problems"), subtitle: problems ? t("app.palette.problemsFound", { count: problems.length }) : undefined, icon: <IconAlertTriangle size={16} />, run: () => openView(PROBLEMS) });
+        else if (s.id === "helm") list.push({ id: "view:helm", group: t("app.palette.groups.goTo"), title: t("app.views.helm"), icon: <IconPackage size={16} />, run: () => openView(HELM) });
+        else if (s.id === "forwards") list.push({ id: "view:forwards", group: t("app.palette.groups.goTo"), title: t("app.views.forwards"), icon: <s.icon size={16} />, run: () => openView(FORWARDS) });
         else
           for (const key of s.kinds ?? []) {
             const k = kinds.find((x) => x.key === key);
-            if (k) list.push({ id: `kind:${key}`, group: "Go to", title: k.label, subtitle: s.label, icon: <s.icon size={16} />, run: () => openView(key) });
+            if (k) list.push({ id: `kind:${key}`, group: t("app.palette.groups.goTo"), title: k.label, subtitle: t(`app.sections.${s.id}`), icon: <s.icon size={16} />, run: () => openView(key) });
           }
       }
       for (const k of kinds.filter((x) => x.group)) {
-        list.push({ id: `kind:${k.key}`, group: "Custom resources", title: k.label, subtitle: k.group!, icon: <IconLayersSubtract size={16} />, run: () => openView(k.key) });
+        list.push({ id: `kind:${k.key}`, group: t("app.palette.groups.custom"), title: k.label, subtitle: k.group!, icon: <IconLayersSubtract size={16} />, run: () => openView(k.key) });
       }
       for (const r of rowList.slice(0, 500)) {
-        list.push({ id: `row:${r.uid}`, group: kind?.label ?? "Resources", title: r.name, subtitle: r.namespace ?? undefined, icon: <IconHexagons size={16} />, run: () => setSelected(r) });
+        list.push({ id: `row:${r.uid}`, group: kind?.label ?? t("app.palette.groups.resources"), title: r.name, subtitle: r.namespace ?? undefined, icon: <IconHexagons size={16} />, run: () => setSelected(r) });
       }
-      list.push({ id: "ns:all", group: "Namespaces", title: "All namespaces", icon: <IconWorld size={16} />, run: () => chooseNamespaces([]) });
+      list.push({ id: "ns:all", group: t("app.palette.groups.namespaces"), title: t("app.palette.allNamespaces"), icon: <IconWorld size={16} />, run: () => chooseNamespaces([]) });
       for (const ns of namespaces) {
-        list.push({ id: `ns:${ns}`, group: "Namespaces", title: ns, subtitle: "show only this namespace", icon: <IconWorld size={16} />, run: () => chooseNamespaces([ns]) });
+        list.push({ id: `ns:${ns}`, group: t("app.palette.groups.namespaces"), title: ns, subtitle: t("app.palette.onlyNamespace"), icon: <IconWorld size={16} />, run: () => chooseNamespaces([ns]) });
       }
-      list.push({ id: "action:install", group: "Actions", title: "Install a Helm chart", icon: <IconPackage size={16} />, run: () => (openView(HELM), setHelmInstallRequest((n) => n + 1)) });
-      list.push({ id: "action:create", group: "Actions", title: "Create resources from YAML", icon: <IconPlus size={16} />, run: () => setCreateOpen(true) });
+      list.push({ id: "action:install", group: t("app.palette.groups.actions"), title: t("app.palette.installChart"), icon: <IconPackage size={16} />, run: () => (openView(HELM), setHelmInstallRequest((n) => n + 1)) });
+      list.push({ id: "action:create", group: t("app.palette.groups.actions"), title: t("app.palette.create"), icon: <IconPlus size={16} />, run: () => setCreateOpen(true) });
       list.push({
         id: "action:notify",
-        group: "Actions",
-        title: notifyOn ? "Stop crash notifications for this cluster" : "Notify me when pods crash in the selected namespaces",
+        group: t("app.palette.groups.actions"),
+        title: notifyOn ? t("app.palette.notifyOff") : t("app.palette.notifyOn"),
         icon: notifyOn ? <IconBellOff size={16} /> : <IconBell size={16} />,
         run: () =>
-          void setNotifyEnabled(conn.context, !notifyOn).then((ok) => (ok ? setNotifyOn(!notifyOn) : setError("Notifications are not allowed for kubedeck in the system settings."))),
+          void setNotifyEnabled(conn.context, !notifyOn).then((ok) => (ok ? setNotifyOn(!notifyOn) : setError(t("app.errors.notifyDenied")))),
       });
       list.push({
         id: "action:lock",
-        group: "Actions",
-        title: locked ? "Unlock this window (leave read-only mode)" : "Lock this window (read-only mode)",
+        group: t("app.palette.groups.actions"),
+        title: locked ? t("app.palette.unlockWindow") : t("app.palette.lockWindow"),
         icon: locked ? <IconLockOpen size={16} /> : <IconLock size={16} />,
         run: toggleLock,
       });
       const byDefault = lockedByDefault(conn.context);
       list.push({
         id: "action:lock-default",
-        group: "Actions",
-        title: byDefault ? "Stop opening this cluster read-only" : "Always open this cluster read-only",
+        group: t("app.palette.groups.actions"),
+        title: byDefault ? t("app.palette.lockDefaultOff") : t("app.palette.lockDefaultOn"),
         subtitle: api.shortContextName(conn.context),
         icon: <IconLock size={16} />,
-        run: () => {
-          setLockedByDefault(conn.context, !byDefault);
-          setLockPrefs((n) => n + 1);
-          if (!byDefault && !locked) void applyLock(true);
-        },
+        run: () => setLockDefault(conn.context, !byDefault),
       });
       list.push({
         id: "action:pin",
-        group: "Actions",
-        title: pins.includes(conn.context) ? "Unpin this cluster from the rail" : "Pin this cluster to the rail",
+        group: t("app.palette.groups.actions"),
+        title: pins.includes(conn.context) ? t("app.palette.unpin") : t("app.palette.pin"),
         icon: <IconPin size={16} />,
         run: () => togglePin(conn.context),
       });
@@ -407,20 +416,21 @@ export default function App() {
     for (const c of contexts?.contexts ?? []) {
       const name = api.shortContextName(c.name);
       const dot = <span className="cluster-dot" style={{ background: clusterColor(c.name) }} />;
-      list.push({ id: `ctx:${c.name}`, group: "Clusters", title: name, subtitle: name !== c.name ? c.name : undefined, icon: dot, run: () => void choose(c.name) });
-      list.push({ id: `ctxw:${c.name}`, group: "Clusters", title: `${name} in a new window`, icon: <IconAppWindow size={16} />, run: () => void api.openWindow(c.name) });
+      list.push({ id: `ctx:${c.name}`, group: t("app.palette.groups.clusters"), title: name, subtitle: name !== c.name ? c.name : undefined, icon: dot, run: () => void choose(c.name) });
+      list.push({ id: `ctxw:${c.name}`, group: t("app.palette.groups.clusters"), title: t("app.palette.inNewWindow", { name }), icon: <IconAppWindow size={16} />, run: () => void api.openWindow(c.name) });
     }
-    list.push({ id: "action:window", group: "Actions", title: "New window", hint: "⌘N", icon: <IconAppWindow size={16} />, run: () => void api.openWindow(null) });
-    list.push({ id: "action:about", group: "Actions", title: "About kubedeck", subtitle: "version, links, share", icon: <IconInfoCircle size={16} />, run: () => setAboutRequest((n) => n + 1) });
-    list.push({ id: "action:share", group: "Actions", title: "Copy kubedeck link", subtitle: SITE_URL, icon: <IconLink size={16} />, run: () => void navigator.clipboard.writeText(SITE_URL) });
-    for (const t of THEMES) {
-      list.push({ id: `theme:${t.id}`, group: "Theme", title: `Theme: ${t.label}`, subtitle: t.description, icon: <IconPalette size={16} />, run: () => setTheme(t.id) });
+    list.push({ id: "action:window", group: t("app.palette.groups.actions"), title: t("app.palette.newWindow"), hint: "⌘N", icon: <IconAppWindow size={16} />, run: () => void api.openWindow(null) });
+    list.push({ id: "action:settings", group: t("app.palette.groups.actions"), title: t("app.palette.settings"), subtitle: t("app.palette.settingsSubtitle"), hint: "⌘,", icon: <IconSettings size={16} />, run: () => setSettingsOpen(true) });
+    list.push({ id: "action:about", group: t("app.palette.groups.actions"), title: t("app.palette.about"), subtitle: t("app.palette.aboutSubtitle"), icon: <IconInfoCircle size={16} />, run: () => setAboutRequest((n) => n + 1) });
+    list.push({ id: "action:share", group: t("app.palette.groups.actions"), title: t("app.palette.share"), subtitle: SITE_URL, icon: <IconLink size={16} />, run: () => void navigator.clipboard.writeText(SITE_URL) });
+    for (const th of THEMES) {
+      list.push({ id: `theme:${th.id}`, group: t("app.palette.groups.theme"), title: t("app.palette.theme", { name: t(`themes.${th.id}.label`) }), subtitle: t(`themes.${th.id}.description`), icon: <IconPalette size={16} />, run: () => setTheme(th.id) });
     }
     return list;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [conn, kinds, contexts, namespaces, rowList, kind?.label, pins, openView, problems, locked, lockPrefs, notifyOn]);
+  }, [conn, kinds, contexts, namespaces, rowList, kind?.label, pins, openView, problems, locked, lockPrefs, notifyOn, i18n.language]);
 
-  const viewLabel = view === RIGHTSIZING ? "Rightsizing" : view === PROBLEMS ? "Problems" : view === HELM ? "Helm releases" : view === FORWARDS ? "Port forwards" : (kind?.label ?? "");
+  const viewLabel = view === RIGHTSIZING ? t("app.views.rightsizing") : view === PROBLEMS ? t("app.views.problems") : view === HELM ? t("app.views.helm") : view === FORWARDS ? t("app.views.forwards") : (kind?.label ?? "");
 
   return (
     <ThemeContext.Provider value={theme}>
@@ -436,13 +446,12 @@ export default function App() {
           onSwitchCluster={(c) => void choose(c)}
           onUnpin={togglePin}
           onMoveUp={moveUp}
-          theme={theme}
-          onTheme={setTheme}
+          onSettings={() => setSettingsOpen(true)}
           problemCount={problems?.filter((p) => p.severity === "critical").length ?? 0}
           aboutRequest={aboutRequest}
         />
         <div className="stage">
-          {prod && <div className="prod-strip">Production cluster · changes affect real workloads</div>}
+          {prod && <div className="prod-strip">{t("app.prodStrip")}</div>}
           <TopBar
             contexts={contexts?.contexts ?? []}
             current={conn?.context ?? null}
@@ -526,11 +535,27 @@ export default function App() {
           />
         )}
         {paletteOpen && <CommandPalette commands={commands} onClose={() => setPaletteOpen(false)} />}
+        {settingsOpen && (
+          <SettingsDialog
+            theme={theme}
+            onTheme={setTheme}
+            context={conn?.context ?? null}
+            lockedByDefault={conn ? lockedByDefault(conn.context) : false}
+            onLockedByDefault={(lock) => conn && setLockDefault(conn.context, lock)}
+            notify={notifyOn}
+            onNotify={async (on) => {
+              if (!conn || !(await setNotifyEnabled(conn.context, on))) return false;
+              setNotifyOn(on);
+              return true;
+            }}
+            onClose={closeSettings}
+          />
+        )}
         {confirmUnlock && conn && (
           <ConfirmDialog
-            title={`Unlock ${api.shortContextName(conn.context)}?`}
-            message={`For the next ${UNLOCK_MINUTES} minutes this window can edit, delete, scale, drain and open shells on ${conn.context}. It locks again by itself.`}
-            confirmLabel={`Unlock for ${UNLOCK_MINUTES} minutes`}
+            title={t("app.unlock.title", { name: api.shortContextName(conn.context) })}
+            message={t("app.unlock.message", { minutes: UNLOCK_MINUTES, cluster: conn.context })}
+            confirmLabel={t("app.unlock.confirm", { minutes: UNLOCK_MINUTES })}
             onConfirm={() => (setConfirmUnlock(false), void applyLock(false, Date.now() + UNLOCK_MINUTES * 60_000))}
             onCancel={() => setConfirmUnlock(false)}
           />
@@ -543,6 +568,7 @@ export default function App() {
 }
 
 function AuthBanner({ problem, auth, onRetry }: { problem: { context: string; tries: number }; auth: Connected["auth"]; onRetry: () => void }) {
+  const { t } = useTranslation();
   const [retrying, setRetrying] = useState(false);
   const [command, setCommand] = useState(() => savedLoginCommand(problem.context) ?? (auth?.awsProfile ? `aws sso login --profile ${auth.awsProfile}` : ""));
   const [login, setLogin] = useState<{ state: "running" | "ok" | "failed"; output: string } | null>(null);
@@ -565,37 +591,33 @@ function AuthBanner({ problem, auth, onRetry }: { problem: { context: string; tr
   return (
     <div className="auth-banner" role="alert">
       <div className="auth-banner-text">
-        <strong>{api.shortContextName(problem.context)} rejected your credentials (401).</strong> They have probably expired.{" "}
+        <strong>{t("app.auth.rejected", { name: api.shortContextName(problem.context) })}</strong> {t("app.auth.expired")}{" "}
         {auth?.awsProfile ? (
-          <>
-            This cluster signs in with <code>{auth.command}</code> using the AWS profile <code>{auth.awsProfile}</code>: renew that profile&apos;s credentials (for example{" "}
-            <code>aws sso login --profile {auth.awsProfile}</code>, or the tool that writes <code>~/.aws/credentials</code>).
-          </>
+          <Trans i18nKey="app.auth.aws" values={{ command: auth.command, profile: auth.awsProfile }} components={[<code />, <code />, <code />, <code />]} />
         ) : auth ? (
-          <>
-            This cluster signs in with <code>{auth.command}</code>: renew the credentials that command uses.
-          </>
+          <Trans i18nKey="app.auth.exec" values={{ command: auth.command }} components={[<code />]} />
         ) : (
-          <>Update the credentials in your kubeconfig.</>
+          <>{t("app.auth.kubeconfig")}</>
         )}{" "}
-        <span className="faint">kubedeck retries every 20s and recovers by itself once they work again.</span>
+        <span className="faint">{t("app.auth.retries")}</span>
         <div className="auth-login">
-          <input value={command} onChange={(e) => setCommand(e.target.value)} placeholder="Login command, e.g. aws sso login --profile prod" spellCheck={false} aria-label="Login command" />
-          <button disabled={!command.trim() || login?.state === "running"} onClick={() => void runLogin()} title="Runs this command on your machine (it may open the browser), then reconnects">
-            {login?.state === "running" ? "Waiting for login…" : "Run login"}
+          <input value={command} onChange={(e) => setCommand(e.target.value)} placeholder={t("app.auth.commandPlaceholder")} spellCheck={false} aria-label={t("app.auth.commandLabel")} />
+          <button disabled={!command.trim() || login?.state === "running"} onClick={() => void runLogin()} title={t("app.auth.runTitle")}>
+            {login?.state === "running" ? t("app.auth.waiting") : t("app.auth.run")}
           </button>
         </div>
-        {login?.state === "ok" && <div className="ok auth-output">Login finished. Reconnecting…</div>}
+        {login?.state === "ok" && <div className="ok auth-output">{t("app.auth.finished")}</div>}
         {login?.state === "failed" && <pre className="bad auth-output">{login.output}</pre>}
       </div>
       <button className="primary" disabled={retrying} onClick={retry}>
-        {retrying ? "Reconnecting…" : "Reconnect now"}
+        {retrying ? t("app.auth.reconnecting") : t("app.auth.reconnect")}
       </button>
     </div>
   );
 }
 
 function Welcome({ contexts, pins, connecting, onChoose, onPalette }: { contexts: Contexts | null; pins: string[]; connecting: boolean; onChoose: (c: string) => void; onPalette: () => void }) {
+  const { t } = useTranslation();
   const ordered = contexts ? [...pins, ...contexts.contexts.map((c) => c.name).filter((c) => !pins.includes(c))] : [];
   return (
     <div className="welcome">
@@ -604,20 +626,20 @@ function Welcome({ contexts, pins, connecting, onChoose, onPalette }: { contexts
           <Logo size={28} />
         </div>
         <h1>kubedeck</h1>
-        <p className="faint">{connecting ? "Connecting…" : "Pick a cluster to start."}</p>
+        <p className="faint">{connecting ? t("app.welcome.connecting") : t("app.welcome.pick")}</p>
         <div className="welcome-list">
           {ordered.slice(0, 8).map((c) => (
             <button key={c} className="welcome-item" disabled={connecting} onClick={() => onChoose(c)}>
               <span className="cluster-dot" style={{ background: clusterColor(c) }} />
               <span className="welcome-item-name">{api.shortContextName(c)}</span>
-              {api.isProduction(c) && <span className="prod-badge small">prod</span>}
-              {c === contexts?.current && <span className="faint">current</span>}
+              {api.isProduction(c) && <span className="prod-badge small">{t("app.welcome.prod")}</span>}
+              {c === contexts?.current && <span className="faint">{t("app.welcome.current")}</span>}
               <IconServer2 size={14} className="faint" />
             </button>
           ))}
         </div>
         <button className="link" onClick={onPalette}>
-          or press <kbd>⌘K</kbd> to search
+          {t("app.welcome.or")} <kbd>⌘K</kbd> {t("app.welcome.toSearch")}
         </button>
       </div>
     </div>

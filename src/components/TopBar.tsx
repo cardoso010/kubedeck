@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { IconChevronDown, IconLock, IconLockOpen, IconPlus, IconPin, IconPinnedFilled, IconSearch } from "@tabler/icons-react";
 import { isProduction, openWindow, shortContextName, type ContextInfo } from "../api";
 import { clusterColor } from "../pins";
+import { useTranslation } from "react-i18next";
 import NamespacePicker from "./NamespacePicker";
 
 interface Props {
@@ -28,6 +29,7 @@ interface Props {
 
 /** Breadcrumb bar: cluster › namespaces › view, plus the command palette trigger. */
 export default function TopBar(p: Props) {
+  const { t } = useTranslation();
   const prod = p.current ? isProduction(p.current) : false;
   return (
     <header className="topbar">
@@ -47,28 +49,28 @@ export default function TopBar(p: Props) {
       <div className="topbar-right">
         {p.lock &&
           (p.lock.locked ? (
-            <button className="lock-chip locked" onClick={p.onToggleLock} title="Changes to this cluster are refused. Click to unlock.">
-              <IconLock size={12} /> read-only
+            <button className="lock-chip locked" onClick={p.onToggleLock} title={t("app.topbar.lockedTitle")}>
+              <IconLock size={12} /> {t("app.topbar.readOnly")}
             </button>
           ) : p.lock.minutesLeft !== null ? (
-            <button className="lock-chip unlocked" onClick={p.onToggleLock} title="Click to lock again now">
-              <IconLockOpen size={12} /> unlocked · {p.lock.minutesLeft}m
+            <button className="lock-chip unlocked" onClick={p.onToggleLock} title={t("app.topbar.relockTitle")}>
+              <IconLockOpen size={12} /> {t("app.topbar.unlocked", { minutes: p.lock.minutesLeft })}
             </button>
           ) : (
-            <button className="lock-chip open" onClick={p.onToggleLock} title="Lock: refuse every change to this cluster from this window">
+            <button className="lock-chip open" onClick={p.onToggleLock} title={t("app.topbar.lockTitle")}>
               <IconLockOpen size={12} />
             </button>
           ))}
-        {prod && <span className="prod-badge">production</span>}
+        {prod && <span className="prod-badge">{t("app.topbar.production")}</span>}
         {p.serverVersion && <span className="faint mono">{p.serverVersion}</span>}
         {p.onCreate && (
-          <button className="icon-button" title="Create resources from YAML" aria-label="Create resources from YAML" onClick={p.onCreate}>
+          <button className="icon-button" title={t("app.topbar.create")} aria-label={t("app.topbar.create")} onClick={p.onCreate}>
             <IconPlus size={15} />
           </button>
         )}
         <button className="search-trigger" onClick={p.onOpenPalette}>
           <IconSearch size={14} stroke={1.8} />
-          <span>Search or jump to…</span>
+          <span>{t("app.topbar.search")}</span>
           <kbd>⌘K</kbd>
         </button>
       </div>
@@ -77,6 +79,7 @@ export default function TopBar(p: Props) {
 }
 
 function ClusterCrumb({ contexts, current, connecting, onSwitchCluster, pins, onTogglePin }: Props) {
+  const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const root = useRef<HTMLDivElement>(null);
@@ -99,18 +102,18 @@ function ClusterCrumb({ contexts, current, connecting, onSwitchCluster, pins, on
     <div className="crumb-wrap" ref={root}>
       <button className="crumb" onClick={() => setOpen(!open)} disabled={connecting}>
         {current && <span className="cluster-dot" style={{ background: clusterColor(current) }} />}
-        <span className={current ? "" : "faint"}>{connecting ? "connecting…" : current ? shortContextName(current) : "Select a cluster"}</span>
+        <span className={current ? "" : "faint"}>{connecting ? t("app.topbar.connecting") : current ? shortContextName(current) : t("app.topbar.selectCluster")}</span>
         <IconChevronDown size={13} className="faint" />
       </button>
       {open && (
         <div className="menu menu-wide">
-          <input autoFocus placeholder="Find a context…" value={query} onChange={(e) => setQuery(e.target.value)} />
+          <input autoFocus placeholder={t("app.topbar.findContext")} value={query} onChange={(e) => setQuery(e.target.value)} />
           <div className="menu-list">
             {visible.map((c) => (
               <div key={c.name} className={`menu-row ${c.name === current ? "active" : ""}`}>
                 <button
                   className="menu-row-main"
-                  title={`${c.name}\n⌘-click: open in a new window`}
+                  title={`${c.name}\n${t("app.topbar.newWindowHint")}`}
                   onClick={(e) => {
                     if (e.metaKey || e.ctrlKey) void openWindow(c.name);
                     else onSwitchCluster(c.name);
@@ -122,9 +125,9 @@ function ClusterCrumb({ contexts, current, connecting, onSwitchCluster, pins, on
                     <span>{shortContextName(c.name)}</span>
                     {shortContextName(c.name) !== c.name && <span className="faint">{c.name}</span>}
                   </span>
-                  {isProduction(c.name) && <span className="prod-badge small">prod</span>}
+                  {isProduction(c.name) && <span className="prod-badge small">{t("app.topbar.prod")}</span>}
                 </button>
-                <button className="icon-button" aria-label={pins.includes(c.name) ? "Unpin" : "Pin to the rail"} title={pins.includes(c.name) ? "Unpin" : "Pin to the rail"} onClick={() => onTogglePin(c.name)}>
+                <button className="icon-button" aria-label={pins.includes(c.name) ? t("app.topbar.unpin") : t("app.topbar.pin")} title={pins.includes(c.name) ? t("app.topbar.unpin") : t("app.topbar.pin")} onClick={() => onTogglePin(c.name)}>
                   {pins.includes(c.name) ? <IconPinnedFilled size={14} /> : <IconPin size={14} />}
                 </button>
               </div>

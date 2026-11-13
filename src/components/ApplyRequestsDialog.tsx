@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import { applyRequests, errorText, type ApplyOutcome, type NewRequests } from "../api";
 import TypeToConfirm, { confirms } from "./TypeToConfirm";
 
@@ -24,6 +25,7 @@ interface Props {
  * Always checked with a server-side dry run first.
  */
 export default function ApplyRequestsDialog({ namespace, kindKey, kindLabel, workload, container, cpuMillis, memoryBytes, production, context, onClose }: Props) {
+  const { t } = useTranslation();
   const hasTemplate = TEMPLATED.includes(kindKey);
   const [cpu, setCpu] = useState(cpuMillis === null ? "" : String(Math.round(cpuMillis)));
   const [memory, setMemory] = useState(memoryBytes === null ? "" : String(Math.round(memoryBytes / MI)));
@@ -59,7 +61,7 @@ export default function ApplyRequestsDialog({ namespace, kindKey, kindLabel, wor
     <div className="modal-backdrop" onClick={() => onClose(!!outcomes)}>
       <div className="modal modal-wide" onClick={(e) => e.stopPropagation()}>
         <h3>
-          New requests for {container} <span className="faint">in {workload}</span>
+          {t("rightsizing.applyDialog.title", { container })} <span className="faint">{t("rightsizing.applyDialog.in", { workload })}</span>
         </h3>
         {outcomes ? (
           <div className="apply-outcomes">
@@ -73,27 +75,27 @@ export default function ApplyRequestsDialog({ namespace, kindKey, kindLabel, wor
           <>
             <div className="apply-fields">
               <label>
-                CPU request <input value={cpu} onChange={(e) => setCpu(e.target.value)} inputMode="numeric" /> <span className="faint">m</span>
+                {t("rightsizing.applyDialog.cpu")} <input value={cpu} onChange={(e) => setCpu(e.target.value)} inputMode="numeric" /> <span className="faint">m</span>
               </label>
               <label>
-                Memory request <input value={memory} onChange={(e) => setMemory(e.target.value)} inputMode="numeric" /> <span className="faint">Mi</span>
+                {t("rightsizing.applyDialog.memory")} <input value={memory} onChange={(e) => setMemory(e.target.value)} inputMode="numeric" /> <span className="faint">Mi</span>
               </label>
             </div>
             <label className="apply-choice">
               <input type="radio" checked={to === "pods"} onChange={() => setTo("pods")} />
               <span>
-                <strong>Resize the running pods now</strong>
-                <span className="faint">In place, without restarting them (Kubernetes 1.33+). They go back to the template's values when replaced.</span>
+                <strong>{t("rightsizing.applyDialog.pods")}</strong>
+                <span className="faint">{t("rightsizing.applyDialog.podsHint")}</span>
               </span>
             </label>
             <label className={`apply-choice ${hasTemplate ? "" : "disabled"}`}>
               <input type="radio" checked={to === "workload"} disabled={!hasTemplate} onChange={() => setTo("workload")} />
               <span>
-                <strong>Update the {kindLabel.toLowerCase()}'s template</strong>
-                <span className="faint">{hasTemplate ? "Permanent. The pods are replaced, as in a rollout." : "Only Deployments, StatefulSets and DaemonSets have a template."}</span>
+                <strong>{t("rightsizing.applyDialog.workload", { kind: kindLabel })}</strong>
+                <span className="faint">{hasTemplate ? t("rightsizing.applyDialog.workloadHint") : t("rightsizing.applyDialog.noTemplate")}</span>
               </span>
             </label>
-            <p>Requests only: limits stay as they are, and a request above its limit is refused. Checked with a dry run on {context} first.</p>
+            <p>{t("rightsizing.applyDialog.note", { cluster: context })}</p>
             {production && <TypeToConfirm expected={workload} value={typed} onChange={setTyped} />}
           </>
         )}
@@ -101,13 +103,13 @@ export default function ApplyRequestsDialog({ namespace, kindKey, kindLabel, wor
         <div className="modal-actions">
           {outcomes ? (
             <button className="primary" onClick={() => onClose(true)}>
-              Close
+              {t("common.close")}
             </button>
           ) : (
             <>
-              <button onClick={() => onClose(false)}>Cancel</button>
+              <button onClick={() => onClose(false)}>{t("common.cancel")}</button>
               <button className="primary" disabled={!ok} onClick={() => void apply()}>
-                {busy ? "Applying…" : to === "pods" ? "Resize pods" : "Update template"}
+                {busy ? t("rightsizing.applyDialog.applying") : to === "pods" ? t("rightsizing.applyDialog.resize") : t("rightsizing.applyDialog.update")}
               </button>
             </>
           )}

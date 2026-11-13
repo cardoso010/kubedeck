@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import TypeToConfirm, { confirms } from "./TypeToConfirm";
 
 interface Props {
@@ -13,6 +14,7 @@ interface Props {
 
 // window.confirm is not reliable inside every platform's webview, so dialogs are rendered in React.
 export default function ConfirmDialog({ title, message, confirmLabel, typeToConfirm, onConfirm, onCancel }: Props) {
+  const { t } = useTranslation();
   const [typed, setTyped] = useState("");
   const ok = !typeToConfirm || confirms(typed, typeToConfirm);
   return (
@@ -22,7 +24,7 @@ export default function ConfirmDialog({ title, message, confirmLabel, typeToConf
         <p>{message}</p>
         {typeToConfirm && <TypeToConfirm expected={typeToConfirm} value={typed} onChange={setTyped} />}
         <div className="modal-actions">
-          <button onClick={onCancel}>Cancel</button>
+          <button onClick={onCancel}>{t("common.cancel")}</button>
           <button className="danger" disabled={!ok} onClick={onConfirm}>
             {confirmLabel}
           </button>

@@ -1,10 +1,12 @@
 import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { age, errorText, objectEvents, type EventRow } from "../api";
 
 const REFRESH_MS = 10_000;
 
 /** Events about one object (why it is pending, failing, being rescheduled), newest first. */
 export default function EventsView({ namespace, uid }: { namespace: string | null; uid: string }) {
+  const { t } = useTranslation();
   const [events, setEvents] = useState<EventRow[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [now, setNow] = useState(Date.now());
@@ -22,8 +24,8 @@ export default function EventsView({ namespace, uid }: { namespace: string | nul
   }, [namespace, uid]);
 
   if (error) return <div className="error-bar">{error}</div>;
-  if (!events) return <div className="empty">Loading…</div>;
-  if (events.length === 0) return <div className="empty">No recent events. Kubernetes keeps events for about an hour.</div>;
+  if (!events) return <div className="empty">{t("common.loading")}</div>;
+  if (events.length === 0) return <div className="empty">{t("resources.events.empty")}</div>;
 
   return (
     <div className="events">
@@ -34,7 +36,7 @@ export default function EventsView({ namespace, uid }: { namespace: string | nul
             <strong>{e.reason}</strong>
             {e.count > 1 && <span className="faint">×{e.count}</span>}
             <span className="faint event-meta">
-              {e.source} · {age(e.lastSeen, now)} ago
+              {e.source} · {t("resources.events.ago", { age: age(e.lastSeen, now) })}
             </span>
           </div>
           <div className="event-message">{e.message}</div>

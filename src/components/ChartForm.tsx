@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import Editor from "@monaco-editor/react";
+import { useTranslation } from "react-i18next";
 import { useCurrentTheme } from "../theme";
 import { errorText, helmChartVersions, helmInstall, helmShowValues, helmUpgrade, type HelmChart } from "../api";
 import ConfirmDialog from "./ConfirmDialog";
@@ -24,6 +25,7 @@ type Output = { kind: "dry" | "error"; text: string };
 
 /** Version, values and target for `helm install` / `helm upgrade`, with a dry run first. */
 export default function ChartForm({ mode, chart: initialChart, version: initialVersion, release, values: initialValues, namespaces = [], production, context, onDone }: Props) {
+  const { t } = useTranslation();
   const monacoTheme = useCurrentTheme().monaco;
   const [chart, setChart] = useState(initialChart);
   const [versions, setVersions] = useState<HelmChart[]>([]);
@@ -94,36 +96,36 @@ export default function ChartForm({ mode, chart: initialChart, version: initialV
   }
 
   const valid = chart.trim() !== "" && name.trim() !== "" && namespace.trim() !== "";
-  const verb = mode === "install" ? "Install" : "Upgrade";
+  const verb = mode === "install" ? t("helm.form.install") : t("helm.form.upgrade");
 
   return (
     <div className="chart-form">
       <div className="chart-form-fields">
         <label className="field">
-          <span>Chart</span>
-          <input value={chart} onChange={(e) => setChart(e.target.value)} placeholder="repo/chart, oci://… or a path" />
+          <span>{t("helm.form.chart")}</span>
+          <input value={chart} onChange={(e) => setChart(e.target.value)} placeholder={t("helm.form.chartPlaceholder")} />
         </label>
         <label className="field">
-          <span>Version</span>
+          <span>{t("helm.form.version")}</span>
           {versions.length > 0 ? (
             <select value={version} onChange={(e) => setVersion(e.target.value)}>
               {versions.map((c) => (
                 <option key={c.version} value={c.version}>
                   {c.version}
-                  {c.appVersion ? ` (app ${c.appVersion})` : ""}
+                  {c.appVersion ? ` (${t("helm.form.app", { version: c.appVersion })})` : ""}
                 </option>
               ))}
             </select>
           ) : (
-            <input value={version} onChange={(e) => setVersion(e.target.value)} placeholder="latest" />
+            <input value={version} onChange={(e) => setVersion(e.target.value)} placeholder={t("helm.form.latest")} />
           )}
         </label>
         <label className="field">
-          <span>Release name</span>
+          <span>{t("helm.form.releaseName")}</span>
           <input value={name} disabled={mode === "upgrade"} onChange={(e) => setName(e.target.value)} />
         </label>
         <label className="field">
-          <span>Namespace</span>
+          <span>{t("common.namespace")}</span>
           {mode === "upgrade" ? (
             <input value={namespace} disabled />
           ) : (
@@ -139,17 +141,17 @@ export default function ChartForm({ mode, chart: initialChart, version: initialV
         </label>
         {mode === "install" && !namespaces.includes(namespace) && namespace.trim() !== "" && (
           <label className="checkbox">
-            <input type="checkbox" checked={createNamespace} onChange={(e) => setCreateNamespace(e.target.checked)} /> Create namespace {namespace}
+            <input type="checkbox" checked={createNamespace} onChange={(e) => setCreateNamespace(e.target.checked)} /> {t("helm.form.createNamespace", { namespace })}
           </label>
         )}
       </div>
 
       <div className="chart-form-values">
         <div className="yaml-toolbar">
-          <strong>Values</strong>
-          {mode === "upgrade" && <span className="muted">starting from the release's current values</span>}
+          <strong>{t("helm.form.values")}</strong>
+          {mode === "upgrade" && <span className="muted">{t("helm.form.currentValues")}</span>}
           <button onClick={loadDefaults} disabled={busy || !chart}>
-            Chart defaults
+            {t("helm.form.defaults")}
           </button>
         </div>
         <div className="yaml-editor">
@@ -165,7 +167,7 @@ export default function ChartForm({ mode, chart: initialChart, version: initialV
               options={{ minimap: { enabled: false }, fontSize: 12, scrollBeyondLastLine: false, tabSize: 2 }}
             />
           ) : (
-            <div className="empty">Loading chart values…</div>
+            <div className="empty">{t("helm.form.loadingValues")}</div>
           )}
         </div>
       </div>
@@ -173,17 +175,17 @@ export default function ChartForm({ mode, chart: initialChart, version: initialV
       {output && (
         <div className={`chart-output ${output.kind}`}>
           <div className="yaml-toolbar">
-            <strong>{output.kind === "dry" ? "Dry run: rendered manifests (nothing was changed)" : "Error"}</strong>
-            <button onClick={() => setOutput(null)}>Hide</button>
+            <strong>{output.kind === "dry" ? t("helm.form.dryRunOutput") : t("helm.form.error")}</strong>
+            <button onClick={() => setOutput(null)}>{t("helm.form.hide")}</button>
           </div>
           <pre>{output.text}</pre>
         </div>
       )}
 
       <div className="chart-form-actions">
-        {busy && <span className="muted">Running helm…</span>}
+        {busy && <span className="muted">{t("helm.form.running")}</span>}
         <button disabled={!valid || busy} onClick={() => run(true)}>
-          Dry run
+          {t("helm.form.dryRun")}
         </button>
         <button className="primary" disabled={!valid || busy} onClick={() => (production ? setConfirming(true) : run(false))}>
           {verb}
@@ -192,8 +194,8 @@ export default function ChartForm({ mode, chart: initialChart, version: initialV
 
       {confirming && (
         <ConfirmDialog
-          title={`${verb} ${name} on production?`}
-          message={`This ${mode === "install" ? "installs" : "upgrades"} ${chart}${version ? ` ${version}` : ""} in ${namespace} on ${context}.`}
+          title={t(mode === "install" ? "helm.form.confirmInstall" : "helm.form.confirmUpgrade", { name })}
+          message={t(mode === "install" ? "helm.form.installs" : "helm.form.upgrades", { chart: version ? `${chart} ${version}` : chart, namespace, cluster: context })}
           confirmLabel={verb}
           typeToConfirm={name}
           onConfirm={() => run(false)}

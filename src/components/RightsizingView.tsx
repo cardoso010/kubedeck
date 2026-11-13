@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { IconAdjustments } from "@tabler/icons-react";
 import { errorText, formatCpu, formatMemory, rightsizing, type KindInfo, type RightsizeRow } from "../api";
 import { useReadOnly } from "../readOnly";
@@ -30,7 +31,6 @@ function verdict(request: number | null, used: number | null, suggested: number 
   return "ok";
 }
 
-const LABEL: Record<Verdict, string> = { over: "over-provisioned", under: "above request", none: "no request", ok: "ok", nodata: "no data" };
 const TONE: Record<Verdict, string> = { over: "warn", under: "bad", none: "warn", ok: "ok", nodata: "faint" };
 
 interface Analysed extends RightsizeRow {
@@ -52,6 +52,7 @@ function analyse(r: RightsizeRow): Analysed {
 
 /** Requests against real usage per workload container, with suggested requests. */
 export default function RightsizingView({ namespaces, kinds, production, context, onOpen }: Props) {
+  const { t } = useTranslation();
   const readOnly = useReadOnly();
   const [data, setData] = useState<{ source: string; rows: RightsizeRow[] } | null>(null);
   const [applying, setApplying] = useState<Analysed | null>(null);
@@ -91,38 +92,38 @@ export default function RightsizingView({ namespaces, kinds, production, context
   return (
     <section className="table rightsizing">
       <header className="table-toolbar">
-        <h2>Rightsizing</h2>
-        <span className="count">{data ? `${shown.length} of ${rows.length} containers` : "loading…"}</span>
+        <h2>{t("rightsizing.title")}</h2>
+        <span className="count">{data ? t("rightsizing.count", { shown: shown.length, count: rows.length }) : t("rightsizing.loading")}</span>
         <div className="table-actions">
           <label className="check">
-            <input type="checkbox" checked={onlyIssues} onChange={(e) => setOnlyIssues(e.target.checked)} /> only what needs attention
+            <input type="checkbox" checked={onlyIssues} onChange={(e) => setOnlyIssues(e.target.checked)} /> {t("rightsizing.onlyIssues")}
           </label>
-          <input placeholder="Filter…" value={query} onChange={(e) => setQuery(e.target.value)} />
+          <input placeholder={t("rightsizing.filter")} value={query} onChange={(e) => setQuery(e.target.value)} />
         </div>
       </header>
       {error && <div className="error-bar">{error}</div>}
       {data && (
         <div className="rs-summary">
-          <Stat label="CPU requested" value={formatCpu(total((r) => r.cpuRequestMillis))} />
-          <Stat label="CPU used (peak)" value={formatCpu(total((r) => r.cpuUsageMillis))} />
-          <Stat label="CPU reclaimable" value={formatCpu(rows.reduce((s, r) => s + r.cpu.reclaim, 0))} tone="warn" />
-          <Stat label="Memory requested" value={formatMemory(total((r) => r.memoryRequestBytes))} />
-          <Stat label="Memory used (peak)" value={formatMemory(total((r) => r.memoryUsageBytes))} />
-          <Stat label="Memory reclaimable" value={formatMemory(rows.reduce((s, r) => s + r.memory.reclaim, 0))} tone="warn" />
+          <Stat label={t("rightsizing.stats.cpuRequested")} value={formatCpu(total((r) => r.cpuRequestMillis))} />
+          <Stat label={t("rightsizing.stats.cpuUsed")} value={formatCpu(total((r) => r.cpuUsageMillis))} />
+          <Stat label={t("rightsizing.stats.cpuReclaimable")} value={formatCpu(rows.reduce((s, r) => s + r.cpu.reclaim, 0))} tone="warn" />
+          <Stat label={t("rightsizing.stats.memoryRequested")} value={formatMemory(total((r) => r.memoryRequestBytes))} />
+          <Stat label={t("rightsizing.stats.memoryUsed")} value={formatMemory(total((r) => r.memoryUsageBytes))} />
+          <Stat label={t("rightsizing.stats.memoryReclaimable")} value={formatMemory(rows.reduce((s, r) => s + r.memory.reclaim, 0))} tone="warn" />
           <span className="faint rs-source">
-            {data.source}. Suggested request = peak × {HEADROOM}.
+            {data.source}. {t("rightsizing.formula", { headroom: HEADROOM })}
           </span>
         </div>
       )}
       <div className="rs-table">
         <div className="rs-row head">
-          <div>Workload</div>
-          <div>Container</div>
-          <div>Pods</div>
-          <div>CPU request → suggested</div>
-          <div>CPU used</div>
-          <div>Memory request → suggested</div>
-          <div>Memory used</div>
+          <div>{t("rightsizing.columns.workload")}</div>
+          <div>{t("rightsizing.columns.container")}</div>
+          <div>{t("rightsizing.columns.pods")}</div>
+          <div>{t("rightsizing.columns.cpuRequest")}</div>
+          <div>{t("rightsizing.columns.cpuUsed")}</div>
+          <div>{t("rightsizing.columns.memoryRequest")}</div>
+          <div>{t("rightsizing.columns.memoryUsed")}</div>
           <div />
         </div>
         {shown.map((r) => (
@@ -140,7 +141,7 @@ export default function RightsizingView({ namespaces, kinds, production, context
               {r.workload}
             </div>
             <div>
-              {r.container} {r.sidecar && <span className="kind-chip">sidecar</span>}
+              {r.container} {r.sidecar && <span className="kind-chip">{t("rightsizing.sidecar")}</span>}
             </div>
             <div>{r.pods}</div>
             <Cell request={r.cpuRequestMillis} suggested={r.cpu.suggested} verdict={r.cpu.verdict} format={formatCpu} />
@@ -152,8 +153,8 @@ export default function RightsizingView({ namespaces, kinds, production, context
                 <button
                   className="icon-button"
                   disabled={readOnly}
-                  title={readOnly ? "Read-only mode" : "Apply new requests…"}
-                  aria-label="Apply new requests"
+                  title={readOnly ? t("rightsizing.readOnly") : t("rightsizing.applyEllipsis")}
+                  aria-label={t("rightsizing.apply")}
                   onClick={(e) => (e.stopPropagation(), setApplying(r))}
                 >
                   <IconAdjustments size={15} />
@@ -162,7 +163,7 @@ export default function RightsizingView({ namespaces, kinds, production, context
             </div>
           </div>
         ))}
-        {data && shown.length === 0 && <div className="empty">{onlyIssues ? "Every container's requests match its usage." : "No running pods in the selected namespaces."}</div>}
+        {data && shown.length === 0 && <div className="empty">{onlyIssues ? t("rightsizing.emptyIssues") : t("rightsizing.empty")}</div>}
       </div>
       {applying && (
         <ApplyRequestsDialog
@@ -193,11 +194,12 @@ function Stat({ label, value, tone }: { label: string; value: string; tone?: str
 }
 
 function Cell({ request, suggested, verdict, format }: { request: number | null; suggested: number | null; verdict: Verdict; format: (v: number) => string }) {
+  const { t } = useTranslation();
   return (
     <div className="rs-cell">
       <span>{request === null ? "—" : format(request)}</span>
       {suggested !== null && verdict !== "ok" && <span className="faint">→ {format(suggested)}</span>}
-      <span className={`rs-verdict ${TONE[verdict]}`}>{LABEL[verdict]}</span>
+      <span className={`rs-verdict ${TONE[verdict]}`}>{t(`rightsizing.verdict.${verdict}`)}</span>
     </div>
   );
 }

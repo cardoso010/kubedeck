@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import Editor from "@monaco-editor/react";
 import { createResources, errorText } from "../api";
 import { useCurrentTheme } from "../theme";
@@ -26,9 +27,10 @@ const TEMPLATES: Record<string, string> = {
 
 /** Creates objects from pasted YAML (several documents allowed), with a server-side dry run first. */
 export default function CreateDialog({ kindKey, namespaces, defaultNamespace, production, context, onClose }: Props) {
+  const { t } = useTranslation();
   const monacoTheme = useCurrentTheme().monaco;
   const readOnly = useReadOnly();
-  const [yaml, setYaml] = useState(TEMPLATES[kindKey ?? ""] ?? "# Paste one or more objects, separated by ---\n");
+  const [yaml, setYaml] = useState(TEMPLATES[kindKey ?? ""] ?? t("dialogs.create.placeholder"));
   const [namespace, setNamespace] = useState(defaultNamespace);
   const [result, setResult] = useState<{ ok: boolean; text: string; dry: boolean } | null>(null);
   const [busy, setBusy] = useState(false);
@@ -39,7 +41,7 @@ export default function CreateDialog({ kindKey, namespaces, defaultNamespace, pr
     setBusy(true);
     try {
       const created = await createResources(yaml, namespace, dryRun);
-      setResult({ ok: true, dry: dryRun, text: `${dryRun ? "Valid, would create" : "Created"}:\n${created.map((c) => `  ${c}`).join("\n")}` });
+      setResult({ ok: true, dry: dryRun, text: `${dryRun ? t("dialogs.create.valid") : t("dialogs.create.created")}:\n${created.map((c) => `  ${c}`).join("\n")}` });
       if (!dryRun) setTimeout(onClose, 900);
     } catch (e) {
       setResult({ ok: false, dry: dryRun, text: errorText(e) });
@@ -53,16 +55,16 @@ export default function CreateDialog({ kindKey, namespaces, defaultNamespace, pr
     <div className="modal-backdrop" onClick={onClose}>
       <div className="modal modal-large" onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
-          <strong>Create from YAML</strong>
+          <strong>{t("dialogs.create.title")}</strong>
           <label className="create-ns">
-            <span className="faint">Namespace for objects without one</span>
+            <span className="faint">{t("dialogs.create.namespace")}</span>
             <select value={namespace} onChange={(e) => setNamespace(e.target.value)}>
               {[...new Set([defaultNamespace, ...namespaces])].map((n) => (
                 <option key={n}>{n}</option>
               ))}
             </select>
           </label>
-          <button onClick={onClose} aria-label="Close">
+          <button onClick={onClose} aria-label={t("common.close")}>
             ✕
           </button>
         </div>
@@ -71,15 +73,15 @@ export default function CreateDialog({ kindKey, namespaces, defaultNamespace, pr
         </div>
         {result && <pre className={`create-result ${result.ok ? "ok" : "bad"}`}>{result.text}</pre>}
         <div className="modal-actions create-actions">
-          {readOnly && <span className="faint">Read-only mode: you can validate, not create.</span>}
+          {readOnly && <span className="faint">{t("dialogs.create.readOnly")}</span>}
           {production && validated && !readOnly && (
             <TypeToConfirm expected={clusterName} value={typed} onChange={setTyped} />
           )}
           <button disabled={busy} onClick={() => void run(true)}>
-            Validate (dry run)
+            {t("dialogs.create.validate")}
           </button>
-          <button className="primary" disabled={busy || readOnly || !validated || (production && !confirms(typed, clusterName))} title={validated ? undefined : "Validate first"} onClick={() => void run(false)}>
-            Create
+          <button className="primary" disabled={busy || readOnly || !validated || (production && !confirms(typed, clusterName))} title={validated ? undefined : t("dialogs.create.validateFirst")} onClick={() => void run(false)}>
+            {t("dialogs.create.create")}
           </button>
         </div>
       </div>

@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { IconChevronDown } from "@tabler/icons-react";
+import type { TFunction } from "i18next";
+import { useTranslation } from "react-i18next";
 
 interface Props {
   namespaces: string[];
@@ -13,10 +15,10 @@ interface Props {
   clusterScoped?: boolean;
 }
 
-export function namespaceSummary(selected: string[]) {
-  if (selected.length === 0) return "All namespaces";
+export function namespaceSummary(selected: string[], t: TFunction) {
+  if (selected.length === 0) return t("app.namespaces.all");
   if (selected.length <= 2) return selected.join(", ");
-  return `${selected.length} namespaces`;
+  return t("app.namespaces.count", { count: selected.length });
 }
 
 /**
@@ -24,6 +26,7 @@ export function namespaceSummary(selected: string[]) {
  * removes it from the selection.
  */
 export default function NamespacePicker({ namespaces, selected, disabled, onChange, variant = "field", clusterScoped = false }: Props) {
+  const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const root = useRef<HTMLDivElement>(null);
@@ -50,31 +53,31 @@ export default function NamespacePicker({ namespaces, selected, disabled, onChan
   return (
     <div className={variant === "crumb" ? "crumb-wrap" : "ns-picker"} ref={root}>
       <button className={variant === "crumb" ? "crumb" : "ns-picker-button"} disabled={disabled} onClick={() => setOpen(!open)} title={selected.join(", ") || undefined}>
-        <span>{clusterScoped ? "cluster-wide" : namespaceSummary(selected)}</span>
+        <span>{clusterScoped ? t("app.namespaces.clusterWide") : namespaceSummary(selected, t)}</span>
         <IconChevronDown size={13} className="faint" />
       </button>
       {open && (
         <div className="menu ns-picker-menu">
-          <input autoFocus placeholder="Find a namespace…" value={query} onChange={(e) => setQuery(e.target.value)} />
+          <input autoFocus placeholder={t("app.namespaces.find")} value={query} onChange={(e) => setQuery(e.target.value)} />
           <button className={`ns-option ${selected.length === 0 ? "active" : ""}`} onClick={() => (onChange([]), setOpen(false))}>
-            All namespaces
+            {t("app.namespaces.all")}
           </button>
           <div className="ns-options">
             {visible.map((ns) => (
               <div key={ns} className={`ns-option ${selected.includes(ns) ? "active" : ""}`}>
-                <input type="checkbox" checked={selected.includes(ns)} onChange={() => toggle(ns)} aria-label={`Include ${ns}`} />
-                <button onClick={() => (onChange([ns]), setOpen(false))} title={`Show only ${ns}`}>
+                <input type="checkbox" checked={selected.includes(ns)} onChange={() => toggle(ns)} aria-label={t("app.namespaces.include", { name: ns })} />
+                <button onClick={() => (onChange([ns]), setOpen(false))} title={t("app.namespaces.only", { name: ns })}>
                   {ns}
                 </button>
               </div>
             ))}
-            {visible.length === 0 && <div className="muted ns-empty">No match</div>}
+            {visible.length === 0 && <div className="muted ns-empty">{t("app.namespaces.noMatch")}</div>}
           </div>
           {selected.length > 0 && (
             <div className="ns-footer muted">
-              {selected.length} selected ·{" "}
+              {t("app.namespaces.selected", { count: selected.length })} ·{" "}
               <button className="link" onClick={() => onChange([])}>
-                clear
+                {t("app.namespaces.clear")}
               </button>
             </div>
           )}

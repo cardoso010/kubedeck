@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { IconLock, IconLockOpen, IconTruckDelivery } from "@tabler/icons-react";
 import { cordon, drain, errorText, formatCpu, formatMemory, nodeHistory, nodeSummary, prometheusTarget, type DrainReport, type NodeHistory, type NodeSummary } from "../api";
 import LineChart from "./LineChart";
@@ -16,6 +17,7 @@ const REFRESH_MS = 10_000;
 
 /** A node's capacity against what pods request and actually use, its health, and cordon/drain. */
 export default function NodeOverview({ name, production, context }: Props) {
+  const { t } = useTranslation();
   const [summary, setSummary] = useState<NodeSummary | null>(null);
   const [history, setHistory] = useState<NodeHistory | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -30,8 +32,8 @@ export default function NodeOverview({ name, production, context }: Props) {
     void load();
     const timer = setInterval(load, REFRESH_MS);
     prometheusTarget().then(
-      (t) => {
-        if (t) nodeHistory(name, 360).then(setHistory, () => {});
+      (target) => {
+        if (target) nodeHistory(name, 360).then(setHistory, () => {});
       },
       () => {},
     );
@@ -52,26 +54,26 @@ export default function NodeOverview({ name, production, context }: Props) {
     }
   }
 
-  if (!summary) return error ? <div className="error-bar">{error}</div> : <div className="empty">Loading…</div>;
+  if (!summary) return error ? <div className="error-bar">{error}</div> : <div className="empty">{t("common.loading")}</div>;
   const s = summary;
 
   return (
     <div className="node-overview">
       {error && <div className="error-bar">{error}</div>}
       <div className="node-actions">
-        {s.unschedulable ? <span className="warn">Cordoned: no new pods are scheduled here.</span> : <span className="faint">Schedulable</span>}
+        {s.unschedulable ? <span className="warn">{t("nodes.cordoned")}</span> : <span className="faint">{t("nodes.schedulable")}</span>}
         <span className="spacer" />
         <button disabled={busy || readOnly} onClick={() => (s.unschedulable ? void act(() => cordon(name, false)) : setConfirmCordon(true))}>
-          {s.unschedulable ? <IconLockOpen size={14} /> : <IconLock size={14} />} {s.unschedulable ? "Uncordon" : "Cordon"}
+          {s.unschedulable ? <IconLockOpen size={14} /> : <IconLock size={14} />} {s.unschedulable ? t("nodes.uncordon") : t("nodes.cordon")}
         </button>
         <button disabled={busy || readOnly} onClick={() => void act(async () => setPreview(await drain(name, null, true)))}>
-          <IconTruckDelivery size={14} /> Drain…
+          <IconTruckDelivery size={14} /> {t("nodes.drainEllipsis")}
         </button>
       </div>
 
       <div className="capacity">
         <Capacity label="CPU" total={s.cpuAllocatableMillis} requested={s.cpuRequestedMillis} used={s.cpuUsageMillis} format={formatCpu} />
-        <Capacity label="Memory" total={s.memoryAllocatableBytes} requested={s.memoryRequestedBytes} used={s.memoryUsageBytes} format={formatMemory} />
+        <Capacity label={t("nodes.memory")} total={s.memoryAllocatableBytes} requested={s.memoryRequestedBytes} used={s.memoryUsageBytes} format={formatMemory} />
         <Capacity label="Pods" total={s.maxPods} requested={s.pods} used={null} format={(v) => String(Math.round(v))} />
       </div>
 
@@ -79,21 +81,21 @@ export default function NodeOverview({ name, production, context }: Props) {
         <div className="charts">
           <section className="chart-block">
             <header>
-              <strong>CPU</strong> <span className="faint">last 6h · {history.source}</span>
+              <strong>CPU</strong> <span className="faint">{t("nodes.last6h", { source: history.source })}</span>
             </header>
-            <LineChart series={history.cpu} refs={[{ label: "allocatable", value: s.cpuAllocatableMillis / 1000, kind: "limit" }]} format={(v) => formatCpu(v * 1000)} height={120} />
+            <LineChart series={history.cpu} refs={[{ label: t("nodes.allocatable"), value: s.cpuAllocatableMillis / 1000, kind: "limit" }]} format={(v) => formatCpu(v * 1000)} height={120} />
           </section>
           <section className="chart-block">
             <header>
-              <strong>Memory</strong> <span className="faint">working set</span>
+              <strong>{t("nodes.memory")}</strong> <span className="faint">{t("nodes.workingSet")}</span>
             </header>
-            <LineChart series={history.memory} refs={[{ label: "allocatable", value: s.memoryAllocatableBytes, kind: "limit" }]} format={formatMemory} height={120} />
+            <LineChart series={history.memory} refs={[{ label: t("nodes.allocatable"), value: s.memoryAllocatableBytes, kind: "limit" }]} format={formatMemory} height={120} />
           </section>
         </div>
       )}
 
       <div className="node-section">
-        <div className="related-title">Conditions</div>
+        <div className="related-title">{t("nodes.conditions")}</div>
         {s.conditions.map((c) => (
           <div key={c.type} className={`node-condition ${c.bad ? "bad" : ""}`}>
             <span className={`status-dot ${c.bad ? "bad" : "ok"}`} />
@@ -105,10 +107,10 @@ export default function NodeOverview({ name, production, context }: Props) {
       </div>
       {s.taints.length > 0 && (
         <div className="node-section">
-          <div className="related-title">Taints</div>
-          {s.taints.map((t) => (
-            <code key={t} className="node-taint">
-              {t}
+          <div className="related-title">{t("nodes.taints")}</div>
+          {s.taints.map((taint) => (
+            <code key={taint} className="node-taint">
+              {taint}
             </code>
           ))}
         </div>
@@ -124,9 +126,9 @@ export default function NodeOverview({ name, production, context }: Props) {
 
       {confirmCordon && (
         <ConfirmDialog
-          title={`Cordon ${name}?`}
-          message={`No new pods will be scheduled on this node of ${context}. Pods already there keep running.`}
-          confirmLabel="Cordon"
+          title={t("nodes.cordonTitle", { name })}
+          message={t("nodes.cordonMessage", { cluster: context })}
+          confirmLabel={t("nodes.cordon")}
           typeToConfirm={production ? name : undefined}
           onConfirm={() => (setConfirmCordon(false), void act(() => cordon(name, true)))}
           onCancel={() => setConfirmCordon(false)}
@@ -148,11 +150,11 @@ export default function NodeOverview({ name, production, context }: Props) {
       {result && (
         <div className="modal-backdrop" onClick={() => setResult(null)}>
           <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <h3>Drain of {name}</h3>
+            <h3>{t("nodes.drainResult", { name })}</h3>
             <DrainList report={result} done />
             <div className="modal-actions">
               <button className="primary" onClick={() => setResult(null)}>
-                Close
+                {t("common.close")}
               </button>
             </div>
           </div>
@@ -163,13 +165,20 @@ export default function NodeOverview({ name, production, context }: Props) {
 }
 
 function Capacity({ label, total, requested, used, format }: { label: string; total: number; requested: number; used: number | null; format: (v: number) => string }) {
+  const { t } = useTranslation();
   const pct = (v: number) => (total > 0 ? Math.min(100, (v / total) * 100) : 0);
   return (
     <div className="capacity-row">
       <div className="capacity-head">
         <strong>{label}</strong>
         <span className="faint">
-          requested {format(requested)} ({Math.round(pct(requested))}%){used !== null && ` · used ${format(used)} (${Math.round(pct(used))}%)`} · allocatable {format(total)}
+          {[
+            t("nodes.requested", { value: format(requested), pct: Math.round(pct(requested)) }),
+            used !== null && t("nodes.used", { value: format(used), pct: Math.round(pct(used)) }),
+            t("nodes.allocatableValue", { value: format(total) }),
+          ]
+            .filter(Boolean)
+            .join(" · ")}
         </span>
       </div>
       <div className="capacity-bar">
@@ -181,10 +190,11 @@ function Capacity({ label, total, requested, used, format }: { label: string; to
 }
 
 function DrainList({ report, done = false }: { report: DrainReport; done?: boolean }) {
+  const { t } = useTranslation();
   return (
     <div className="drain-list">
       <div>
-        <strong>{done ? "Evicted" : "Will be evicted"}</strong> <span className="faint">{report.evicted.length}</span>
+        <strong>{done ? t("nodes.evicted") : t("nodes.willBeEvicted")}</strong> <span className="faint">{report.evicted.length}</span>
       </div>
       {report.evicted.map((p) => (
         <code key={p}>{p}</code>
@@ -192,7 +202,7 @@ function DrainList({ report, done = false }: { report: DrainReport; done?: boole
       {report.failed.length > 0 && (
         <>
           <div className="bad">
-            <strong>Not evicted</strong> {report.failed.length}
+            <strong>{t("nodes.notEvicted")}</strong> {report.failed.length}
           </div>
           {report.failed.map(([p, why]) => (
             <div key={p}>
@@ -204,7 +214,7 @@ function DrainList({ report, done = false }: { report: DrainReport; done?: boole
       {report.skipped.length > 0 && (
         <>
           <div>
-            <strong>Left alone</strong> <span className="faint">{report.skipped.length}</span>
+            <strong>{t("nodes.leftAlone")}</strong> <span className="faint">{report.skipped.length}</span>
           </div>
           {report.skipped.map(([p, why]) => (
             <div key={p}>
@@ -218,21 +228,20 @@ function DrainList({ report, done = false }: { report: DrainReport; done?: boole
 }
 
 function DrainDialog({ name, preview, production, context, onConfirm, onCancel }: { name: string; preview: DrainReport; production: boolean; context: string; onConfirm: () => void; onCancel: () => void }) {
+  const { t } = useTranslation();
   const [typed, setTyped] = useState("");
   const ok = !production || confirms(typed, name);
   return (
     <div className="modal-backdrop" onClick={onCancel}>
       <div className="modal modal-wide" onClick={(e) => e.stopPropagation()}>
-        <h3>Drain {name}?</h3>
-        <p>
-          The node is cordoned, then each pod below is evicted on {context}. PodDisruptionBudgets are respected, so some evictions may be refused.
-        </p>
+        <h3>{t("nodes.drainTitle", { name })}</h3>
+        <p>{t("nodes.drainMessage", { cluster: context })}</p>
         <DrainList report={preview} />
         {production && <TypeToConfirm expected={name} value={typed} onChange={setTyped} />}
         <div className="modal-actions">
-          <button onClick={onCancel}>Cancel</button>
+          <button onClick={onCancel}>{t("common.cancel")}</button>
           <button className="danger" disabled={!ok} onClick={onConfirm}>
-            Drain
+            {t("nodes.drain")}
           </button>
         </div>
       </div>

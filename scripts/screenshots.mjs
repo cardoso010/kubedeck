@@ -20,6 +20,8 @@ async function scene(name, { theme, namespaces = ["demo", "demo2"], connect = tr
   await context.addInitScript(
     ([theme, ns, ctx, prod]) => {
       localStorage.setItem("kubedeck.theme", theme);
+      // The README is in English, whatever the machine's language.
+      localStorage.setItem("kubedeck.language", "en");
       localStorage.setItem("kubedeck.hotbar", JSON.stringify([ctx, prod]));
       localStorage.setItem(`kubedeck.namespaces.${ctx}`, JSON.stringify(ns));
     },

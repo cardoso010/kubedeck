@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import Editor from "@monaco-editor/react";
+import { useTranslation } from "react-i18next";
 import { useCurrentTheme } from "../theme";
 import { errorText, helmDetails, helmList, helmRollback, helmSearch, helmUninstall, splitChart, type HelmDetails, type HelmRelease, type KindInfo, type Row } from "../api";
 import ResourceTable from "./ResourceTable";
@@ -8,7 +9,6 @@ import ChartForm from "./ChartForm";
 import InstallChartDialog from "./InstallChartDialog";
 import { useReadOnly } from "../readOnly";
 
-const KIND: KindInfo = { key: "helm", label: "Helm Releases", namespaced: true, columns: ["Revision", "Status", "Chart", "App version"] };
 const POLL_MS = 10_000;
 
 const toRow = (r: HelmRelease): Row => ({
@@ -35,6 +35,12 @@ interface Props {
 }
 
 export default function HelmView({ namespaces, allNamespaces, defaultNamespace, production, context, installRequest = 0 }: Props) {
+  const { t, i18n } = useTranslation();
+  const kind = useMemo<KindInfo>(
+    () => ({ key: "helm", label: t("helm.releases"), namespaced: true, columns: [t("helm.columns.revision"), t("helm.columns.status"), t("helm.columns.chart"), t("helm.columns.appVersion")] }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [i18n.language],
+  );
   const [releases, setReleases] = useState<HelmRelease[] | null>(null);
   const [installing, setInstalling] = useState(false);
   useEffect(() => {
@@ -53,8 +59,8 @@ export default function HelmView({ namespaces, allNamespaces, defaultNamespace, 
     setReleases(null);
     setSelected(null);
     void refresh();
-    const t = setInterval(refresh, POLL_MS);
-    return () => clearInterval(t);
+    const timer = setInterval(refresh, POLL_MS);
+    return () => clearInterval(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [namespaces.join(",")]);
 
@@ -64,18 +70,18 @@ export default function HelmView({ namespaces, allNamespaces, defaultNamespace, 
   return (
     <>
       <ResourceTable
-        kind={KIND}
+        kind={kind}
         rows={rows}
         loading={releases === null && !error}
         error={error}
         errorPrefix="Helm"
-        ageLabel="Updated"
+        ageLabel={t("helm.columns.updated")}
         showNamespace={namespaces.length !== 1}
         selectedUid={selected}
         onSelect={(r) => setSelected(r.uid)}
         actions={
           <button className="primary" onClick={() => setInstalling(true)}>
-            Install chart
+            {t("helm.installChart")}
           </button>
         }
       />
@@ -119,6 +125,7 @@ function HelmPanel({
   onChanged: () => void;
   onClose: () => void;
 }) {
+  const { t } = useTranslation();
   const [tab, setTab] = useState<Tab>("values");
   const [details, setDetails] = useState<HelmDetails | null>(null);
   const [status, setStatus] = useState<{ kind: "ok" | "error"; text: string } | null>(null);
@@ -138,7 +145,7 @@ function HelmPanel({
     try {
       if (p.action === "rollback") {
         await helmRollback(release.namespace, release.name, p.revision);
-        setStatus({ kind: "ok", text: `Rolled back to revision ${p.revision}.` });
+        setStatus({ kind: "ok", text: t("helm.rolledBack", { revision: p.revision }) });
         await load();
         onChanged();
       } else {
@@ -154,28 +161,28 @@ function HelmPanel({
   }
 
   const tabs: [Tab, string][] = [
-    ["values", "Values"],
-    ["manifest", "Manifest"],
-    ["notes", "Notes"],
-    ["history", "History"],
-    ["upgrade", "Upgrade"],
+    ["values", t("helm.tabs.values")],
+    ["manifest", t("helm.tabs.manifest")],
+    ["notes", t("helm.tabs.notes")],
+    ["history", t("helm.tabs.history")],
+    ["upgrade", t("helm.tabs.upgrade")],
   ];
 
   return (
     <section className="details">
       <header className="details-header">
         <div className="details-title">
-          <span className="kind-chip">Helm release</span>
+          <span className="kind-chip">{t("helm.release")}</span>
           <strong>{release.name}</strong>
           <span className="muted">
-            in {release.namespace} · {release.chart} · rev {release.revision}
+            {t("helm.subtitle", { namespace: release.namespace, chart: release.chart, revision: release.revision })}
           </span>
         </div>
         <div className="details-actions">
           <button className="danger" disabled={busy || readOnly} onClick={() => setPending({ action: "uninstall" })}>
-            Uninstall
+            {t("helm.uninstall")}
           </button>
-          <button onClick={onClose} aria-label="Close">
+          <button onClick={onClose} aria-label={t("common.close")}>
             ✕
           </button>
         </div>
@@ -186,14 +193,14 @@ function HelmPanel({
             {label}
           </button>
         ))}
-        {busy && <span className="muted tabs-status">Working…</span>}
+        {busy && <span className="muted tabs-status">{t("helm.working")}</span>}
         {status && <span className={`tabs-status ${status.kind === "error" ? "bad" : "ok"}`}>{status.text}</span>}
       </nav>
       <div className="details-body">
         {!details ? (
-          <div className="empty">Loading…</div>
+          <div className="empty">{t("common.loading")}</div>
         ) : tab === "values" ? (
-          <ReadOnlyCode text={details.values || "# Installed with the chart's default values."} language="yaml" />
+          <ReadOnlyCode text={details.values || `# ${t("helm.defaultValues")}`} language="yaml" />
         ) : tab === "manifest" ? (
           <ReadOnlyCode text={details.manifest} language="yaml" />
         ) : tab === "upgrade" ? (
@@ -203,22 +210,22 @@ function HelmPanel({
             production={production}
             context={context}
             onDone={async () => {
-              setStatus({ kind: "ok", text: "Upgraded." });
+              setStatus({ kind: "ok", text: t("helm.upgraded") });
               setTab("history");
               await load();
               onChanged();
             }}
           />
         ) : tab === "notes" ? (
-          <pre className="logs-body">{details.notes || "This chart has no notes."}</pre>
+          <pre className="logs-body">{details.notes || t("helm.noNotes")}</pre>
         ) : (
           <div className="simple-table">
             <div className="simple-row history head">
-              <div>Revision</div>
-              <div>Updated</div>
-              <div>Status</div>
-              <div>Chart</div>
-              <div>Description</div>
+              <div>{t("helm.columns.revision")}</div>
+              <div>{t("helm.columns.updated")}</div>
+              <div>{t("helm.columns.status")}</div>
+              <div>{t("helm.columns.chart")}</div>
+              <div>{t("helm.columns.description")}</div>
               <div />
             </div>
             {details.history.map((h, i) => (
@@ -231,7 +238,7 @@ function HelmPanel({
                 <div>
                   {i > 0 && (
                     <button disabled={busy || readOnly} onClick={() => setPending({ action: "rollback", revision: h.revision })}>
-                      Roll back
+                      {t("helm.rollback")}
                     </button>
                   )}
                 </div>
@@ -242,13 +249,17 @@ function HelmPanel({
       </div>
       {pending && (
         <ConfirmDialog
-          title={pending.action === "rollback" ? `Roll back ${release.name} to revision ${pending.revision}?` : `Uninstall ${release.name}?`}
+          title={
+            pending.action === "rollback"
+              ? t("helm.confirmRollback.title", { name: release.name, revision: pending.revision })
+              : t("helm.confirmUninstall.title", { name: release.name })
+          }
           message={
             pending.action === "rollback"
-              ? `Helm creates a new revision with the manifests of revision ${pending.revision} on ${context}.`
-              : `This removes every resource of the release from ${context}.`
+              ? t("helm.confirmRollback.message", { revision: pending.revision, cluster: context })
+              : t("helm.confirmUninstall.message", { cluster: context })
           }
-          confirmLabel={pending.action === "rollback" ? "Roll back" : "Uninstall"}
+          confirmLabel={pending.action === "rollback" ? t("helm.rollback") : t("helm.uninstall")}
           typeToConfirm={production ? release.name : undefined}
           onConfirm={() => run(pending)}
           onCancel={() => setPending(null)}
@@ -261,6 +272,7 @@ function HelmPanel({
 /** Finds which configured repository provides the release's chart, to prefill the upgrade. */
 function UpgradeTab({ release, values, production, context, onDone }: { release: HelmRelease; values: string; production: boolean; context: string; onDone: () => void }) {
   const { name: chartName, version } = splitChart(release.chart);
+  const { t } = useTranslation();
   const [chartRef, setChartRef] = useState<string | null>(null);
 
   useEffect(() => {
@@ -270,7 +282,7 @@ function UpgradeTab({ release, values, production, context, onDone }: { release:
     );
   }, [chartName]);
 
-  if (chartRef === null) return <div className="empty">Looking up {chartName} in your repositories…</div>;
+  if (chartRef === null) return <div className="empty">{t("helm.lookingUp", { chart: chartName })}</div>;
   return (
     <ChartForm
       mode="upgrade"

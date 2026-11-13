@@ -47,7 +47,9 @@ The app is not signed with an Apple Developer ID or notarized yet. The install s
 
 ## Features
 
-- **Its own look, with themes.** *Terminal* (default: near-black, monospace, lime accent), *Graphite* (blue-gray, rounded corners, violet accent) and *Light*. The YAML editor and the terminal follow the theme, and the choice applies to every window (palette icon in the rail, or ⌘K → "Theme").
+- **Its own look, with themes.** *Terminal* (default: near-black, monospace, lime accent), *Graphite* (blue-gray, rounded corners, violet accent) and *Light*. The YAML editor and the terminal follow the theme, and the choice applies to every window (Settings, ⌘, or the gear in the rail, or ⌘K → "Theme").
+- **In your language.** English, Português (Brasil), Español and 简体中文, following the system language until you pick one in Settings. Messages from the cluster, helm and the OS stay in English.
+- **Settings (⌘,)** in one place: language, theme, whether this cluster opens read-only, crash notifications, and the Claude API key.
 - **A lean layout.** A thin rail on the left with the sections (Problems, Workloads, Network, Config, Storage, Cluster, Custom resources, Rightsizing, Helm, Port forwards) and your pinned clusters; a `cluster / namespaces / kind` breadcrumb; tabs with the section's kinds; details in a drawer on the right.
 - **Command palette (⌘K / Ctrl+K)** with fuzzy search: jump to any kind (CRDs included) or resource in the table, switch cluster or open one in a new window, pick namespaces, change the theme, or run actions such as installing a chart.
 - Reads `~/.kube/config` (or `$KUBECONFIG`) and connects to any context, including EKS/GKE through exec plugins. The app inherits your login shell's `PATH`, so `aws`/`gcloud` are found even when it is opened from the Finder.
@@ -161,6 +163,7 @@ src/
   App.tsx         layout, cluster/namespace/kind selection, watch state, palette commands
   App.css         theme tokens ([data-theme]) and all styling
   theme.ts        themes, editor and terminal colors
+  i18n.ts         UI language (i18next); strings in locales/<language>/<area>.ts
   sections.ts     rail sections
   components/     rail, top bar, tabs, ⌘K palette, table, details drawer, dock, Helm, port forwards, …
 scripts/          fetch-helm, release, latest-json, install (sh and ps1), screenshots

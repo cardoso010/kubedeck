@@ -1,0 +1,32 @@
+export default {
+  switchTo: "Switch to {{cluster}}",
+  newWindow: "New window",
+  settings: "Settings",
+  updates: "Updates",
+  about: "About kubedeck",
+  cluster: {
+    openInWindow: "Open in new window",
+    moveUp: "Move up",
+    unpin: "Unpin",
+  },
+  aboutPopover: {
+    tagline: "A fast, native Kubernetes client. Open source, Apache-2.0.",
+    share: "Share",
+    copyLink: "Copy link",
+    copyInstall: "Copy install command",
+    installHint: "one line, for macOS, Linux or Windows",
+    links: "Links",
+    website: "Website",
+    whatsNew: "What's new",
+    reportBug: "Report a bug",
+  },
+  update: {
+    updateTo: "Update to {{version}}",
+    checking: "Checking for updates…",
+    available: "Version {{version}} is available.",
+    installing: "Installing…",
+    install: "Install and restart",
+    upToDate: "You're on the latest version.",
+    failed: "Update check failed: {{message}}",
+  },
+};
