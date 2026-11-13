@@ -45,7 +45,7 @@ pub struct Connection {
     /// Built-in kinds followed by the cluster's custom resources.
     pub kinds: Arc<Vec<KindDef>>,
     /// Where this cluster's Prometheus answers, found on first use (None: not found).
-    pub prometheus: Arc<tokio::sync::OnceCell<Option<crate::pod_insights::PromTarget>>>,
+    pub prometheus: Arc<tokio::sync::OnceCell<Option<crate::prometheus::PromTarget>>>,
     /// Watches stream their initial state instead of listing it first: less memory on the API
     /// server and a faster first paint on big clusters.
     pub streaming_lists: bool,

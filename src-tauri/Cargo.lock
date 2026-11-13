@@ -2583,7 +2583,6 @@ dependencies = [
 name = "kubedeck"
 version = "0.6.0"
 dependencies = [
- "anyhow",
  "form_urlencoded",
  "futures",
  "http",

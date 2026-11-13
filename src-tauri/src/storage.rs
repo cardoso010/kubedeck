@@ -17,7 +17,7 @@ use serde::Serialize;
 use serde_json::{json, Value};
 
 use crate::metrics::quantity;
-use crate::pod_insights::{prom_get, prometheus, Series};
+use crate::prometheus::{prom_get, prometheus, Series};
 use crate::state::{err, kube_err, CmdResult, Session};
 
 #[derive(Serialize, Clone, Default, Debug, PartialEq)]
@@ -59,7 +59,7 @@ pub struct VolumeUsage {
 }
 
 /// Usage of every claim in `namespaces` (all when empty) that Prometheus knows about.
-pub(crate) async fn from_prometheus(client: &Client, target: &crate::pod_insights::PromTarget, namespaces: &[String]) -> Option<Vec<VolumeStats>> {
+pub(crate) async fn from_prometheus(client: &Client, target: &crate::prometheus::PromTarget, namespaces: &[String]) -> Option<Vec<VolumeStats>> {
     // Namespace names are DNS labels: safe inside a regex alternation.
     let ns = if namespaces.is_empty() { ".+".to_owned() } else { namespaces.join("|") };
     let q = |metric: &str| format!(r#"max by (namespace, persistentvolumeclaim) (kubelet_volume_stats_{metric}{{namespace=~"{ns}"}})"#);
@@ -178,7 +178,7 @@ pub async fn volume_history(namespace: String, claim: String, minutes: u64, stat
     let q = format!(r#"label_replace(max(kubelet_volume_stats_used_bytes{{namespace="{namespace}",persistentvolumeclaim="{claim}"}}), "container", "used", "", "")"#);
     let params = [("query", q), ("start", (end - minutes * 60).to_string()), ("end", end.to_string()), ("step", step.to_string())];
     let data = prom_get(&client, &target, "/api/v1/query_range", &params).await?;
-    Ok(VolumeHistory { source: target.label(), used: crate::pod_insights::series(&data) })
+    Ok(VolumeHistory { source: target.label(), used: crate::prometheus::series(&data) })
 }
 
 #[derive(Serialize)]

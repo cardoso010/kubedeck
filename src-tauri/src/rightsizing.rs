@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
 use crate::metrics::quantity;
-use crate::pod_insights::{prom_get, prometheus};
+use crate::prometheus::{prom_get, prometheus};
 use crate::state::{kube_err, CmdResult, Session};
 
 #[derive(Serialize, Default)]

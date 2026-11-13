@@ -585,7 +585,7 @@ async fn pod_metrics_against_real_cluster() {
     assert!(c["lastTermination"].as_str().unwrap().starts_with("Error (exit 1)"), "{c}");
 
     // History from Prometheus, found through the API server proxy.
-    let target = pod_insights::prometheus_target(state()).await.unwrap();
+    let target = crate::prometheus::prometheus_target(state()).await.unwrap();
     assert_eq!(target.as_deref(), Some("monitoring/prometheus-server:80"));
     let history = serde_json::to_value(pod_insights::pod_history("demo".into(), "limited".into(), 15, state()).await.unwrap()).unwrap();
     assert_eq!(history["source"], "monitoring/prometheus-server:80");
