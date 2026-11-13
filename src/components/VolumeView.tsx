@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { IconArrowsMaximize, IconBolt } from "@tabler/icons-react";
 import { errorText, expandVolume, formatMemory, prometheusTarget, setVolumeAttributesClass, volumeExpandInfo, volumeHistory, volumeUsage, type ExpandInfo, type Series, type VolumeStats } from "../api";
 import { useReadOnly } from "../readOnly";
@@ -21,6 +22,7 @@ const RANGES: [string, number][] = [
 
 /** How full a claim is, how it filled up over time, and growing it. */
 export default function VolumeView({ namespace, name, production, context }: Props) {
+  const { t } = useTranslation();
   const readOnly = useReadOnly();
   const [stats, setStats] = useState<VolumeStats | null | undefined>(undefined);
   const [source, setSource] = useState("");
@@ -60,7 +62,7 @@ export default function VolumeView({ namespace, name, production, context }: Pro
     setStatus(null);
     try {
       await expandVolume(namespace, name, size.trim());
-      setStatus({ ok: true, text: `Requested ${size.trim()}. The driver grows the volume; some only finish after the pod restarts.` });
+      setStatus({ ok: true, text: t("storage.expandRequested", { size: size.trim() }) });
       setSize("");
       void loadInfo();
     } catch (e) {
@@ -73,7 +75,7 @@ export default function VolumeView({ namespace, name, production, context }: Pro
     setStatus(null);
     try {
       await setVolumeAttributesClass(namespace, name, vac);
-      setStatus({ ok: true, text: `Asked for ${vac}. The driver changes the volume in place; it can take a few minutes.` });
+      setStatus({ ok: true, text: t("storage.classRequested", { className: vac }) });
       setVac("");
       void loadInfo();
     } catch (e) {
@@ -87,18 +89,18 @@ export default function VolumeView({ namespace, name, production, context }: Pro
   return (
     <div className="node-overview">
       {stats === undefined ? (
-        <div className="empty">Loading…</div>
+        <div className="empty">{t("common.loading")}</div>
       ) : stats === null ? (
         <div className="empty">
-          No usage reported for this volume. Only volume types that measure themselves (CSI drivers such as EBS, local volumes) report it, through Prometheus or the kubelet.
+          {t("storage.noUsage")}
         </div>
       ) : (
         <div className="capacity">
-          <Bar label="Space" used={stats.usedBytes} total={stats.capacityBytes} detail={`${formatMemory(stats.usedBytes)} used · ${formatMemory(stats.availableBytes)} free · ${formatMemory(stats.capacityBytes)} capacity`} tone={tone(pct(stats.usedBytes, stats.capacityBytes))} />
+          <Bar label={t("storage.space")} used={stats.usedBytes} total={stats.capacityBytes} detail={t("storage.spaceDetail", { used: formatMemory(stats.usedBytes), free: formatMemory(stats.availableBytes), capacity: formatMemory(stats.capacityBytes) })} tone={tone(pct(stats.usedBytes, stats.capacityBytes))} />
           {stats.inodes !== null && stats.inodesUsed !== null && (
-            <Bar label="Inodes" used={stats.inodesUsed} total={stats.inodes} detail={`${stats.inodesUsed.toLocaleString()} of ${stats.inodes.toLocaleString()} files`} tone={tone(pct(stats.inodesUsed, stats.inodes))} />
+            <Bar label={t("storage.inodes")} used={stats.inodesUsed} total={stats.inodes} detail={t("storage.inodesDetail", { used: stats.inodesUsed.toLocaleString(), total: stats.inodes.toLocaleString() })} tone={tone(pct(stats.inodesUsed, stats.inodes))} />
           )}
-          <span className="faint volume-source">from {source}</span>
+          <span className="faint volume-source">{t("storage.from", { source })}</span>
         </div>
       )}
 
@@ -106,7 +108,7 @@ export default function VolumeView({ namespace, name, production, context }: Pro
         <div className="charts">
           <section className="chart-block">
             <header className="volume-chart-head">
-              <strong>Used</strong> <span className="faint">history from Prometheus</span>
+              <strong>{t("storage.used")}</strong> <span className="faint">{t("storage.history")}</span>
               <span className="spacer" />
               <div className="segmented">
                 {RANGES.map(([label, minutes]) => (
@@ -117,55 +119,55 @@ export default function VolumeView({ namespace, name, production, context }: Pro
               </div>
             </header>
             {history === null ? (
-              <div className="empty">Loading…</div>
+              <div className="empty">{t("common.loading")}</div>
             ) : history.length === 0 ? (
-              <div className="empty">Prometheus has no history for this volume.</div>
+              <div className="empty">{t("storage.noHistory")}</div>
             ) : (
-              <LineChart series={history} refs={stats ? [{ label: "capacity", value: stats.capacityBytes, kind: "limit" }] : []} format={formatMemory} height={140} />
+              <LineChart series={history} refs={stats ? [{ label: t("storage.capacity"), value: stats.capacityBytes, kind: "limit" }] : []} format={formatMemory} height={140} />
             )}
           </section>
         </div>
       )}
 
       <div className="node-section">
-        <div className="related-title">Expand</div>
+        <div className="related-title">{t("storage.expandTitle")}</div>
         {info && (
           <div className="volume-expand">
             <span className="faint">
-              Requests {info.requested || "?"}
+              {t("storage.requests", { size: info.requested || "?" })}
               {info.storageClass && ` · StorageClass ${info.storageClass}`}
             </span>
             {info.expandable ? (
               <>
-                <input placeholder="new size, e.g. 20Gi" value={size} onChange={(e) => setSize(e.target.value)} disabled={readOnly} spellCheck={false} />
-                <button disabled={readOnly || !size.trim()} title={readOnly ? "Read-only mode" : undefined} onClick={() => setConfirming(true)}>
-                  <IconArrowsMaximize size={14} /> Expand
+                <input placeholder={t("storage.newSize")} value={size} onChange={(e) => setSize(e.target.value)} disabled={readOnly} spellCheck={false} />
+                <button disabled={readOnly || !size.trim()} title={readOnly ? t("storage.readOnly") : undefined} onClick={() => setConfirming(true)}>
+                  <IconArrowsMaximize size={14} /> {t("storage.expand")}
                 </button>
               </>
             ) : (
-              <span className="warn">{info.storageClass ? `${info.storageClass} does not allow expansion.` : "No StorageClass: cannot be expanded."}</span>
+              <span className="warn">{info.storageClass ? t("storage.notExpandable", { storageClass: info.storageClass }) : t("storage.noStorageClass")}</span>
             )}
           </div>
         )}
         {info && (info.attributesClasses.length > 0 || info.attributesClass) && (
           <>
-            <div className="related-title">Attributes class</div>
+            <div className="related-title">{t("storage.classTitle")}</div>
             <div className="volume-expand">
               <span className="faint">
-                {info.currentAttributesClass ?? "none"}
+                {info.currentAttributesClass ?? t("storage.noClass")}
                 {info.attributesClass && info.attributesClass !== info.currentAttributesClass && ` → ${info.attributesClass}`}
                 {info.modifyStatus && <span className={info.modifyStatus.startsWith("Infeasible") ? "bad" : "warn"}> · {info.modifyStatus}</span>}
               </span>
               <select value={vac} onChange={(e) => setVac(e.target.value)} disabled={readOnly}>
-                <option value="">change to…</option>
+                <option value="">{t("storage.changeTo")}</option>
                 {info.attributesClasses
                   .filter((c) => c !== info.attributesClass)
                   .map((c) => (
                     <option key={c}>{c}</option>
                   ))}
               </select>
-              <button disabled={readOnly || !vac} title={readOnly ? "Read-only mode" : undefined} onClick={() => setConfirmingVac(true)}>
-                <IconBolt size={14} /> Change
+              <button disabled={readOnly || !vac} title={readOnly ? t("storage.readOnly") : undefined} onClick={() => setConfirmingVac(true)}>
+                <IconBolt size={14} /> {t("storage.change")}
               </button>
             </div>
           </>
@@ -175,9 +177,9 @@ export default function VolumeView({ namespace, name, production, context }: Pro
 
       {confirmingVac && (
         <ConfirmDialog
-          title={`Move ${name} to ${vac}?`}
-          message={`The CSI driver changes the volume's performance (IOPS, throughput) in place on ${context}. Some providers limit how often a volume can change.`}
-          confirmLabel="Change class"
+          title={t("storage.confirmClass.title", { name, className: vac })}
+          message={t("storage.confirmClass.message", { cluster: context })}
+          confirmLabel={t("storage.confirmClass.confirm")}
           typeToConfirm={production ? name : undefined}
           onConfirm={() => void changeClass()}
           onCancel={() => setConfirmingVac(false)}
@@ -185,9 +187,9 @@ export default function VolumeView({ namespace, name, production, context }: Pro
       )}
       {confirming && (
         <ConfirmDialog
-          title={`Expand ${name} to ${size.trim()}?`}
-          message={`Volumes can only grow: this cannot be undone on ${context}.`}
-          confirmLabel="Expand"
+          title={t("storage.confirmExpand.title", { name, size: size.trim() })}
+          message={t("storage.confirmExpand.message", { cluster: context })}
+          confirmLabel={t("storage.expand")}
           typeToConfirm={production ? name : undefined}
           onConfirm={() => void expand()}
           onCancel={() => setConfirming(false)}

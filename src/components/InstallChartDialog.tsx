@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { errorText, helmRepoAdd, helmRepoList, helmRepoRemove, helmRepoUpdate, helmSearch, type HelmChart, type HelmRepo } from "../api";
 import ChartForm from "./ChartForm";
 
@@ -13,6 +14,7 @@ interface Props {
 
 /** Search the configured repositories, pick a chart, install it. */
 export default function InstallChartDialog({ namespaces, defaultNamespace, production, context, onInstalled, onClose }: Props) {
+  const { t } = useTranslation();
   const [query, setQuery] = useState("");
   const [charts, setCharts] = useState<HelmChart[] | null>(null);
   const [repos, setRepos] = useState<HelmRepo[] | null>(null);
@@ -26,13 +28,13 @@ export default function InstallChartDialog({ namespaces, defaultNamespace, produ
   useEffect(() => void loadRepos(), []);
 
   useEffect(() => {
-    const t = setTimeout(() => {
+    const timer = setTimeout(() => {
       helmSearch(query).then(
         (c) => (setCharts(c), setError(null)),
         (e) => (setCharts([]), setError(errorText(e))),
       );
     }, 250);
-    return () => clearTimeout(t);
+    return () => clearTimeout(timer);
   }, [query, repos]);
 
   const chartRef = chosen?.name ?? manualRef;
@@ -42,10 +44,10 @@ export default function InstallChartDialog({ namespaces, defaultNamespace, produ
     <div className="modal-backdrop">
       <div className="modal modal-large">
         <header className="modal-header">
-          <h3>{notes !== null ? "Installed" : "Install a Helm chart"}</h3>
+          <h3>{notes !== null ? t("helm.install.installed") : t("helm.install.title")}</h3>
           <div className="details-actions">
-            <button onClick={() => setShowRepos(!showRepos)}>{showRepos ? "Hide repositories" : "Repositories"}</button>
-            <button onClick={onClose} aria-label="Close">
+            <button onClick={() => setShowRepos(!showRepos)}>{showRepos ? t("helm.install.hideRepos") : t("helm.repos.title")}</button>
+            <button onClick={onClose} aria-label={t("common.close")}>
               ✕
             </button>
           </div>
@@ -53,10 +55,10 @@ export default function InstallChartDialog({ namespaces, defaultNamespace, produ
 
         {notes !== null ? (
           <div className="chart-output dry">
-            <pre>{notes || "Release installed."}</pre>
+            <pre>{notes || t("helm.install.releaseInstalled")}</pre>
             <div className="modal-actions">
               <button className="primary" onClick={onClose}>
-                Done
+                {t("helm.install.done")}
               </button>
             </div>
           </div>
@@ -64,7 +66,7 @@ export default function InstallChartDialog({ namespaces, defaultNamespace, produ
           <div className="install-layout">
             <aside className="install-search">
               {showRepos && repos && <RepoManager repos={repos} onChanged={loadRepos} />}
-              <input autoFocus placeholder="Search charts…" value={query} onChange={(e) => setQuery(e.target.value)} />
+              <input autoFocus placeholder={t("helm.install.search")} value={query} onChange={(e) => setQuery(e.target.value)} />
               {error && <div className="bad">{error}</div>}
               <div className="chart-results">
                 {charts?.map((c) => (
@@ -75,11 +77,11 @@ export default function InstallChartDialog({ namespaces, defaultNamespace, produ
                     <div className="muted chart-result-desc">{c.description}</div>
                   </button>
                 ))}
-                {charts?.length === 0 && !error && <div className="muted">No charts found. Add a repository, or type a chart reference below.</div>}
+                {charts?.length === 0 && !error && <div className="muted">{t("helm.install.noCharts")}</div>}
               </div>
               <label className="field">
-                <span>Or a chart reference</span>
-                <input placeholder="oci://registry/chart or ./path" value={manualRef} onChange={(e) => (setManualRef(e.target.value), setChosen(null))} />
+                <span>{t("helm.install.reference")}</span>
+                <input placeholder={t("helm.install.referencePlaceholder")} value={manualRef} onChange={(e) => (setManualRef(e.target.value), setChosen(null))} />
               </label>
             </aside>
             <section className="install-form">
@@ -97,7 +99,7 @@ export default function InstallChartDialog({ namespaces, defaultNamespace, produ
                   onDone={(out) => (setNotes(out), onInstalled())}
                 />
               ) : (
-                <div className="empty">Pick a chart on the left.</div>
+                <div className="empty">{t("helm.install.pick")}</div>
               )}
             </section>
           </div>
@@ -108,6 +110,7 @@ export default function InstallChartDialog({ namespaces, defaultNamespace, produ
 }
 
 function RepoManager({ repos, onChanged }: { repos: HelmRepo[]; onChanged: () => void }) {
+  const { t } = useTranslation();
   const [name, setName] = useState("");
   const [url, setUrl] = useState("");
   const [busy, setBusy] = useState(false);
@@ -129,9 +132,9 @@ function RepoManager({ repos, onChanged }: { repos: HelmRepo[]; onChanged: () =>
   return (
     <div className="repo-manager">
       <div className="yaml-toolbar">
-        <strong>Repositories</strong>
+        <strong>{t("helm.repos.title")}</strong>
         <button disabled={busy || repos.length === 0} onClick={() => act(helmRepoUpdate)}>
-          Update all
+          {t("helm.repos.updateAll")}
         </button>
       </div>
       {repos.map((r) => (
@@ -141,13 +144,13 @@ function RepoManager({ repos, onChanged }: { repos: HelmRepo[]; onChanged: () =>
             <div className="muted">{r.url}</div>
           </div>
           <button disabled={busy} onClick={() => act(() => helmRepoRemove(r.name))}>
-            Remove
+            {t("helm.repos.remove")}
           </button>
         </div>
       ))}
-      {repos.length === 0 && <div className="muted">No repositories yet. These are the same ones `helm repo list` shows.</div>}
+      {repos.length === 0 && <div className="muted">{t("helm.repos.none")}</div>}
       <div className="repo-add">
-        <input placeholder="name" value={name} onChange={(e) => setName(e.target.value)} />
+        <input placeholder={t("helm.repos.name")} value={name} onChange={(e) => setName(e.target.value)} />
         <input placeholder="https://charts.example.com" value={url} onChange={(e) => setUrl(e.target.value)} />
         <button
           className="primary"
@@ -160,10 +163,10 @@ function RepoManager({ repos, onChanged }: { repos: HelmRepo[]; onChanged: () =>
             })
           }
         >
-          Add
+          {t("helm.repos.add")}
         </button>
       </div>
-      {busy && <div className="muted">Working…</div>}
+      {busy && <div className="muted">{t("helm.working")}</div>}
       {error && <div className="bad">{error}</div>}
     </div>
   );

@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { IconArrowRight } from "@tabler/icons-react";
 import { errorText, related, type KindInfo, type RelatedGroup, type RelatedItem } from "../api";
 
@@ -12,6 +13,7 @@ interface Props {
 
 /** Owners, pods, services, ingresses, config and node related to one object; each opens it. */
 export default function RelatedView({ kindKey, namespace, name, kinds, onOpen }: Props) {
+  const { t } = useTranslation();
   const [groups, setGroups] = useState<RelatedGroup[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -28,8 +30,8 @@ export default function RelatedView({ kindKey, namespace, name, kinds, onOpen }:
   }, [kindKey, namespace, name]);
 
   if (error) return <div className="error-bar">{error}</div>;
-  if (!groups) return <div className="empty">Loading…</div>;
-  if (groups.length === 0) return <div className="empty">Nothing related found.</div>;
+  if (!groups) return <div className="empty">{t("common.loading")}</div>;
+  if (groups.length === 0) return <div className="empty">{t("resources.related.empty")}</div>;
   const label = (key: string) => kinds.find((k) => k.key === key)?.label.replace(/s$/, "") ?? key;
 
   return (

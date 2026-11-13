@@ -1,4 +1,8 @@
 import type en from "../en/dock";
 import type { Translation } from "../types";
 
-export default {} satisfies Translation<typeof en>;
+export default {
+  closeTab: "Cerrar pestaña",
+  expand: "Expandir el dock",
+  collapse: "Contraer el dock",
+} satisfies Translation<typeof en>;

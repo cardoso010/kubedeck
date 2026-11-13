@@ -1,4 +1,57 @@
 import type en from "../en/rightsizing";
 import type { Translation } from "../types";
 
-export default {} satisfies Translation<typeof en>;
+export default {
+  title: "Rightsizing",
+  count_one: "{{shown}} de {{count}} contenedor",
+  count_other: "{{shown}} de {{count}} contenedores",
+  loading: "cargando…",
+  onlyIssues: "solo lo que requiere atención",
+  filter: "Filtrar…",
+  stats: {
+    cpuRequested: "CPU solicitada",
+    cpuUsed: "CPU usada (pico)",
+    cpuReclaimable: "CPU recuperable",
+    memoryRequested: "Memoria solicitada",
+    memoryUsed: "Memoria usada (pico)",
+    memoryReclaimable: "Memoria recuperable",
+  },
+  formula: "Request sugerido = pico × {{headroom}}.",
+  columns: {
+    workload: "Workload",
+    container: "Contenedor",
+    pods: "Pods",
+    cpuRequest: "CPU request → sugerido",
+    cpuUsed: "CPU usada",
+    memoryRequest: "Memoria request → sugerido",
+    memoryUsed: "Memoria usada",
+  },
+  sidecar: "sidecar",
+  readOnly: "Modo de solo lectura",
+  applyEllipsis: "Aplicar nuevos requests…",
+  apply: "Aplicar nuevos requests",
+  emptyIssues: "Los requests de todos los contenedores coinciden con su uso.",
+  empty: "No hay pods en ejecución en los namespaces seleccionados.",
+  verdict: {
+    over: "sobredimensionado",
+    under: "por encima del request",
+    none: "sin request",
+    ok: "ok",
+    nodata: "sin datos",
+  },
+  applyDialog: {
+    title: "Nuevos requests para {{container}}",
+    in: "en {{workload}}",
+    cpu: "CPU request",
+    memory: "Memoria request",
+    pods: "Redimensionar ahora los pods en ejecución",
+    podsHint: "En el mismo pod, sin reiniciarlo (Kubernetes 1.33+). Vuelven a los valores del template cuando se reemplazan.",
+    workload: "Actualizar el template del {{kind}}",
+    workloadHint: "Permanente. Los pods se reemplazan, como en un rollout.",
+    noTemplate: "Solo los Deployments, StatefulSets y DaemonSets tienen template.",
+    note: "Solo requests: los limits se mantienen y se rechaza un request por encima de su limit. Primero se comprueba con un dry run en {{cluster}}.",
+    applying: "Aplicando…",
+    resize: "Redimensionar pods",
+    update: "Actualizar template",
+  },
+} satisfies Translation<typeof en>;

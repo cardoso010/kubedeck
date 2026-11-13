@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import Markdown from "react-markdown";
+import { Trans, useTranslation } from "react-i18next";
 import { IconKey, IconSparkles } from "@tabler/icons-react";
 import { aiClearKey, aiExplain, aiSetKey, aiStatus, errorText, stopStream } from "../api";
 
@@ -17,6 +18,7 @@ type Status = Awaited<ReturnType<typeof aiStatus>>;
  * the machine: the manifest with secret values removed, events and (for pods) recent logs.
  */
 export default function ExplainView({ kindKey, namespace, name, production }: Props) {
+  const { t } = useTranslation();
   const [status, setStatus] = useState<Status | null>(null);
   const [text, setText] = useState("");
   const [state, setState] = useState<"idle" | "running" | "done">("idle");
@@ -38,15 +40,15 @@ export default function ExplainView({ kindKey, namespace, name, production }: Pr
     setState("running");
     try {
       stream.current = await aiExplain(kindKey, namespace, name, (m) => {
-        if (m.type === "context") setInfo(`Sent ${Math.round(m.characters / 1000)}k characters of context.`);
-        else if (m.type === "text") setText((t) => t + m.text);
+        if (m.type === "context") setInfo(t("explain.sent", { size: Math.round(m.characters / 1000) }));
+        else if (m.type === "text") setText((prev) => prev + m.text);
         // A fallback model took over: what the first model wrote so far is discarded.
         else if (m.type === "restart") setText("");
         else if (m.type === "error") (setError(m.message), setState("done"));
         else if (m.type === "done") {
           setState("done");
-          if (m.refused) setError("Claude declined to answer this one.");
-          else setInfo((i) => `${i ?? ""} Answer by ${m.model}.`);
+          if (m.refused) setError(t("explain.declined"));
+          else setInfo((i) => `${i ?? ""} ${t("explain.answeredBy", { model: m.model })}`);
         }
       });
     } catch (e) {
@@ -55,29 +57,29 @@ export default function ExplainView({ kindKey, namespace, name, production }: Pr
     }
   }
 
-  if (!status) return <div className="empty">Loading…</div>;
+  if (!status) return <div className="empty">{t("common.loading")}</div>;
   if (!status.configured) return <KeySetup onSaved={() => aiStatus().then(setStatus)} />;
-  if (kindKey === "secrets") return <div className="empty">kubedeck never sends Secrets to Claude.</div>;
+  if (kindKey === "secrets") return <div className="empty">{t("explain.noSecrets")}</div>;
 
   return (
     <div className="explain">
       <div className="explain-toolbar">
         <button className="primary" disabled={state === "running"} onClick={() => void explain()}>
-          <IconSparkles size={14} /> {state === "idle" ? "Explain with Claude" : state === "running" ? "Thinking…" : "Explain again"}
+          <IconSparkles size={14} /> {state === "idle" ? t("explain.explain") : state === "running" ? t("explain.thinking") : t("explain.again")}
         </button>
         <span className="faint explain-note">
-          Sends this {kindKey === "pods" ? "pod's manifest (secret values removed), events and recent logs" : "object's manifest (secret values removed) and events"} to the Anthropic API.
-          {production && <strong className="warn"> This is a production cluster.</strong>}
+          {kindKey === "pods" ? t("explain.sendsPod") : t("explain.sendsObject")}
+          {production && <strong className="warn"> {t("explain.production")}</strong>}
         </span>
         {status.source === "keychain" && (
           <button className="link" onClick={() => void aiClearKey().then(() => aiStatus().then(setStatus))}>
-            Remove key
+            {t("explain.removeKey")}
           </button>
         )}
       </div>
       {error && <div className="error-bar">{error}</div>}
       <div className="explain-body">
-        {text ? <Markdown>{text}</Markdown> : state === "idle" ? <div className="empty">Claude reads what kubectl describe and logs would show you, and suggests the likely cause and a fix.</div> : null}
+        {text ? <Markdown>{text}</Markdown> : state === "idle" ? <div className="empty">{t("explain.intro")}</div> : null}
         {info && <div className="faint explain-info">{info}</div>}
       </div>
     </div>
@@ -85,19 +87,20 @@ export default function ExplainView({ kindKey, namespace, name, production }: Pr
 }
 
 function KeySetup({ onSaved }: { onSaved: () => void }) {
+  const { t } = useTranslation();
   const [key, setKey] = useState("");
   const [error, setError] = useState<string | null>(null);
   return (
     <div className="key-setup">
       <IconKey size={26} stroke={1.5} />
-      <h3>Connect Claude</h3>
+      <h3>{t("explain.key.title")}</h3>
       <p className="faint">
-        Paste an Anthropic API key. It is stored in your system keychain, never in a file, and only used when you click Explain. You can also set <code>ANTHROPIC_API_KEY</code>.
+        <Trans i18nKey="explain.key.hint" components={{ code: <code /> }} />
       </p>
       <input type="password" placeholder="sk-ant-…" value={key} onChange={(e) => setKey(e.target.value)} autoFocus />
       {error && <div className="bad">{error}</div>}
       <button className="primary" disabled={!key.trim()} onClick={() => void aiSetKey(key).then(onSaved, (e) => setError(errorText(e)))}>
-        Save key
+        {t("explain.key.save")}
       </button>
     </div>
   );

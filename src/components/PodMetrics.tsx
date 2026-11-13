@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { Trans, useTranslation } from "react-i18next";
 import { errorText, formatCpu, formatMemory, formatRate, podHistory, podUsage, prometheusTarget, type ContainerUsage, type PodHistory, type PodUsage, type Series } from "../api";
 import LineChart, { type RefLine } from "./LineChart";
 
@@ -29,6 +30,7 @@ const percent = (used: number | null, of: number | null) => (used !== null && of
  * metrics-server collected while this tab is open.
  */
 export default function PodMetrics({ namespace, pod, container }: Props) {
+  const { t } = useTranslation();
   const [usage, setUsage] = useState<PodUsage | null>(null);
   const [usageError, setUsageError] = useState<string | null>(null);
   const [prometheus, setPrometheus] = useState<string | null | undefined>(undefined);
@@ -97,14 +99,14 @@ export default function PodMetrics({ namespace, pod, container }: Props) {
   // Requests and limits are drawn when one container is on the chart.
   const cpuRefs: RefLine[] = onlyOne
     ? [
-        ...(onlyOne.cpuRequestMillis ? [{ label: "request", value: onlyOne.cpuRequestMillis / 1000, kind: "request" as const }] : []),
-        ...(onlyOne.cpuLimitMillis ? [{ label: "limit", value: onlyOne.cpuLimitMillis / 1000, kind: "limit" as const }] : []),
+        ...(onlyOne.cpuRequestMillis ? [{ label: t("metrics.pod.request"), value: onlyOne.cpuRequestMillis / 1000, kind: "request" as const }] : []),
+        ...(onlyOne.cpuLimitMillis ? [{ label: t("metrics.pod.limit"), value: onlyOne.cpuLimitMillis / 1000, kind: "limit" as const }] : []),
       ]
     : [];
   const memoryRefs: RefLine[] = onlyOne
     ? [
-        ...(onlyOne.memoryRequestBytes ? [{ label: "request", value: onlyOne.memoryRequestBytes, kind: "request" as const }] : []),
-        ...(onlyOne.memoryLimitBytes ? [{ label: "limit", value: onlyOne.memoryLimitBytes, kind: "limit" as const }] : []),
+        ...(onlyOne.memoryRequestBytes ? [{ label: t("metrics.pod.request"), value: onlyOne.memoryRequestBytes, kind: "request" as const }] : []),
+        ...(onlyOne.memoryLimitBytes ? [{ label: t("metrics.pod.limit"), value: onlyOne.memoryLimitBytes, kind: "limit" as const }] : []),
       ]
     : [];
 
@@ -116,18 +118,18 @@ export default function PodMetrics({ namespace, pod, container }: Props) {
         {shown.map((c) => (
           <UsageCard key={c.name} c={c} showName={containers.length > 1} />
         ))}
-        {usage && !usage.metricsServer && <div className="faint metrics-note">metrics-server is not available, so current usage is unknown.</div>}
+        {usage && !usage.metricsServer && <div className="faint metrics-note">{t("metrics.pod.noMetricsServer")}</div>}
       </div>
 
       {usage && usage.devices.length > 0 && (
         <div className="node-section">
-          <div className="related-title">Devices</div>
+          <div className="related-title">{t("metrics.pod.devices")}</div>
           {usage.devices.map((d) => (
             <div key={d.name} className="device-claim">
               <span className={`status-dot ${d.allocated ? "ok" : "warn"}`} />
               <strong>{d.name}</strong>
-              <span className="faint">{d.claim ?? "claim not created yet"}</span>
-              {d.allocated ? d.devices.map((dev) => <code key={dev}>{dev}</code>) : <span className="warn">not allocated yet</span>}
+              <span className="faint">{d.claim ?? t("metrics.pod.claimNotCreated")}</span>
+              {d.allocated ? d.devices.map((dev) => <code key={dev}>{dev}</code>) : <span className="warn">{t("metrics.pod.notAllocated")}</span>}
             </div>
           ))}
         </div>
@@ -135,11 +137,11 @@ export default function PodMetrics({ namespace, pod, container }: Props) {
 
       <div className="metrics-toolbar">
         {prometheus === undefined ? (
-          <span className="faint">Looking for Prometheus…</span>
+          <span className="faint">{t("metrics.pod.lookingForPrometheus")}</span>
         ) : prometheus ? (
           <>
             <span className="faint">
-              History from <code>{prometheus}</code>
+              <Trans i18nKey="metrics.pod.historyFrom" values={{ target: prometheus }} components={{ code: <code /> }} />
             </span>
             <div className="segmented">
               {RANGES.map((r) => (
@@ -150,24 +152,24 @@ export default function PodMetrics({ namespace, pod, container }: Props) {
             </div>
           </>
         ) : (
-          <span className="faint">Live since this tab opened, every 10s. History, network and throttling need Prometheus in the cluster.</span>
+          <span className="faint">{t("metrics.pod.live")}</span>
         )}
       </div>
       {historyError && <div className="error-bar">{historyError}</div>}
 
       <div className="charts">
-        <ChartBlock title="CPU" hint="cores">
+        <ChartBlock title="CPU" hint={t("metrics.pod.cores")}>
           <LineChart series={cpu} refs={cpuRefs} format={(v) => formatCpu(v * 1000)} />
         </ChartBlock>
-        <ChartBlock title="Memory" hint="working set">
+        <ChartBlock title={t("metrics.pod.memory")} hint={t("metrics.pod.workingSet")}>
           <LineChart series={memory} refs={memoryRefs} format={formatMemory} />
         </ChartBlock>
         {history && (
           <>
-            <ChartBlock title="Network" hint="pod, per second">
+            <ChartBlock title={t("metrics.pod.network")} hint={t("metrics.pod.networkHint")}>
               <LineChart series={history.network} format={formatRate} />
             </ChartBlock>
-            <ChartBlock title="CPU throttling" hint="share of periods throttled by the CPU limit">
+            <ChartBlock title={t("metrics.pod.throttling")} hint={t("metrics.pod.throttlingHint")}>
               <LineChart series={pick(history.throttling)} format={(v) => `${Math.round(v * 100)}%`} max={1} />
             </ChartBlock>
           </>
@@ -189,6 +191,7 @@ function ChartBlock({ title, hint, children }: { title: string; hint: string; ch
 }
 
 function UsageCard({ c, showName }: { c: ContainerUsage; showName: boolean }) {
+  const { t } = useTranslation();
   const cpuPct = percent(c.cpuMillis, c.cpuLimitMillis ?? c.cpuRequestMillis);
   const memPct = percent(c.memoryBytes, c.memoryLimitBytes ?? c.memoryRequestBytes);
   const oom = c.lastTermination?.startsWith("OOMKilled");
@@ -196,33 +199,33 @@ function UsageCard({ c, showName }: { c: ContainerUsage; showName: boolean }) {
     <div className="usage-card">
       {showName && (
         <div className="usage-card-name">
-          {c.name} {c.sidecar && <span className="kind-chip">sidecar</span>}
+          {c.name} {c.sidecar && <span className="kind-chip">{t("metrics.pod.sidecar")}</span>}
         </div>
       )}
       <div className="usage-grid">
         <Meter
           label="CPU"
           value={c.cpuMillis === null ? "–" : formatCpu(c.cpuMillis)}
-          detail={[c.cpuRequestMillis && `req ${formatCpu(c.cpuRequestMillis)}`, c.cpuLimitMillis && `lim ${formatCpu(c.cpuLimitMillis)}`].filter(Boolean).join(" · ") || "no request or limit"}
+          detail={[c.cpuRequestMillis && t("metrics.pod.req", { value: formatCpu(c.cpuRequestMillis) }), c.cpuLimitMillis && t("metrics.pod.lim", { value: formatCpu(c.cpuLimitMillis) })].filter(Boolean).join(" · ") || t("metrics.pod.noRequestOrLimit")}
           pct={cpuPct}
-          against={c.cpuLimitMillis ? "limit" : "request"}
+          against={c.cpuLimitMillis ? t("metrics.pod.ofLimit") : t("metrics.pod.ofRequest")}
         />
         <Meter
-          label="Memory"
+          label={t("metrics.pod.memory")}
           value={c.memoryBytes === null ? "–" : formatMemory(c.memoryBytes)}
-          detail={[c.memoryRequestBytes && `req ${formatMemory(c.memoryRequestBytes)}`, c.memoryLimitBytes && `lim ${formatMemory(c.memoryLimitBytes)}`].filter(Boolean).join(" · ") || "no request or limit"}
+          detail={[c.memoryRequestBytes && t("metrics.pod.req", { value: formatMemory(c.memoryRequestBytes) }), c.memoryLimitBytes && t("metrics.pod.lim", { value: formatMemory(c.memoryLimitBytes) })].filter(Boolean).join(" · ") || t("metrics.pod.noRequestOrLimit")}
           pct={memPct}
-          against={c.memoryLimitBytes ? "limit" : "request"}
+          against={c.memoryLimitBytes ? t("metrics.pod.ofLimit") : t("metrics.pod.ofRequest")}
         />
         <div className="meter">
-          <span className="meter-label">Restarts</span>
+          <span className="meter-label">{t("metrics.pod.restarts")}</span>
           <span className={`meter-value ${c.restarts > 0 ? "warn" : ""}`}>{c.restarts}</span>
           <span className="meter-detail">{c.state}</span>
         </div>
         <div className="meter">
-          <span className="meter-label">Last termination</span>
+          <span className="meter-label">{t("metrics.pod.lastTermination")}</span>
           <span className={`meter-value small ${oom ? "bad" : ""}`} title={c.lastTermination ?? undefined}>
-            {c.lastTermination?.split(" at ")[0] ?? "none"}
+            {c.lastTermination?.split(" at ")[0] ?? t("common.none")}
           </span>
           <span className="meter-detail">{c.lastTermination?.split(" at ")[1] ? new Date(c.lastTermination.split(" at ")[1]).toLocaleString() : ""}</span>
         </div>
@@ -231,13 +234,14 @@ function UsageCard({ c, showName }: { c: ContainerUsage; showName: boolean }) {
   );
 }
 
+/** `against`: the tooltip on the percentage, e.g. "of limit". */
 function Meter({ label, value, detail, pct, against }: { label: string; value: string; detail: string; pct: number | null; against: string }) {
   const level = pct === null ? "" : pct >= 90 ? "bad" : pct >= 70 ? "warn" : "ok";
   return (
     <div className="meter">
       <span className="meter-label">{label}</span>
       <span className="meter-value">
-        {value} {pct !== null && <span className={`meter-pct ${level}`} title={`of ${against}`}>{pct}%</span>}
+        {value} {pct !== null && <span className={`meter-pct ${level}`} title={against}>{pct}%</span>}
       </span>
       <span className="meter-detail">{detail}</span>
       {pct !== null && (

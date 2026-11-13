@@ -1,1 +1,32 @@
-export default {};
+export default {
+  chart: {
+    noSamples: "No samples yet",
+    label: "Time series chart",
+  },
+  pod: {
+    request: "request",
+    limit: "limit",
+    req: "req {{value}}",
+    lim: "lim {{value}}",
+    ofRequest: "of request",
+    ofLimit: "of limit",
+    noRequestOrLimit: "no request or limit",
+    noMetricsServer: "metrics-server is not available, so current usage is unknown.",
+    devices: "Devices",
+    claimNotCreated: "claim not created yet",
+    notAllocated: "not allocated yet",
+    lookingForPrometheus: "Looking for Prometheus…",
+    historyFrom: "History from <code>{{target}}</code>",
+    live: "Live since this tab opened, every 10s. History, network and throttling need Prometheus in the cluster.",
+    cores: "cores",
+    memory: "Memory",
+    workingSet: "working set",
+    network: "Network",
+    networkHint: "pod, per second",
+    throttling: "CPU throttling",
+    throttlingHint: "share of periods throttled by the CPU limit",
+    sidecar: "sidecar",
+    restarts: "Restarts",
+    lastTermination: "Last termination",
+  },
+};

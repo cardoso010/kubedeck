@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import Editor from "@monaco-editor/react";
 import { useCurrentTheme } from "../theme";
 import { errorText, getYaml, replaceYaml, type Target } from "../api";
@@ -7,6 +8,7 @@ import DiffDialog from "./DiffDialog";
 import { useReadOnly } from "../readOnly";
 
 export default function YamlEditor({ target, production }: { target: Target; production: boolean }) {
+  const { t } = useTranslation();
   const monacoTheme = useCurrentTheme().monaco;
   const [original, setOriginal] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
@@ -41,7 +43,7 @@ export default function YamlEditor({ target, production }: { target: Target; pro
       const saved = await replaceYaml(target, draft);
       setOriginal(saved);
       setDraft(saved);
-      setStatus({ kind: "ok", text: "Saved." });
+      setStatus({ kind: "ok", text: t("resources.yaml.saved") });
     } catch (e) {
       setStatus({ kind: "error", text: errorText(e) });
     } finally {
@@ -55,29 +57,29 @@ export default function YamlEditor({ target, production }: { target: Target; pro
     <div className="yaml">
       <div className="yaml-toolbar">
         <button onClick={() => void load()} disabled={saving}>
-          Reload
+          {t("resources.yaml.reload")}
         </button>
         <button
           className="primary"
           disabled={!dirty || saving || readOnly || masked}
-          title={readOnly ? "Read-only mode" : masked ? "Reveal the values to edit this Secret" : undefined}
+          title={readOnly ? t("resources.yaml.readOnly") : masked ? t("resources.yaml.revealToEdit") : undefined}
           onClick={() => setConfirming(true)}
         >
-          {saving ? "Saving…" : "Save"}
+          {saving ? t("resources.yaml.saving") : t("common.save")}
         </button>
         {secret &&
           (masked ? (
-            <button onClick={() => (production ? setConfirmReveal(true) : (setRevealed(true), void load(true)))}>Reveal values</button>
+            <button onClick={() => (production ? setConfirmReveal(true) : (setRevealed(true), void load(true)))}>{t("resources.yaml.reveal")}</button>
           ) : (
-            <button onClick={() => (setRevealed(false), void load(false))}>Hide values</button>
+            <button onClick={() => (setRevealed(false), void load(false))}>{t("resources.yaml.hide")}</button>
           ))}
-        {masked && <span className="muted">values hidden</span>}
-        {dirty && <span className="muted">unsaved changes</span>}
+        {masked && <span className="muted">{t("resources.yaml.hidden")}</span>}
+        {dirty && <span className="muted">{t("resources.yaml.unsaved")}</span>}
         {status && <span className={status.kind === "error" ? "bad" : "ok"}>{status.text}</span>}
       </div>
       <div className="yaml-editor">
         {original === null ? (
-          <div className="empty">Loading…</div>
+          <div className="empty">{t("common.loading")}</div>
         ) : (
           <Editor
             language="yaml"
@@ -90,19 +92,19 @@ export default function YamlEditor({ target, production }: { target: Target; pro
       </div>
       {confirmReveal && (
         <ConfirmDialog
-          title="Show production secret values?"
-          message={`The values of ${target.name} will be visible on screen (and in screen shares).`}
-          confirmLabel="Reveal"
+          title={t("resources.secrets.revealTitle")}
+          message={t("resources.secrets.revealMessage", { name: target.name })}
+          confirmLabel={t("resources.secrets.reveal")}
           onConfirm={() => (setConfirmReveal(false), setRevealed(true), void load(true))}
           onCancel={() => setConfirmReveal(false)}
         />
       )}
       {confirming && (
         <DiffDialog
-          title={production ? `Save ${target.name} to production?` : `Save ${target.name}?`}
+          title={t(production ? "resources.yaml.saveProductionTitle" : "resources.yaml.saveTitle", { name: target.name })}
           original={original ?? ""}
           modified={draft}
-          confirmLabel="Save"
+          confirmLabel={t("common.save")}
           typeToConfirm={production ? target.name : undefined}
           onConfirm={save}
           onCancel={() => setConfirming(false)}

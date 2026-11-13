@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useTranslation } from "react-i18next";
 
 export interface Command {
   id: string;
@@ -36,6 +37,7 @@ export function fuzzyScore(query: string, text: string): number | null {
 const MAX_RESULTS = 60;
 
 export default function CommandPalette({ commands, onClose }: { commands: Command[]; onClose: () => void }) {
+  const { t } = useTranslation();
   const [query, setQuery] = useState("");
   const [index, setIndex] = useState(0);
   const list = useRef<HTMLDivElement>(null);
@@ -72,7 +74,7 @@ export default function CommandPalette({ commands, onClose }: { commands: Comman
   return (
     <div className="palette-backdrop" onMouseDown={onClose}>
       <div className="palette" onMouseDown={(e) => e.stopPropagation()} onKeyDown={onKey}>
-        <input autoFocus className="palette-input" placeholder="Jump to a resource kind, cluster, namespace, or action…" value={query} onChange={(e) => setQuery(e.target.value)} />
+        <input autoFocus className="palette-input" placeholder={t("app.palette.placeholder")} value={query} onChange={(e) => setQuery(e.target.value)} />
         <div className="palette-list" ref={list}>
           {results.map((c, i) => {
             const header = !query.trim() && c.group !== lastGroup ? c.group : null;
@@ -89,18 +91,18 @@ export default function CommandPalette({ commands, onClose }: { commands: Comman
               </div>
             );
           })}
-          {results.length === 0 && <div className="palette-empty">Nothing matches “{query}”.</div>}
+          {results.length === 0 && <div className="palette-empty">{t("app.palette.empty", { query })}</div>}
         </div>
         <div className="palette-footer">
           <span>
             <kbd>↑</kbd>
-            <kbd>↓</kbd> navigate
+            <kbd>↓</kbd> {t("app.palette.navigate")}
           </span>
           <span>
-            <kbd>↵</kbd> open
+            <kbd>↵</kbd> {t("app.palette.open")}
           </span>
           <span>
-            <kbd>esc</kbd> close
+            <kbd>esc</kbd> {t("app.palette.close")}
           </span>
         </div>
       </div>

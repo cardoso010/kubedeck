@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { IconStar, IconStarFilled } from "@tabler/icons-react";
 import { errorText, listPortForwards, startPortForward, stopStream, type ForwardInfo } from "../api";
@@ -9,6 +10,7 @@ import { favoriteId, loadFavorites, saveFavorites, type Favorite } from "../favo
  * the starred ones, which start again whenever a window connects to this cluster.
  */
 export default function PortForwardsView({ context }: { context: string }) {
+  const { t } = useTranslation();
   const [forwards, setForwards] = useState<ForwardInfo[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [favorites, setFavorites] = useState<Favorite[]>(() => loadFavorites(context));
@@ -40,8 +42,8 @@ export default function PortForwardsView({ context }: { context: string }) {
   useEffect(() => {
     void refresh();
     // Connection counts and errors change in the background.
-    const t = setInterval(refresh, 2000);
-    return () => clearInterval(t);
+    const timer = setInterval(refresh, 2000);
+    return () => clearInterval(timer);
   }, []);
 
   async function stop(id: number) {
@@ -52,18 +54,18 @@ export default function PortForwardsView({ context }: { context: string }) {
   return (
     <section className="table">
       <header className="table-toolbar">
-        <h2>Port Forwards</h2>
+        <h2>{t("forwards.view.title")}</h2>
         <span className="count">{forwards?.length ?? ""}</span>
       </header>
       {error && <div className="error-bar">{error}</div>}
       <div className="simple-table">
         <div className="simple-row head">
-          <div>Resource</div>
-          <div>Namespace</div>
-          <div>Remote</div>
-          <div>Local</div>
-          <div>Connections</div>
-          <div>Last error</div>
+          <div>{t("forwards.view.resource")}</div>
+          <div>{t("common.namespace")}</div>
+          <div>{t("forwards.view.remote")}</div>
+          <div>{t("forwards.view.local")}</div>
+          <div>{t("forwards.view.connections")}</div>
+          <div>{t("forwards.view.lastError")}</div>
           <div />
         </div>
         {forwards?.map((f) => {
@@ -85,19 +87,19 @@ export default function PortForwardsView({ context }: { context: string }) {
                 {f.lastError}
               </div>
               <div className="forward-actions">
-                <button className="icon-button" title={starred.has(favoriteId(f)) ? "Stop reopening it on connect" : "Star: reopen it whenever this cluster is opened"} onClick={() => toggleStar(f)}>
+                <button className="icon-button" title={starred.has(favoriteId(f)) ? t("forwards.view.unstarHint") : t("forwards.view.starHint")} onClick={() => toggleStar(f)}>
                   {starred.has(favoriteId(f)) ? <IconStarFilled size={14} className="warn" /> : <IconStar size={14} />}
                 </button>
-                <button onClick={() => stop(f.id)}>Stop</button>
+                <button onClick={() => stop(f.id)}>{t("forwards.view.stop")}</button>
               </div>
             </div>
           );
         })}
-        {forwards?.length === 0 && <div className="empty">No active port forwards. Open a pod or service and click one of its ports.</div>}
+        {forwards?.length === 0 && <div className="empty">{t("forwards.view.empty")}</div>}
       </div>
       {favorites.some((f) => !running.has(favoriteId(f))) && (
         <div className="simple-table">
-          <div className="related-title favorites-title">Starred, not running</div>
+          <div className="related-title favorites-title">{t("forwards.view.starredStopped")}</div>
           {favorites
             .filter((f) => !running.has(favoriteId(f)))
             .map((f) => (
@@ -111,10 +113,10 @@ export default function PortForwardsView({ context }: { context: string }) {
                 <div />
                 <div />
                 <div className="forward-actions">
-                  <button className="icon-button" title="Remove the star" onClick={() => updateFavorites(favorites.filter((x) => favoriteId(x) !== favoriteId(f)))}>
+                  <button className="icon-button" title={t("forwards.view.removeStar")} onClick={() => updateFavorites(favorites.filter((x) => favoriteId(x) !== favoriteId(f)))}>
                     <IconStarFilled size={14} className="warn" />
                   </button>
-                  <button onClick={() => void start(f)}>Start</button>
+                  <button onClick={() => void start(f)}>{t("forwards.view.start")}</button>
                 </div>
               </div>
             ))}
