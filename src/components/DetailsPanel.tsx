@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import { deleteResource, errorText, type KindInfo, type RelatedItem, type Row, type Target } from "../api";
 import ConfirmDialog from "./ConfirmDialog";
 import YamlEditor from "./YamlEditor";
@@ -36,32 +37,26 @@ type Tab = "overview" | "volume" | "data" | "metrics" | "rollout" | "logs" | "te
 const WORKLOADS = ["deployments", "statefulsets", "daemonsets", "jobs"];
 
 /** Tabs specific to a kind, shown before the ones every object has. */
-const FIRST_TABS: Record<string, [Tab, string][]> = {
-  pods: [
-    ["metrics", "Metrics"],
-    ["logs", "Logs"],
-    ["terminal", "Terminal"],
-  ],
-  deployments: [
-    ["rollout", "Rollout"],
-    ["logs", "Logs"],
-  ],
-  nodes: [["overview", "Overview"]],
-  secrets: [["data", "Data"]],
-  persistentvolumeclaims: [["volume", "Usage"]],
+const FIRST_TABS: Record<string, Tab[]> = {
+  pods: ["metrics", "logs", "terminal"],
+  deployments: ["rollout", "logs"],
+  nodes: ["overview"],
+  secrets: ["data"],
+  persistentvolumeclaims: ["volume"],
 };
 
-function tabsFor(kindKey: string): [Tab, string][] {
-  const first = FIRST_TABS[kindKey] ?? (WORKLOADS.includes(kindKey) ? [["logs", "Logs"] as [Tab, string]] : []);
+function tabsFor(kindKey: string): Tab[] {
+  const first = FIRST_TABS[kindKey] ?? (WORKLOADS.includes(kindKey) ? ["logs" as Tab] : []);
   // Secrets are never sent to Claude.
-  const explain: [Tab, string][] = kindKey === "secrets" ? [] : [["explain", "Explain"]];
-  return [...first, ["events", "Events"], ["related", "Related"], ...explain, ["yaml", "YAML"]];
+  const explain: Tab[] = kindKey === "secrets" ? [] : ["explain"];
+  return [...first, "events", "related", ...explain, "yaml"];
 }
 
 export default function DetailsPanel({ kind, row, target, context, production, kinds, onNavigate, onClose }: Props) {
+  const { t } = useTranslation();
   const isPod = kind.key === "pods";
   const tabs = tabsFor(kind.key);
-  const [tab, setTab] = useState<Tab>(tabs[0][0]);
+  const [tab, setTab] = useState<Tab>(tabs[0]);
   // null: every container on the metrics tab, the first one for logs and the terminal.
   const [container, setContainer] = useState<string | null>(null);
   const oneContainer = container ?? row.containers[0] ?? null;
@@ -76,8 +71,8 @@ export default function DetailsPanel({ kind, row, target, context, production, k
   function toDock() {
     if (!dock || !row.namespace) return;
     const where = `${row.name}${isPod && oneContainer && row.containers.length > 1 ? `/${oneContainer}` : ""}`;
-    if (tab === "terminal") dock({ id: `term:${row.namespace}/${where}:${Date.now()}`, kind: "terminal", title: `${where} shell`, namespace: row.namespace, pod: row.name, container: oneContainer });
-    else dock({ id: `logs:${kind.key}/${row.namespace}/${where}`, kind: "logs", title: `${where} logs`, source: logSource() });
+    if (tab === "terminal") dock({ id: `term:${row.namespace}/${where}:${Date.now()}`, kind: "terminal", title: t("resources.details.shell", { name: where }), namespace: row.namespace, pod: row.name, container: oneContainer });
+    else dock({ id: `logs:${kind.key}/${row.namespace}/${where}`, kind: "logs", title: t("resources.details.logs", { name: where }), source: logSource() });
   }
 
   async function remove() {
@@ -96,12 +91,12 @@ export default function DetailsPanel({ kind, row, target, context, production, k
         <div className="details-title">
           <span className="kind-chip">{kind.label.replace(/s$/, "")}</span>
           <strong title={row.name}>{row.name}</strong>
-          {row.namespace && <span className="muted">in {row.namespace}</span>}
+          {row.namespace && <span className="muted">{t("resources.details.in", { namespace: row.namespace })}</span>}
         </div>
         <div className="details-actions">
           {readOnly && (
-            <span className="details-lock" title="Read-only mode: unlock the cluster in the top bar to make changes">
-              <IconLock size={12} /> read-only
+            <span className="details-lock" title={t("resources.details.readOnlyHint")}>
+              <IconLock size={12} /> {t("resources.details.readOnly")}
             </span>
           )}
           {!readOnly && ["deployments", "statefulsets", "daemonsets"].includes(kind.key) && row.namespace && (
@@ -117,30 +112,30 @@ export default function DetailsPanel({ kind, row, target, context, production, k
             />
           )}
           <button className="danger" disabled={readOnly} onClick={() => setConfirmDelete(true)}>
-            Delete
+            {t("common.delete")}
           </button>
-          <button onClick={onClose} aria-label="Close">
+          <button onClick={onClose} aria-label={t("common.close")}>
             ✕
           </button>
         </div>
       </header>
       <nav className="tabs">
-        {tabs.map(([key, label]) => (
+        {tabs.map((key) => (
           <button key={key} className={tab === key ? "active" : ""} onClick={() => setTab(key)}>
-            {label}
+            {t(`resources.details.tabs.${key}`)}
           </button>
         ))}
         {isPod && ["metrics", "logs", "terminal"].includes(tab) && row.containers.length > 1 && (
           <select className="container-select" value={tab === "metrics" ? (container ?? "") : (container ?? row.containers[0])} onChange={(e) => setContainer(e.target.value || null)}>
-            {tab === "metrics" && <option value="">All containers</option>}
+            {tab === "metrics" && <option value="">{t("resources.details.allContainers")}</option>}
             {row.containers.map((c) => (
               <option key={c}>{c}</option>
             ))}
           </select>
         )}
         {dock && (tab === "logs" || (tab === "terminal" && !readOnly)) && (
-          <button className="link details-dock" onClick={toDock} title="Keep it open in the dock below while you browse">
-            <IconLayoutBottombar size={13} /> open in dock
+          <button className="link details-dock" onClick={toDock} title={t("resources.details.openInDockHint")}>
+            <IconLayoutBottombar size={13} /> {t("resources.details.openInDock")}
           </button>
         )}
       </nav>
@@ -168,9 +163,9 @@ export default function DetailsPanel({ kind, row, target, context, production, k
       </div>
       {confirmDelete && (
         <ConfirmDialog
-          title={`Delete ${row.name}?`}
-          message={`This deletes the ${kind.label.replace(/s$/, "")} from ${context}.${isPod ? " If a controller owns it, a replacement pod is created." : ""}`}
-          confirmLabel="Delete"
+          title={t("resources.details.deleteTitle", { name: row.name })}
+          message={t("resources.details.deleteMessage", { kind: kind.label.replace(/s$/, ""), cluster: context }) + (isPod ? t("resources.details.deletePodNote") : "")}
+          confirmLabel={t("common.delete")}
           typeToConfirm={production ? row.name : undefined}
           onConfirm={remove}
           onCancel={() => setConfirmDelete(false)}

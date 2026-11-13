@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
+import { useTranslation } from "react-i18next";
 import { age, type KindInfo, type Row } from "../api";
 
 interface Props {
@@ -21,7 +22,10 @@ interface Props {
 
 const ROW_HEIGHT = 30;
 
-export default function ResourceTable({ kind, rows, loading, error, errorPrefix = "Watch error (retrying)", ageLabel = "Age", showNamespace, selectedUid, onSelect, extra, actions }: Props) {
+export default function ResourceTable({ kind, rows, loading, error, errorPrefix, ageLabel, showNamespace, selectedUid, onSelect, extra, actions }: Props) {
+  const { t, i18n } = useTranslation();
+  // Built-in columns are translated; CRD printer columns keep the name their CRD gives them.
+  const columnLabel = (c: string) => (i18n.exists(`resources.columns.${c}`) ? t(`resources.columns.${c}` as "resources.columns.Status") : c);
   const [filter, setFilter] = useState("");
   const [now, setNow] = useState(Date.now());
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -45,28 +49,28 @@ export default function ResourceTable({ kind, rows, loading, error, errorPrefix 
     overscan: 20,
   });
 
-  const columns = [...(showNamespace ? ["Namespace"] : []), ...kind.columns, ...(extra?.columns ?? []), ageLabel];
+  const columns = [...(showNamespace ? [t("common.namespace")] : []), ...kind.columns, ...(extra?.columns ?? []), ageLabel ?? t("common.age")];
   const template = `minmax(220px, 2fr) ${columns.map((c) => (c === "Message" ? "minmax(200px, 3fr)" : "minmax(80px, 1fr)")).join(" ")}`;
 
   return (
     <section className="table">
       <header className="table-toolbar">
         <h2>{kind.label}</h2>
-        <span className="count">{loading ? "loading…" : `${visible.length}${visible.length !== rows.length ? ` of ${rows.length}` : ""}`}</span>
+        <span className="count">{loading ? t("resources.table.loading") : visible.length !== rows.length ? t("resources.table.count", { shown: visible.length, total: rows.length }) : visible.length}</span>
         <div className="table-actions">
           {actions}
-          <input placeholder="Filter…" value={filter} onChange={(e) => setFilter(e.target.value)} />
+          <input placeholder={t("resources.table.filter")} value={filter} onChange={(e) => setFilter(e.target.value)} />
         </div>
       </header>
       {error && (
         <div className="error-bar">
-          {errorPrefix}: {error}
+          {errorPrefix ?? t("resources.table.watchError")}: {error}
         </div>
       )}
       <div className="table-head" style={{ gridTemplateColumns: template }}>
-        <div>Name</div>
+        <div>{t("common.name")}</div>
         {columns.map((c) => (
-          <div key={c}>{c}</div>
+          <div key={c}>{columnLabel(c)}</div>
         ))}
       </div>
       <div className="table-body" ref={scrollRef}>
@@ -100,7 +104,7 @@ export default function ResourceTable({ kind, rows, loading, error, errorPrefix 
             );
           })}
         </div>
-        {!loading && visible.length === 0 && <div className="empty">No {kind.label.toLowerCase()} found.</div>}
+        {!loading && visible.length === 0 && <div className="empty">{t("resources.table.empty", { kind: kind.label.toLowerCase() })}</div>}
       </div>
     </section>
   );

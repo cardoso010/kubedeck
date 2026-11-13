@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { IconChevronDown, IconChevronRight } from "@tabler/icons-react";
+import { useTranslation } from "react-i18next";
 import type { KindInfo } from "../api";
 import { SECTIONS, type SectionId } from "../sections";
 
@@ -32,6 +33,7 @@ export default function KindTabs({ section, kinds, active, recentCustom, onSelec
 }
 
 function CrdBrowser({ kinds, active, onSelect }: { kinds: KindInfo[]; active: string; onSelect: (key: string) => void }) {
+  const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
@@ -61,11 +63,11 @@ function CrdBrowser({ kinds, active, onSelect }: { kinds: KindInfo[]; active: st
   return (
     <div className="crumb-wrap" ref={root}>
       <button className={`kind-tab browse ${open ? "active" : ""}`} onClick={() => setOpen(!open)}>
-        Browse {kinds.length} CRDs <IconChevronDown size={13} />
+        {t("app.crds.browse", { count: kinds.length })} <IconChevronDown size={13} />
       </button>
       {open && (
         <div className="menu menu-wide">
-          <input autoFocus placeholder="Find a custom resource…" value={query} onChange={(e) => setQuery(e.target.value)} />
+          <input autoFocus placeholder={t("app.crds.find")} value={query} onChange={(e) => setQuery(e.target.value)} />
           <div className="menu-list">
             {groups.map(([group, list]) => {
               const isOpen = query.trim() !== "" || expanded.has(group) || list.some((k) => k.key === active);
@@ -85,7 +87,7 @@ function CrdBrowser({ kinds, active, onSelect }: { kinds: KindInfo[]; active: st
                 </div>
               );
             })}
-            {groups.length === 0 && <div className="faint menu-empty">{kinds.length ? "No match" : "This cluster has no custom resources."}</div>}
+            {groups.length === 0 && <div className="faint menu-empty">{kinds.length ? t("app.crds.noMatch") : t("app.crds.none")}</div>}
           </div>
         </div>
       )}

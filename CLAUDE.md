@@ -17,6 +17,7 @@ npm run tauri dev                 # native app with hot reload (fetches the Helm
 npm run dev                       # UI only in a browser, with sample data from src/dev-mock.ts
 npm run screenshots               # with npm run dev running: regenerate docs/screenshots (README images)
 npm run binaries                  # fetch the Helm sidecar; needed once before plain cargo commands
+npm run icons                     # regenerate every app icon from src-tauri/icons/source/kubedeck.svg
 scripts/build-site.sh             # project page (site/ + screenshots + icon) into _site/, published by pages.yml
 npx tsc --noEmit                  # typecheck UI
 cd src-tauri && cargo clippy --all-targets -- -D warnings
@@ -44,7 +45,7 @@ Rust (`src-tauri/src/`), one module per feature; every `#[tauri::command]` is re
 
 UI (`src/`): `api.ts` holds a typed wrapper for every command; components in `src/components/`; `useStream.ts` owns stream lifecycles; `dev-mock.ts` mirrors the commands for browser-only work.
 
-Layout: `Rail` (sections, with the Problems badge from `sections.ts`, pinned clusters from `pins.ts`, theme and update popovers) · `TopBar` (cluster / namespaces / view breadcrumb, ⌘K trigger) · `KindTabs` · `.workspace` (table + right-hand `.details` drawer) · `Dock` (bottom terminals/logs, `dock.ts` context) · `CommandPalette` (commands are built in `App.tsx`). Per-viewer preferences live in localStorage per cluster: `readOnly.ts` (lock default, login command), `favorites.ts` (starred port forwards, restarted on connect), `notify.ts` (crash notifications, fed by the Problems polling).
+Layout: `Rail` (sections, with the Problems badge from `sections.ts`, pinned clusters from `pins.ts`, theme and update popovers) · `TopBar` (cluster / namespaces / view breadcrumb, ⌘K trigger) · `KindTabs` · `.workspace` (table + right-hand `.details` drawer) · `Dock` (bottom terminals/logs, `dock.ts` context) · `CommandPalette` (commands are built in `App.tsx`). `SettingsDialog` (⌘, or the rail's gear) holds language, theme and this cluster's preferences. Per-viewer preferences live in localStorage per cluster: `readOnly.ts` (lock default, login command), `favorites.ts` (starred port forwards, restarted on connect), `notify.ts` (crash notifications, fed by the Problems polling).
 
 ## Conventions
 
@@ -60,8 +61,9 @@ Layout: `Rail` (sections, with the Problems badge from `sections.ts`, pinned clu
 - **The webview is not trusted with the machine**: the CSP in tauri.conf.json allows only bundled code (no remote scripts, images or connections). Commands that touch the local machine take no free-form path or command from the UI without the user confirming natively: `save_text_file` opens the save dialog in Rust, and `run_login` asks before running a command the first time.
 - **Read-only mode**: every command that changes the cluster calls `state.writable()?` first (dry runs excepted). The UI locks production contexts by default (`readOnly.ts`), but the backend is what enforces it; new write commands must call it and get a line in the read-only e2e test.
 - **Claude** is called with raw HTTP from `ai.rs` (no Rust SDK): model `claude-opus-5-5`, streamed, with server-side fallback (`content_block_start` of type `fallback` restarts the text). Only on an explicit click, never automatically.
-- **Styling**: use only the theme tokens from the top of `App.css` (`--bg*`, `--line*`, `--text*`, `--accent*`, `--ok/--warn/--bad`, `--font-ui/--font-mono`, `--radius*`); never hard-code colors, or a theme will break. A new theme is one `[data-theme]` block plus an entry in `theme.ts` (with Monaco and xterm colors). Icons come from `@tabler/icons-react`; fonts are bundled (`@fontsource-variable/*`), never loaded from a CDN.
+- **Styling**: use only the theme tokens from the top of `App.css` (`--bg*`, `--line*`, `--text*`, `--accent*`, `--ok/--warn/--bad`, `--font-ui/--font-mono`, `--radius*`); never hard-code colors, or a theme will break. A new theme is one `[data-theme]` block plus an entry in `theme.ts` (with Monaco and xterm colors). Icons come from `@tabler/icons-react`, except the kubedeck mark (`components/Logo.tsx`, same drawing as the app icon's SVG: change both together); fonts are bundled (`@fontsource-variable/*`), never loaded from a CDN.
 - After visible UI changes, regenerate the README images with `npm run screenshots` (scenes are in `scripts/screenshots.mjs`; keep `dev-mock.ts` realistic enough to photograph).
+- **Strings**: every user-visible string goes through `t()` (react-i18next) with its English text in `src/locales/en/<area>.ts` and a translation in `pt-BR`, `es` and `zh-CN` (typed against English with `Translation<typeof en>`, so a missing key fails `tsc`). Kubernetes, Helm and product terms stay in English, and so do backend errors. `npm run screenshots` forces English.
 - New global actions belong in the command palette (`commands` in `App.tsx`) as well as wherever they have a button.
 - Comments explain *why* (constraints, API quirks), not what the code does. Match the surrounding density.
 - Rust edition 2024; prefer let-chains where clippy suggests them.

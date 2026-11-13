@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import type { Series } from "../api";
 
 export interface RefLine {
@@ -24,6 +25,7 @@ const clock = (t: number, spanSeconds: number) =>
 
 /** Time-series line chart in plain SVG, colored by the theme's chart tokens. */
 export default function LineChart({ series, refs = [], format, height = 150, max }: Props) {
+  const { t } = useTranslation();
   const host = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(0);
   const [hover, setHover] = useState<number | null>(null);
@@ -50,7 +52,7 @@ export default function LineChart({ series, refs = [], format, height = 150, max
     return (
       <div className="chart" ref={host}>
         <div className="chart-empty" style={{ height }}>
-          No samples yet
+          {t("metrics.chart.noSamples")}
         </div>
       </div>
     );
@@ -69,9 +71,9 @@ export default function LineChart({ series, refs = [], format, height = 150, max
   const hoverT = hover !== null ? base.points[hover]?.[0] : undefined;
   const onMove = (e: React.MouseEvent<SVGSVGElement>) => {
     const rect = e.currentTarget.getBoundingClientRect();
-    const t = t0 + ((e.clientX - rect.left - PAD.left) / innerW) * span;
+    const at = t0 + ((e.clientX - rect.left - PAD.left) / innerW) * span;
     let best = 0;
-    base.points.forEach((p, i) => Math.abs(p[0] - t) < Math.abs(base.points[best][0] - t) && (best = i));
+    base.points.forEach((p, i) => Math.abs(p[0] - at) < Math.abs(base.points[best][0] - at) && (best = i));
     setHover(best);
   };
 
@@ -80,7 +82,7 @@ export default function LineChart({ series, refs = [], format, height = 150, max
 
   return (
     <div className="chart" ref={host}>
-      <svg width={w} height={height} onMouseMove={onMove} onMouseLeave={() => setHover(null)} role="img" aria-label="Time series chart">
+      <svg width={w} height={height} onMouseMove={onMove} onMouseLeave={() => setHover(null)} role="img" aria-label={t("metrics.chart.label")}>
         {[0, 0.5, 1].map((f) => (
           <g key={f}>
             <line x1={PAD.left} x2={w - PAD.right} y1={y(top * f)} y2={y(top * f)} className="chart-grid" />

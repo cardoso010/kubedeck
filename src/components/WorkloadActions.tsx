@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import { IconPlayerPause, IconPlayerPlay, IconRefresh, IconStack2 } from "@tabler/icons-react";
 import { errorText, rolloutRestart, scale, setPaused } from "../api";
 import ConfirmDialog from "./ConfirmDialog";
@@ -20,6 +21,7 @@ type Pending = { action: "restart" } | { action: "scale"; replicas: number } | {
 
 /** Restart, scale and pause/resume buttons for the drawer header. */
 export default function WorkloadActions({ kindKey, namespace, name, replicas, paused, production, context, onError }: Props) {
+  const { t } = useTranslation();
   const [pending, setPending] = useState<Pending | null>(null);
   const [scaling, setScaling] = useState(false);
   const [target, setTarget] = useState(String(replicas ?? 1));
@@ -42,34 +44,36 @@ export default function WorkloadActions({ kindKey, namespace, name, replicas, pa
 
   const describe = (p: Pending) =>
     p.action === "restart"
-      ? { title: `Restart ${name}?`, message: `Every pod is replaced, a few at a time, on ${context}.`, label: "Restart" }
+      ? { title: t("workloads.actions.restartTitle", { name }), message: t("workloads.actions.restartMessage", { cluster: context }), label: t("workloads.actions.restart") }
       : p.action === "scale"
-        ? { title: `Scale ${name} to ${p.replicas}?`, message: `From ${replicas} to ${p.replicas} replicas on ${context}.`, label: "Scale" }
-        : { title: `${p.paused ? "Pause" : "Resume"} ${name}?`, message: p.paused ? "Changes to the pod template will not roll out until you resume." : "Pending template changes roll out now.", label: p.paused ? "Pause" : "Resume" };
+        ? { title: t("workloads.actions.scaleTitle", { name, replicas: p.replicas }), message: t("workloads.actions.scaleMessage", { from: replicas, to: p.replicas, cluster: context }), label: t("workloads.actions.scale") }
+        : p.paused
+          ? { title: t("workloads.actions.pauseTitle", { name }), message: t("workloads.actions.pauseMessage"), label: t("workloads.actions.pause") }
+          : { title: t("workloads.actions.resumeTitle", { name }), message: t("workloads.actions.resumeMessage"), label: t("workloads.actions.resume") };
 
   return (
     <>
       {SCALABLE.includes(kindKey) &&
         (scaling ? (
           <span className="scale-form">
-            <input type="number" min={0} max={1000} value={target} onChange={(e) => setTarget(e.target.value)} aria-label="Replicas" autoFocus />
+            <input type="number" min={0} max={1000} value={target} onChange={(e) => setTarget(e.target.value)} aria-label={t("workloads.actions.replicas")} autoFocus />
             <button className="primary" disabled={busy || target === "" || Number(target) === replicas} onClick={() => setPending({ action: "scale", replicas: Number(target) })}>
-              Scale
+              {t("workloads.actions.scale")}
             </button>
-            <button onClick={() => setScaling(false)}>Cancel</button>
+            <button onClick={() => setScaling(false)}>{t("common.cancel")}</button>
           </span>
         ) : (
-          <button disabled={busy} onClick={() => (setTarget(String(replicas ?? 1)), setScaling(true))} title="Change the number of replicas">
+          <button disabled={busy} onClick={() => (setTarget(String(replicas ?? 1)), setScaling(true))} title={t("workloads.actions.scaleHint")}>
             <IconStack2 size={14} /> {replicas ?? "?"}
           </button>
         ))}
       {kindKey === "deployments" && (
-        <button disabled={busy} onClick={() => setPending({ action: "pause", paused: !paused })} title={paused ? "Resume rollouts" : "Pause rollouts"}>
-          {paused ? <IconPlayerPlay size={14} /> : <IconPlayerPause size={14} />} {paused ? "Resume" : "Pause"}
+        <button disabled={busy} onClick={() => setPending({ action: "pause", paused: !paused })} title={paused ? t("workloads.actions.resumeHint") : t("workloads.actions.pauseHint")}>
+          {paused ? <IconPlayerPlay size={14} /> : <IconPlayerPause size={14} />} {paused ? t("workloads.actions.resume") : t("workloads.actions.pause")}
         </button>
       )}
-      <button disabled={busy} onClick={() => setPending({ action: "restart" })} title="Replace every pod (rollout restart)">
-        <IconRefresh size={14} /> Restart
+      <button disabled={busy} onClick={() => setPending({ action: "restart" })} title={t("workloads.actions.restartHint")}>
+        <IconRefresh size={14} /> {t("workloads.actions.restart")}
       </button>
       {pending && (
         <ConfirmDialog

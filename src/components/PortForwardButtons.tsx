@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { errorText, startPortForward, type ForwardInfo } from "../api";
 
@@ -11,6 +12,7 @@ interface Props {
 
 /** One "Forward" button per port of the selected pod or service. */
 export default function PortForwardButtons({ kind, namespace, name, ports }: Props) {
+  const { t } = useTranslation();
   const [started, setStarted] = useState<ForwardInfo | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -32,7 +34,7 @@ export default function PortForwardButtons({ kind, namespace, name, ports }: Pro
 
   return (
     <div className="forward-bar">
-      <span className="muted">Port forward:</span>
+      <span className="muted">{t("forwards.buttons.label")}</span>
       {[...new Set(ports)].map((p) => (
         <button key={p} disabled={busy} onClick={() => forward(p)}>
           :{p}

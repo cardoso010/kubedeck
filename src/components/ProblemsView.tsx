@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { IconAlertTriangle, IconCircleCheck, IconFlame } from "@tabler/icons-react";
 import { age, type KindInfo, type Problem } from "../api";
 
@@ -11,6 +12,7 @@ interface Props {
 
 /** Everything that looks wrong in the selected namespaces, worst first. */
 export default function ProblemsView({ problems, error, kinds, onOpen }: Props) {
+  const { t } = useTranslation();
   const [query, setQuery] = useState("");
   const now = Date.now();
   const shown = useMemo(() => {
@@ -24,10 +26,10 @@ export default function ProblemsView({ problems, error, kinds, onOpen }: Props) 
   return (
     <section className="table problems">
       <header className="table-toolbar">
-        <h2>Problems</h2>
-        <span className="count">{problems ? problems.length : "loading…"}</span>
+        <h2>{t("problems.title")}</h2>
+        <span className="count">{problems ? problems.length : t("problems.loading")}</span>
         <div className="table-actions">
-          <input placeholder="Filter…" value={query} onChange={(e) => setQuery(e.target.value)} />
+          <input placeholder={t("problems.filter")} value={query} onChange={(e) => setQuery(e.target.value)} />
         </div>
       </header>
       {error && <div className="error-bar">{error}</div>}
@@ -35,19 +37,19 @@ export default function ProblemsView({ problems, error, kinds, onOpen }: Props) 
         {problems && problems.length === 0 && (
           <div className="problems-clear">
             <IconCircleCheck size={28} stroke={1.5} />
-            <div>Nothing looks wrong in the selected namespaces.</div>
-            <div className="faint">Checked: crash loops, OOM kills, image pulls, pending and unready pods, workloads, jobs, volume claims and nodes.</div>
+            <div>{t("problems.clear")}</div>
+            <div className="faint">{t("problems.checked")}</div>
           </div>
         )}
         {[
-          ["Critical", critical, <IconFlame key="c" size={14} />] as const,
-          ["Warnings", warnings, <IconAlertTriangle key="w" size={14} />] as const,
+          ["critical", critical, <IconFlame key="c" size={14} />] as const,
+          ["warnings", warnings, <IconAlertTriangle key="w" size={14} />] as const,
         ].map(
           ([title, list, icon]) =>
             list.length > 0 && (
               <div key={title} className="problem-group">
-                <div className={`problem-group-title ${title === "Critical" ? "bad" : "warn"}`}>
-                  {icon} {title} <span className="faint">{list.length}</span>
+                <div className={`problem-group-title ${title === "critical" ? "bad" : "warn"}`}>
+                  {icon} {t(`problems.${title}`)} <span className="faint">{list.length}</span>
                 </div>
                 {list.map((p, i) => (
                   <button key={`${p.kindKey}/${p.namespace}/${p.name}/${p.reason}/${i}`} className={`problem ${p.severity}`} onClick={() => onOpen(p)}>

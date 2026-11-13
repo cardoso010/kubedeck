@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import { DiffEditor } from "@monaco-editor/react";
 import { useCurrentTheme } from "../theme";
 import TypeToConfirm, { confirms } from "./TypeToConfirm";
@@ -17,20 +18,21 @@ interface Props {
 /** Shows exactly what a save changes before it is sent. */
 export default function DiffDialog({ title, original, modified, confirmLabel, typeToConfirm, onConfirm, onCancel }: Props) {
   const monacoTheme = useCurrentTheme().monaco;
+  const { t } = useTranslation();
   const [typed, setTyped] = useState("");
   return (
     <div className="modal-backdrop" onClick={onCancel}>
       <div className="modal modal-large" onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
           <strong>{title}</strong>
-          <span className="faint">left: on the cluster · right: what will be saved</span>
+          <span className="faint">{t("dialogs.diff.sides")}</span>
         </div>
         <div className="create-editor">
           <DiffEditor language="yaml" theme={monacoTheme} original={original} modified={modified} options={{ readOnly: true, renderSideBySide: true, minimap: { enabled: false }, fontSize: 12, scrollBeyondLastLine: false }} />
         </div>
         <div className="modal-actions create-actions">
           {typeToConfirm && <TypeToConfirm expected={typeToConfirm} value={typed} onChange={setTyped} />}
-          <button onClick={onCancel}>Cancel</button>
+          <button onClick={onCancel}>{t("common.cancel")}</button>
           <button className="primary" disabled={!!typeToConfirm && !confirms(typed, typeToConfirm)} onClick={onConfirm}>
             {confirmLabel}
           </button>

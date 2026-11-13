@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { IconChevronDown, IconChevronUp, IconFileText, IconTerminal2, IconX } from "@tabler/icons-react";
 import type { DockTab } from "../dock";
 import LogsView from "./LogsView";
@@ -25,6 +26,7 @@ const savedHeight = () => {
  * keeps shells and streams running; drag the top edge to resize.
  */
 export default function Dock({ tabs, active, onActivate, onClose }: Props) {
+  const { t } = useTranslation();
   const [height, setHeight] = useState(savedHeight);
   const [collapsed, setCollapsed] = useState(false);
   const drag = useRef<{ y: number; h: number } | null>(null);
@@ -66,24 +68,24 @@ export default function Dock({ tabs, active, onActivate, onClose }: Props) {
         />
       )}
       <nav className="dock-tabs">
-        {tabs.map((t) => (
-          <div key={t.id} className={`dock-tab ${t.id === active ? "active" : ""}`} onClick={() => (onActivate(t.id), setCollapsed(false))} title={t.title}>
-            {t.kind === "terminal" ? <IconTerminal2 size={13} /> : <IconFileText size={13} />}
-            <span>{t.title}</span>
-            <button className="icon-button" aria-label="Close tab" onClick={(e) => (e.stopPropagation(), onClose(t.id))}>
+        {tabs.map((tab) => (
+          <div key={tab.id} className={`dock-tab ${tab.id === active ? "active" : ""}`} onClick={() => (onActivate(tab.id), setCollapsed(false))} title={tab.title}>
+            {tab.kind === "terminal" ? <IconTerminal2 size={13} /> : <IconFileText size={13} />}
+            <span>{tab.title}</span>
+            <button className="icon-button" aria-label={t("dock.closeTab")} onClick={(e) => (e.stopPropagation(), onClose(tab.id))}>
               <IconX size={12} />
             </button>
           </div>
         ))}
         <span className="spacer" />
-        <button className="icon-button" aria-label={collapsed ? "Expand the dock" : "Collapse the dock"} onClick={() => setCollapsed(!collapsed)}>
+        <button className="icon-button" aria-label={collapsed ? t("dock.expand") : t("dock.collapse")} onClick={() => setCollapsed(!collapsed)}>
           {collapsed ? <IconChevronUp size={14} /> : <IconChevronDown size={14} />}
         </button>
       </nav>
       <div className="dock-body" hidden={collapsed}>
-        {tabs.map((t) => (
-          <div key={t.id} className="dock-pane" hidden={t.id !== active}>
-            {t.kind === "terminal" ? <TerminalView namespace={t.namespace} pod={t.pod} container={t.container} /> : <LogsView source={t.source} />}
+        {tabs.map((tab) => (
+          <div key={tab.id} className="dock-pane" hidden={tab.id !== active}>
+            {tab.kind === "terminal" ? <TerminalView namespace={tab.namespace} pod={tab.pod} container={tab.container} /> : <LogsView source={tab.source} />}
           </div>
         ))}
       </div>

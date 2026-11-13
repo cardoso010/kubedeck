@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { IconCopy, IconEye, IconEyeOff } from "@tabler/icons-react";
 import { errorText, secretKeys, secretValue } from "../api";
 import ConfirmDialog from "./ConfirmDialog";
@@ -11,6 +12,7 @@ interface Props {
 
 /** A Secret's keys; each value is fetched and decoded only when revealed or copied. */
 export default function SecretData({ namespace, name, production }: Props) {
+  const { t } = useTranslation();
   const [keys, setKeys] = useState<{ key: string; bytes: number }[] | null>(null);
   const [values, setValues] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
@@ -25,7 +27,7 @@ export default function SecretData({ namespace, name, production }: Props) {
 
   async function fetchValue(key: string): Promise<string> {
     const v = await secretValue(namespace, name, key);
-    return v.text ?? `(binary, base64) ${v.base64}`;
+    return v.text ?? `${t("resources.secrets.binary")} ${v.base64}`;
   }
 
   async function act(key: string, copy: boolean) {
@@ -48,8 +50,8 @@ export default function SecretData({ namespace, name, production }: Props) {
   }
 
   if (error && !keys) return <div className="error-bar">{error}</div>;
-  if (!keys) return <div className="empty">Loading…</div>;
-  if (keys.length === 0) return <div className="empty">This Secret has no data.</div>;
+  if (!keys) return <div className="empty">{t("common.loading")}</div>;
+  if (keys.length === 0) return <div className="empty">{t("resources.secrets.noData")}</div>;
 
   return (
     <div className="secret-data">
@@ -58,24 +60,24 @@ export default function SecretData({ namespace, name, production }: Props) {
         <div key={key} className="secret-row">
           <div className="secret-head">
             <code>{key}</code>
-            <span className="faint">{bytes} bytes</span>
+            <span className="faint">{t("resources.secrets.bytes", { count: bytes })}</span>
             <span className="spacer" />
-            <button className="icon-button" title={key in values ? "Hide" : "Reveal"} onClick={() => void act(key, false)}>
+            <button className="icon-button" title={key in values ? t("resources.secrets.hide") : t("resources.secrets.reveal")} onClick={() => void act(key, false)}>
               {key in values ? <IconEyeOff size={14} /> : <IconEye size={14} />}
             </button>
-            <button className="icon-button" title="Copy the value" onClick={() => void act(key, true)}>
+            <button className="icon-button" title={t("resources.secrets.copyValue")} onClick={() => void act(key, true)}>
               <IconCopy size={14} />
             </button>
-            {copied === key && <span className="ok">copied</span>}
+            {copied === key && <span className="ok">{t("resources.secrets.copied")}</span>}
           </div>
           <pre className={`secret-value ${key in values ? "" : "hidden"}`}>{values[key] ?? "••••••••"}</pre>
         </div>
       ))}
       {asking && (
         <ConfirmDialog
-          title="Show production secret values?"
-          message={`Values of ${name} will be ${asking.copy ? "copied to the clipboard" : "visible on screen (and in screen shares)"}. You will not be asked again until you leave this tab.`}
-          confirmLabel={asking.copy ? "Copy" : "Reveal"}
+          title={t("resources.secrets.revealTitle")}
+          message={t(asking.copy ? "resources.secrets.revealOnceCopy" : "resources.secrets.revealOnceScreen", { name })}
+          confirmLabel={asking.copy ? t("common.copy") : t("resources.secrets.reveal")}
           onConfirm={() => {
             const next = asking;
             setAsking(null);

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useTranslation } from "react-i18next";
 import { IconBraces, IconCopy, IconDownload, IconHistory } from "@tabler/icons-react";
 import { errorText, saveTextFile, streamLogs, streamWorkloadLogs } from "../api";
 import { useStream } from "../useStream";
@@ -21,6 +22,7 @@ const MAX_LINES = 5000;
  * and copy or save what is on screen.
  */
 export default function LogsView({ source }: { source: LogSource }) {
+  const { t } = useTranslation();
   const [lines, setLines] = useState<Line[]>([]);
   const [ended, setEnded] = useState<string | null>(null);
   const [follow, setFollow] = useState(true);
@@ -38,7 +40,7 @@ export default function LogsView({ source }: { source: LogSource }) {
       setEnded(null);
       let queue: Line[] = [];
       const onMessage = (msg: { type: "data"; data: string; source?: string } | { type: "end"; message: string | null }) => {
-        if (msg.type === "end") return setEnded(msg.message ?? (previous ? "End of the previous run's logs." : "Log stream ended."));
+        if (msg.type === "end") return setEnded(msg.message ?? (previous ? t("workloads.logs.previousEnded") : t("workloads.logs.ended")));
         if (queue.push({ text: msg.data, source: msg.source }) > 1) return;
         requestAnimationFrame(() => {
           const batch = queue;
@@ -72,38 +74,38 @@ export default function LogsView({ source }: { source: LogSource }) {
     <div className="logs">
       <div className="yaml-toolbar logs-toolbar">
         <label className="checkbox">
-          <input type="checkbox" checked={follow} onChange={(e) => setFollow(e.target.checked)} /> Follow
+          <input type="checkbox" checked={follow} onChange={(e) => setFollow(e.target.checked)} /> {t("workloads.logs.follow")}
         </label>
         {source.kind === "pod" && (
           <button
             className={`toggle ${previous ? "active" : ""}`}
             disabled={source.restarts === 0 && !previous}
-            title={source.restarts === 0 ? "This container has not restarted" : "Logs of the run before the last restart"}
+            title={source.restarts === 0 ? t("workloads.logs.noRestarts") : t("workloads.logs.previousHint")}
             onClick={() => setPrevious(!previous)}
           >
-            <IconHistory size={14} /> Previous run
+            <IconHistory size={14} /> {t("workloads.logs.previous")}
           </button>
         )}
-        <button className={`toggle ${json ? "active" : ""}`} title="Pretty-print JSON lines" onClick={() => setJson(!json)}>
+        <button className={`toggle ${json ? "active" : ""}`} title={t("workloads.logs.jsonHint")} onClick={() => setJson(!json)}>
           <IconBraces size={14} /> JSON
         </button>
-        <input placeholder="Search…" value={query} onChange={(e) => setQuery(e.target.value)} />
+        <input placeholder={t("workloads.logs.search")} value={query} onChange={(e) => setQuery(e.target.value)} />
         {q && (
           <label className="checkbox">
-            <input type="checkbox" checked={onlyMatches} onChange={(e) => setOnlyMatches(e.target.checked)} /> Only matches
+            <input type="checkbox" checked={onlyMatches} onChange={(e) => setOnlyMatches(e.target.checked)} /> {t("workloads.logs.onlyMatches")}
           </label>
         )}
-        <span className="faint">{shown.length} lines</span>
+        <span className="faint">{t("workloads.logs.lines", { count: shown.length })}</span>
         <span className="logs-actions">
           {notice && <span className="ok">{notice}</span>}
-          <button className="icon-button" title="Copy" aria-label="Copy logs" onClick={() => void navigator.clipboard.writeText(asText()).then(() => flash("Copied"))}>
+          <button className="icon-button" title={t("common.copy")} aria-label={t("workloads.logs.copy")} onClick={() => void navigator.clipboard.writeText(asText()).then(() => flash(t("common.copied")))}>
             <IconCopy size={15} />
           </button>
           <button
             className="icon-button"
-            title="Save to a file"
-            aria-label="Save logs"
-            onClick={() => void saveTextFile(`${name}.log`, asText()).then((saved) => saved && flash("Saved"), (e) => flash(errorText(e)))}
+            title={t("workloads.logs.saveHint")}
+            aria-label={t("workloads.logs.save")}
+            onClick={() => void saveTextFile(`${name}.log`, asText()).then((saved) => saved && flash(t("workloads.logs.saved")), (e) => flash(errorText(e)))}
           >
             <IconDownload size={15} />
           </button>

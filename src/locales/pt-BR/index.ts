@@ -1,0 +1,21 @@
+import type en from "../en";
+import type { Translation } from "../types";
+import common from "./common";
+import settings from "./settings";
+import themes from "./themes";
+import app from "./app";
+import rail from "./rail";
+import resources from "./resources";
+import dialogs from "./dialogs";
+import explain from "./explain";
+import workloads from "./workloads";
+import dock from "./dock";
+import forwards from "./forwards";
+import metrics from "./metrics";
+import nodes from "./nodes";
+import problems from "./problems";
+import rightsizing from "./rightsizing";
+import storage from "./storage";
+import helm from "./helm";
+
+export default { common, settings, themes, app, rail, resources, dialogs, explain, workloads, dock, forwards, metrics, nodes, problems, rightsizing, storage, helm } satisfies Translation<typeof en>;
