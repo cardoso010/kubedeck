@@ -180,7 +180,8 @@ pub async fn rollback(namespace: String, name: String, revision: i64, state: Ses
     // Replace only the template: a full update would race the controller, which keeps
     // writing the deployment while a rollout is going on, and a merge patch could not
     // remove keys the old template did not have.
-    let patch: json_patch::Patch = serde_json::from_value(json!([
+    // Deserialized straight into the json-patch type kube uses, so its version always matches.
+    let patch = serde_json::from_value(json!([
         { "op": "replace", "path": "/spec/template", "value": template }
     ]))
     .map_err(|e| e.to_string())?;
