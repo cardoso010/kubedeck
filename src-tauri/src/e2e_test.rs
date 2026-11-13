@@ -970,7 +970,7 @@ async fn read_only_secrets_and_login_against_real_cluster() {
 
     // Read-only: every write is refused before it reaches the cluster; reads still work.
     cluster::set_read_only(true, state());
-    let refused = |r: Result<(), String>| assert_eq!(r.unwrap_err(), crate::state::READ_ONLY);
+    let refused = |r: crate::state::CmdResult<()>| assert_eq!(r.unwrap_err(), crate::state::READ_ONLY);
     refused(resources::delete_resource("pods".into(), opt("demo"), "ticker".into(), state()).await);
     refused(workloads::scale("deployments".into(), "demo".into(), "web".into(), 0, state()).await);
     refused(workloads::rollout_restart("deployments".into(), "demo".into(), "web".into(), state()).await);
@@ -982,6 +982,9 @@ async fn read_only_secrets_and_login_against_real_cluster() {
     let (ch, _) = channel();
     refused(streams::exec_start("demo".into(), "ticker".into(), None, 80, 24, ch, state()).await.map(|_| ()));
     assert!(nodes::drain("kubedeck-test-worker".into(), None, true, state()).await.is_ok(), "a dry run only reads");
+    // API errors come worded for people, whatever command hits them.
+    let missing = resources::get_yaml("pods".into(), opt("demo"), "nope".into(), None, state()).await.unwrap_err();
+    assert!(missing.starts_with("NotFound (404): "), "{missing}");
     let pods = resources::get_yaml("pods".into(), opt("demo"), "ticker".into(), None, state()).await;
     assert!(pods.is_ok(), "reads work in read-only mode");
     // The lock belongs to this window only.

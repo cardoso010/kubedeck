@@ -60,7 +60,7 @@ const PROM_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(20);
 /// How long a candidate service gets to answer `vector(1)` during detection.
 const PROBE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(3);
 
-pub(crate) async fn prom_get(client: &Client, target: &PromTarget, api: &str, params: &[(&str, String)]) -> Result<Value, String> {
+pub(crate) async fn prom_get(client: &Client, target: &PromTarget, api: &str, params: &[(&str, String)]) -> CmdResult<Value> {
     let query = form_urlencoded::Serializer::new(String::new()).extend_pairs(params.iter().map(|(k, v)| (*k, v.as_str()))).finish();
     let request = http::Request::get(format!("{}?{query}", target.proxy_path(api))).body(Vec::new()).map_err(err)?;
     let text = tokio::time::timeout(PROM_TIMEOUT, client.request_text(request))
@@ -69,7 +69,7 @@ pub(crate) async fn prom_get(client: &Client, target: &PromTarget, api: &str, pa
         .map_err(err)?;
     let json: Value = serde_json::from_str(&text).map_err(|_| "Prometheus returned something that is not JSON".to_owned())?;
     if json["status"] != "success" {
-        return Err(json["error"].as_str().unwrap_or("Prometheus query failed").to_owned());
+        return Err(json["error"].as_str().unwrap_or("Prometheus query failed").into());
     }
     Ok(json["data"].clone())
 }

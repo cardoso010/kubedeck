@@ -11,7 +11,7 @@ use serde::Serialize;
 use serde_json::Value;
 
 use crate::kinds;
-use crate::state::{err, kube_err, CmdResult, Connection, Session};
+use crate::state::{err, CmdResult, Connection, Session};
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -108,7 +108,7 @@ pub async fn connect(context: String, state: Session) -> CmdResult<Connected> {
     let client = Client::try_from(config).map_err(err)?;
     // Independent round trips; the streaming probe alone can take up to a second.
     let (version, custom, streaming_lists) = tokio::join!(client.apiserver_version(), custom_kinds(&client), supports_streaming_lists(&client));
-    let version = version.map_err(|e| kube_err(&e))?;
+    let version = version?;
 
     let mut all_kinds = kinds::builtins();
     all_kinds.extend(custom);
@@ -254,6 +254,6 @@ pub(crate) async fn login(command: &str) -> CmdResult<String> {
     if output.status.success() {
         Ok(tail)
     } else {
-        Err(format!("The login command failed ({}):\n{tail}", output.status))
+        Err(format!("The login command failed ({}):\n{tail}", output.status).into())
     }
 }

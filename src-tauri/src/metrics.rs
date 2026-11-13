@@ -6,7 +6,7 @@ use kube::Client;
 use serde::Serialize;
 use serde_json::Value;
 
-use crate::state::{CmdResult, Session, kube_err};
+use crate::state::{CmdResult, Session};
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -72,7 +72,7 @@ pub async fn node_metrics(state: Session) -> CmdResult<Vec<Usage>> {
     let client = state.connection().await?.client;
     let usage = metrics_api(client.clone(), "nodes", "NodeMetrics", None).list(&ListParams::default()).await.map_err(metrics_error)?;
     // Only allocatable is needed; the API server's cache is recent enough for that.
-    let nodes = Api::<Node>::all(client).list(&ListParams::default().match_any()).await.map_err(|e| kube_err(&e))?;
+    let nodes = Api::<Node>::all(client).list(&ListParams::default().match_any()).await?;
     let allocatable: std::collections::HashMap<String, _> =
         nodes.items.into_iter().filter_map(|n| Some((n.metadata.name?, n.status?.allocatable?))).collect();
     Ok(usage
