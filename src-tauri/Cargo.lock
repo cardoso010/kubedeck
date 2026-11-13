@@ -2587,7 +2587,6 @@ dependencies = [
  "futures",
  "http",
  "jiff",
- "json-patch",
  "k8s-openapi",
  "keyring",
  "kube",

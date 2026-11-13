@@ -755,7 +755,7 @@ async fn workload_actions_against_real_cluster() {
     // minutes: the image pull and the first back-off come first.
     let pods: kube::Api<k8s_openapi::api::core::v1::Pod> = kube::Api::namespaced(state().connection().await.unwrap().client, "demo");
     for _ in 0..360 {
-        let restarts = pods.get("broken").await.unwrap().status.and_then(|s| s.container_statuses).and_then(|c| c.first().map(|c| c.restart_count));
+        let restarts = pods.get("crashed-once").await.unwrap().status.and_then(|s| s.container_statuses).and_then(|c| c.first().map(|c| c.restart_count));
         if restarts.is_some_and(|r| r > 0) {
             break;
         }
@@ -764,13 +764,13 @@ async fn workload_actions_against_real_cluster() {
     // The kubelet can still briefly lack the previous run's logs while the container restarts.
     for attempt in 0.. {
         let (ch, logs) = channel();
-        streams::stream_logs("demo".into(), "broken".into(), None, None, Some(true), ch, state()).await.unwrap();
+        streams::stream_logs("demo".into(), "crashed-once".into(), None, None, Some(true), ch, state()).await.unwrap();
         wait_for(&logs, "previous logs end", |m| m.iter().any(|m| m["type"] == "end")).await;
         if log_lines(&logs.lock().unwrap()).any(|l| l["text"] == "boom") {
             break;
         }
         if attempt == 120 {
-            let status = pods.get("broken").await.unwrap().status;
+            let status = pods.get("crashed-once").await.unwrap().status;
             panic!("no previous logs; got {:?}; pod status {status:?}", logs.lock().unwrap());
         }
         tokio::time::sleep(Duration::from_millis(500)).await;

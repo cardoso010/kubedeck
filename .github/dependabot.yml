@@ -6,9 +6,8 @@ updates:
     schedule: { interval: weekly }
     groups:
       # kube and k8s-openapi only build at matching versions, so they always move together
-      # (major bumps included). json-patch too: the Patch we hand to kube must be the version
-      # kube-core uses. Listed first: a dependency joins the first group it matches.
-      kube: { patterns: ["kube", "kube-*", "k8s-openapi", "json-patch"] }
+      # (major bumps included). Listed first: a dependency joins the first group it matches.
+      kube: { patterns: ["kube", "kube-*", "k8s-openapi"] }
       cargo: { patterns: ["*"], update-types: [minor, patch] }
   - package-ecosystem: npm
     directory: /

@@ -45,6 +45,21 @@ kubectl -n demo get configmap app-config >/dev/null 2>&1 || kubectl -n demo crea
 kubectl -n demo get secret app-secret >/dev/null 2>&1 || kubectl -n demo create secret generic app-secret --from-literal=password=hunter2 --from-literal=user=admin
 kubectl -n demo get pod ticker >/dev/null 2>&1 || kubectl -n demo run ticker --image=busybox:1.36 -- sh -c 'i=0; while true; do i=$((i+1)); echo "tick $i $(date)"; sleep 1; done'
 kubectl -n demo get pod broken >/dev/null 2>&1 || kubectl -n demo run broken --image=busybox:1.36 -- sh -c 'echo boom; exit 1'
+# Crashes once, then keeps running: a previous run whose logs stay readable. `broken` cannot
+# serve for that, since the kubelet removes each dead container of a crash loop as the next
+# one dies, and its logs with it.
+kubectl -n demo get pod crashed-once >/dev/null 2>&1 || kubectl -n demo apply -f - <<POD
+apiVersion: v1
+kind: Pod
+metadata: { name: crashed-once }
+spec:
+  containers:
+    - name: app
+      image: busybox:1.36
+      command: [sh, -c, 'if [ -e /state/ran ]; then echo second run; exec sleep 3600000; fi; touch /state/ran; echo boom; exit 1']
+      volumeMounts: [{ name: state, mountPath: /state }]
+  volumes: [{ name: state, emptyDir: {} }]
+POD
 # Restarted, scaled and rolled back by the workload test (nothing else uses it).
 kubectl -n demo get deployment rollme >/dev/null 2>&1 || kubectl -n demo create deployment rollme --image=nginx:1.27-alpine --replicas=2
 # Two replicas that log their own name, for merged workload logs.
