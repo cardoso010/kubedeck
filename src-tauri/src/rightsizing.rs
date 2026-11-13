@@ -46,25 +46,11 @@ pub struct Rightsizing {
 
 type Usage = HashMap<(String, String, String), (Option<f64>, Option<f64>)>;
 
-/// Owning workload of a pod: ReplicaSets are traced to their Deployment by the
-/// pod-template-hash suffix, which the Deployment controller always adds.
+/// Owning workload of a pod, or the pod itself when it has none.
 fn owner(pod: &Pod) -> (String, String) {
-    let name = pod.metadata.name.clone().unwrap_or_default();
-    let Some(o) = pod.metadata.owner_references.iter().flatten().find(|o| o.controller == Some(true)) else {
-        return ("pods".into(), name);
-    };
-    match o.kind.as_str() {
-        "ReplicaSet" => {
-            let hash = pod.metadata.labels.as_ref().and_then(|l| l.get("pod-template-hash"));
-            match hash.and_then(|h| o.name.strip_suffix(&format!("-{h}"))) {
-                Some(deployment) => ("deployments".into(), deployment.into()),
-                None => ("pods".into(), name),
-            }
-        }
-        "StatefulSet" => ("statefulsets".into(), o.name.clone()),
-        "DaemonSet" => ("daemonsets".into(), o.name.clone()),
-        "Job" => ("jobs".into(), o.name.clone()),
-        _ => ("pods".into(), name),
+    match crate::owners::workload_of(pod) {
+        Some((kind, name)) => (kind.into(), name),
+        None => ("pods".into(), pod.metadata.name.clone().unwrap_or_default()),
     }
 }
 
@@ -316,23 +302,10 @@ fn max(a: Option<f64>, b: Option<f64>) -> Option<f64> {
 mod tests {
     use super::*;
 
-    fn pod(owner_kind: Option<&str>, owner_name: &str, hash: Option<&str>) -> Pod {
-        serde_json::from_value(serde_json::json!({
-            "metadata": {
-                "name": "p-1",
-                "labels": hash.map(|h| serde_json::json!({ "pod-template-hash": h })).unwrap_or(serde_json::json!({})),
-                "ownerReferences": owner_kind.map(|k| serde_json::json!([{ "apiVersion": "apps/v1", "kind": k, "name": owner_name, "uid": "u", "controller": true }])).unwrap_or(serde_json::json!([])),
-            }
-        }))
-        .unwrap()
-    }
-
     #[test]
-    fn traces_pods_to_their_workload() {
-        assert_eq!(owner(&pod(Some("ReplicaSet"), "web-7c6cdd646", Some("7c6cdd646"))), ("deployments".into(), "web".into()));
-        assert_eq!(owner(&pod(Some("ReplicaSet"), "plain-rs", None)), ("pods".into(), "p-1".into()));
-        assert_eq!(owner(&pod(Some("StatefulSet"), "db", None)), ("statefulsets".into(), "db".into()));
-        assert_eq!(owner(&pod(None, "", None)), ("pods".into(), "p-1".into()));
+    fn pods_without_a_workload_stand_for_themselves() {
+        let pod: Pod = serde_json::from_value(json!({ "metadata": { "name": "p-1" } })).unwrap();
+        assert_eq!(owner(&pod), ("pods".into(), "p-1".into()));
     }
 
     #[test]

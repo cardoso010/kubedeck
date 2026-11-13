@@ -3,7 +3,7 @@
 
 use std::collections::BTreeMap;
 
-use k8s_openapi::api::apps::v1::{DaemonSet, Deployment, ReplicaSet, StatefulSet};
+use k8s_openapi::api::apps::v1::{DaemonSet, Deployment, StatefulSet};
 use k8s_openapi::api::batch::v1::Job;
 use k8s_openapi::api::core::v1::{Node, PersistentVolume, PersistentVolumeClaim, Pod, Service};
 use k8s_openapi::api::networking::v1::Ingress;
@@ -386,28 +386,15 @@ pub async fn related(kind_key: String, namespace: Option<String>, name: String, 
     match kind_key.as_str() {
         "pods" => {
             let pod = Api::<Pod>::namespaced(client.clone(), ns).get(&name).await.map_err(|e| kube_err(&e))?;
-            // Owner chain: ReplicaSet → Deployment, Job → CronJob, or a direct controller.
+            // Owner chain: the pod's workload, and a Job's CronJob.
             let mut owners = Vec::new();
-            for o in pod.metadata.owner_references.iter().flatten().filter(|o| o.controller == Some(true)) {
-                match o.kind.as_str() {
-                    "ReplicaSet" => {
-                        if let Ok(rs) = Api::<ReplicaSet>::namespaced(client.clone(), ns).get(&o.name).await {
-                            for d in rs.metadata.owner_references.iter().flatten().filter(|d| d.kind == "Deployment") {
-                                owners.push(item("deployments", Some(ns), &d.name, ""));
-                            }
-                        }
-                    }
-                    "Job" => {
-                        owners.push(item("jobs", Some(ns), &o.name, ""));
-                        if let Ok(job) = Api::<Job>::namespaced(client.clone(), ns).get(&o.name).await {
-                            for c in job.metadata.owner_references.iter().flatten().filter(|c| c.kind == "CronJob") {
-                                owners.push(item("cronjobs", Some(ns), &c.name, ""));
-                            }
-                        }
-                    }
-                    "StatefulSet" => owners.push(item("statefulsets", Some(ns), &o.name, "")),
-                    "DaemonSet" => owners.push(item("daemonsets", Some(ns), &o.name, "")),
-                    _ => {}
+            if let Some((kind, workload)) = crate::owners::workload_of(&pod) {
+                owners.push(item(kind, Some(ns), &workload, ""));
+                if kind == "jobs"
+                    && let Ok(job) = Api::<Job>::namespaced(client.clone(), ns).get(&workload).await
+                    && let Some(cron) = crate::owners::controller(&job.metadata).filter(|c| c.kind == "CronJob")
+                {
+                    owners.push(item("cronjobs", Some(ns), &cron.name, ""));
                 }
             }
             push("Owned by", owners);
