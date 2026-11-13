@@ -31,6 +31,11 @@ fn channel<T: serde::Serialize>() -> (Channel<T>, Inbox) {
     (ch, inbox)
 }
 
+/// Every line of a log stream, across its batches.
+fn log_lines(msgs: &[Value]) -> impl Iterator<Item = &Value> {
+    msgs.iter().filter(|m| m["type"] == "lines").flat_map(|m| m["lines"].as_array().unwrap())
+}
+
 /// Rows upserted and uids deleted across the `changes` messages of a watch.
 fn upserts(msgs: &[Value]) -> impl Iterator<Item = &Value> {
     msgs.iter().filter(|m| m["type"] == "changes").flat_map(|m| m["upserts"].as_array().unwrap())
@@ -131,7 +136,7 @@ async fn backend_against_real_cluster() {
     // Logs
     let (ch, logs) = channel();
     let logs_id = streams::stream_logs("demo".into(), "ticker".into(), None, Some(5), None, ch, state()).await.unwrap();
-    wait_for(&logs, "log lines", |m| m.iter().filter(|m| m["type"] == "data" && m["data"].as_str().unwrap().starts_with("tick ")).count() >= 3).await;
+    wait_for(&logs, "log lines", |m| log_lines(m).filter(|l| l["text"].as_str().unwrap().starts_with("tick ")).count() >= 3).await;
     resources::stop_stream(logs_id, state());
 
     // Interactive exec with a tty
@@ -761,7 +766,7 @@ async fn workload_actions_against_real_cluster() {
         let (ch, logs) = channel();
         streams::stream_logs("demo".into(), "broken".into(), None, None, Some(true), ch, state()).await.unwrap();
         wait_for(&logs, "previous logs end", |m| m.iter().any(|m| m["type"] == "end")).await;
-        if logs.lock().unwrap().iter().any(|m| m["data"] == "boom") {
+        if log_lines(&logs.lock().unwrap()).any(|l| l["text"] == "boom") {
             break;
         }
         if attempt == 120 {
@@ -775,11 +780,11 @@ async fn workload_actions_against_real_cluster() {
     let (ch, merged) = channel();
     let id = streams::stream_workload_logs("deployments".into(), "demo".into(), "chatty".into(), Some(10), ch, state()).await.unwrap();
     wait_for(&merged, "lines from both replicas", |m| {
-        m.iter().filter_map(|m| m["source"].as_str()).collect::<std::collections::BTreeSet<_>>().len() == 2
+        log_lines(m).filter_map(|l| l["source"].as_str()).collect::<std::collections::BTreeSet<_>>().len() == 2
     })
     .await;
-    for m in merged.lock().unwrap().iter().filter(|m| m["type"] == "data") {
-        assert_eq!(m["data"].as_str().unwrap(), format!("hello from {}", m["source"].as_str().unwrap()));
+    for l in log_lines(&merged.lock().unwrap()) {
+        assert_eq!(l["text"].as_str().unwrap(), format!("hello from {}", l["source"].as_str().unwrap()));
     }
     resources::stop_stream(id, state());
 

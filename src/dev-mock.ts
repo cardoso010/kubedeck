@@ -190,7 +190,7 @@ async function invoke(cmd: string, args: Record<string, any>): Promise<unknown> 
     case "stream_logs": {
       const id = nextStream++;
       let i = 0;
-      timers.set(id, setInterval(() => send(channel!, { type: "data", data: `tick ${++i} ${new Date().toString()}` }), 400));
+      timers.set(id, setInterval(() => send(channel!, { type: "lines", lines: [{ text: `tick ${++i} ${new Date().toString()}` }] }), 400));
       return id;
     }
     case "exec_start": {
@@ -245,7 +245,7 @@ async function invoke(cmd: string, args: Record<string, any>): Promise<unknown> 
         const n = i++;
         const pod = pods[n % 3];
         const line = n % 7 === 3 ? JSON.stringify({ time: new Date().toISOString(), level: "warn", msg: "slow upstream", upstream: "payments", ms: 800 + n }) : `10.244.0.${10 + (n % 3)} - - "GET /health HTTP/1.1" 200 2 #${n}`;
-        send(channel!, { type: "data", data: line, source: pod });
+        send(channel!, { type: "lines", lines: [{ text: line, source: pod }] });
       }, 350));
       return id;
     }

@@ -47,7 +47,10 @@ export type WatchMsg =
   | { type: "changes"; upserts: Row[]; deletes: string[] }
   | { type: "error"; message: string; unauthorized: boolean };
 
-export type StreamMsg = { type: "data"; data: string; source?: string } | { type: "end"; message: string | null };
+export type StreamMsg = { type: "data"; data: string } | { type: "end"; message: string | null };
+/** `source`: the pod a line came from, for logs merged from several pods. */
+export type LogLine = { text: string; source?: string };
+export type LogMsg = { type: "lines"; lines: LogLine[] } | { type: "end"; message: string | null };
 
 /** Identifies one object for the YAML/delete commands. */
 export interface Target {
@@ -113,15 +116,15 @@ export const replaceYaml = (t: Target, yaml: string) => invoke<string>("replace_
 export const deleteResource = (t: Target) => invoke<void>("delete_resource", { ...t });
 
 /** `previous`: the logs of the container's previous (crashed) run, not followed. */
-export function streamLogs(namespace: string, pod: string, container: string | null, onMessage: (m: StreamMsg) => void, previous = false) {
-  const onEvent = new Channel<StreamMsg>();
+export function streamLogs(namespace: string, pod: string, container: string | null, onMessage: (m: LogMsg) => void, previous = false) {
+  const onEvent = new Channel<LogMsg>();
   onEvent.onmessage = onMessage;
   return invoke<number>("stream_logs", { namespace, pod, container, tailLines: 1000, previous, onEvent });
 }
 
 /** Logs of every pod of a workload, each line tagged with its pod in `source`. */
-export function streamWorkloadLogs(kindKey: string, namespace: string, name: string, onMessage: (m: StreamMsg) => void) {
-  const onEvent = new Channel<StreamMsg>();
+export function streamWorkloadLogs(kindKey: string, namespace: string, name: string, onMessage: (m: LogMsg) => void) {
+  const onEvent = new Channel<LogMsg>();
   onEvent.onmessage = onMessage;
   return invoke<number>("stream_workload_logs", { kindKey, namespace, name, tailLines: 1000, onEvent });
 }
