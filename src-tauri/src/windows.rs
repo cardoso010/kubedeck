@@ -4,6 +4,7 @@
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use tauri::{AppHandle, WebviewUrl, WebviewWindowBuilder};
+use tauri_plugin_dialog::DialogExt;
 
 use crate::state::{err, CmdResult};
 
@@ -25,8 +26,17 @@ pub fn open_window(app: AppHandle, context: Option<String>) -> CmdResult<()> {
     Ok(())
 }
 
-/// Saves text (logs, YAML) to a path the user picked in the save dialog.
+/// Asks where to save text (logs, YAML) and writes it there. The path comes from the native
+/// save dialog, never from the webview, so a script running in the page cannot choose where
+/// to write. Returns false when the user cancels.
 #[tauri::command]
-pub fn write_text_file(path: String, contents: String) -> CmdResult<()> {
-    std::fs::write(&path, contents).map_err(|e| format!("Could not save {path}: {e}"))
+pub async fn save_text_file(app: AppHandle, default_name: String, contents: String) -> CmdResult<bool> {
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    app.dialog().file().set_file_name(default_name).save_file(move |path| {
+        let _ = tx.send(path);
+    });
+    let Some(path) = rx.await.map_err(err)? else { return Ok(false) };
+    let path = path.into_path().map_err(err)?;
+    tokio::fs::write(&path, contents).await.map_err(|e| format!("Could not save {}: {e}", path.display()))?;
+    Ok(true)
 }

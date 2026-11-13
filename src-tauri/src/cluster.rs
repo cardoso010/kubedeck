@@ -190,17 +190,46 @@ users:
 #[tauri::command]
 pub fn set_read_only(read_only: bool, state: Session) {
     state.read_only.store(read_only, std::sync::atomic::Ordering::Relaxed);
+    if read_only {
+        state.close_execs();
+    }
 }
 
+/// Commands the user approved in this run of the app, so renewing again does not ask again.
+static APPROVED_LOGINS: std::sync::LazyLock<std::sync::Mutex<std::collections::HashSet<String>>> = std::sync::LazyLock::new(Default::default);
+
 /// Runs the user's login command (e.g. `aws sso login --profile prod`) so expired
-/// credentials can be renewed from the app. It may open a browser and wait for it, so it
-/// gets five minutes. Returns the end of its output.
+/// credentials can be renewed from the app. The command is typed in the webview, so before
+/// running a command for the first time the user confirms it in a native dialog, which a
+/// script injected into the page cannot click. Returns the end of its output.
 #[tauri::command]
-pub async fn run_login(command: String) -> CmdResult<String> {
-    let command = command.trim();
+pub async fn run_login(app: tauri::AppHandle, command: String) -> CmdResult<String> {
+    use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
+    let command = command.trim().to_owned();
     if command.is_empty() {
         return Err("No login command set".into());
     }
+    let approved = APPROVED_LOGINS.lock().unwrap_or_else(std::sync::PoisonError::into_inner).contains(&command);
+    if !approved {
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        app.dialog()
+            .message(format!("kubedeck will run this command on your computer to renew your credentials:\n\n{command}"))
+            .title("Run the login command?")
+            .kind(MessageDialogKind::Warning)
+            .buttons(MessageDialogButtons::OkCancelCustom("Run".into(), "Cancel".into()))
+            .show(move |ok| {
+                let _ = tx.send(ok);
+            });
+        if !rx.await.unwrap_or(false) {
+            return Err("Login cancelled".into());
+        }
+        APPROVED_LOGINS.lock().unwrap_or_else(std::sync::PoisonError::into_inner).insert(command.clone());
+    }
+    login(&command).await
+}
+
+/// Runs a login command. It may open a browser and wait for it, so it gets five minutes.
+pub(crate) async fn login(command: &str) -> CmdResult<String> {
     #[cfg(windows)]
     let mut cmd = tokio::process::Command::new("cmd");
     #[cfg(windows)]

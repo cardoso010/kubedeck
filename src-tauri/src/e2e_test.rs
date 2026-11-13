@@ -147,6 +147,16 @@ async fn backend_against_real_cluster() {
     streams::exec_input(exec_id, "exit\r".into(), state()).unwrap();
     wait_for(&term, "exec end", |m| m.iter().any(|m| m["type"] == "end")).await;
     resources::stop_stream(exec_id, state());
+
+    // Locking the window ends open shells, which could change anything in the container.
+    let (ch, term) = channel();
+    let exec_id = streams::exec_start("demo".into(), "ticker".into(), opt("ticker"), 100, 30, ch, state()).await.unwrap();
+    streams::exec_input(exec_id, "echo still-$((1+1))\r".into(), state()).unwrap();
+    wait_for(&term, "exec output", |m| output(m).contains("still-2")).await;
+    cluster::set_read_only(true, state());
+    wait_for(&term, "exec closed by the lock", |m| m.iter().any(|m| m["type"] == "end" && m["message"].as_str().is_some_and(|t| t.contains("locked")))).await;
+    cluster::set_read_only(false, state());
+    resources::stop_stream(exec_id, state());
 }
 
 /// Sends a plain HTTP request through 127.0.0.1:port and returns the response.
@@ -196,8 +206,16 @@ async fn port_forward_against_real_cluster() {
     assert!(portforward::start_port_forward("service".into(), "demo".into(), "missing".into(), 80, None, state()).await.is_err());
     assert!(portforward::start_port_forward("pod".into(), "demo".into(), "x".into(), 80, Some(free_port), state()).await.is_err());
 
-    // Stopping closes the listener.
+    // Stopping closes the listener and the connections already open through it.
+    let mut open = tokio::net::TcpStream::connect(("127.0.0.1", port)).await.unwrap();
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    open.write_all(b"GET / HTTP/1.1\r\nHost: x\r\n\r\n").await.unwrap();
+    let mut first = [0u8; 64];
+    assert!(open.read(&mut first).await.unwrap() > 0);
     resources::stop_stream(svc["id"].as_u64().unwrap(), state());
+    let mut rest = Vec::new();
+    let closed = tokio::time::timeout(Duration::from_secs(10), open.read_to_end(&mut rest)).await;
+    assert!(closed.is_ok(), "an open connection should end when its forward stops");
     tokio::time::sleep(Duration::from_millis(200)).await;
     assert!(tokio::net::TcpStream::connect(("127.0.0.1", port)).await.is_err(), "listener should be closed");
     assert_eq!(portforward::list_port_forwards(state()).len(), 1);
@@ -218,7 +236,7 @@ async fn helm_against_real_cluster() {
     let all = helm::helm_list(vec![], state()).await.unwrap();
     assert!(!all.is_empty());
 
-    let details = serde_json::to_value(helm::helm_details("demo".into(), "hello".into(), state()).await.unwrap()).unwrap();
+    let details = serde_json::to_value(helm::helm_details("demo".into(), "hello".into(), None, state()).await.unwrap()).unwrap();
     // Earlier runs may have rolled back to the install revision, which has no custom values.
     assert!(details["values"].is_string(), "{details}");
     assert!(details["manifest"].as_str().unwrap().contains("kind: Deployment"));
@@ -230,7 +248,7 @@ async fn helm_against_real_cluster() {
     let latest = history[0]["revision"].as_u64().unwrap();
     let previous = history[1]["revision"].as_u64().unwrap() as u32;
     helm::helm_rollback("demo".into(), "hello".into(), previous, state()).await.unwrap();
-    let after = serde_json::to_value(helm::helm_details("demo".into(), "hello".into(), state()).await.unwrap()).unwrap();
+    let after = serde_json::to_value(helm::helm_details("demo".into(), "hello".into(), None, state()).await.unwrap()).unwrap();
     assert_eq!(after["history"][0]["revision"].as_u64().unwrap(), latest + 1);
     assert!(after["history"][0]["description"].as_str().unwrap().contains(&format!("Rollback to {previous}")));
 
@@ -246,7 +264,7 @@ async fn helm_against_real_cluster() {
     let _ = std::fs::remove_dir_all(dir);
 
     // CLI errors come back readable.
-    let missing = helm::helm_details("demo".into(), "nope".into(), state()).await.err().unwrap();
+    let missing = helm::helm_details("demo".into(), "nope".into(), None, state()).await.err().unwrap();
     assert!(missing.contains("not found"), "{missing}");
 }
 
@@ -452,7 +470,7 @@ async fn helm_charts_against_real_cluster() {
     let upgraded = release(state()).await.unwrap();
     assert_eq!(upgraded["chart"], "greeter-0.2.0");
     assert_eq!(upgraded["revision"], "2");
-    let details = serde_json::to_value(helm::helm_details("demo2".into(), "greeter".into(), state()).await.unwrap()).unwrap();
+    let details = serde_json::to_value(helm::helm_details("demo2".into(), "greeter".into(), None, state()).await.unwrap()).unwrap();
     assert!(details["values"].as_str().unwrap().contains("port: 8080"));
 
     // Install into a namespace that does not exist yet.
@@ -640,6 +658,9 @@ async fn expired_credentials_are_reported_and_recover() {
     }
     assert_eq!(failed["unauthorized"], true, "{failed}");
     assert!(failed["message"].as_str().unwrap().contains("(401)"), "{failed}");
+    // Problems says so too, instead of reporting a healthy cluster.
+    let problems = diagnostics::cluster_problems(vec![], user()).await.map(|_| ()).expect_err("problems must fail");
+    assert!(problems.contains("(401)"), "{problems}");
     let reconnect = cluster::connect("kind-kubedeck-auth".into(), user()).await.err().expect("connect must fail");
     assert!(reconnect.contains("(401)"), "{reconnect}");
 
@@ -964,8 +985,8 @@ async fn read_only_secrets_and_login_against_real_cluster() {
     assert_eq!(value, serde_json::json!({ "text": "hunter2", "base64": "aHVudGVyMg==" }));
 
     // Login command: output on success, the error and output on failure.
-    assert_eq!(cluster::run_login("echo renewed".into()).await.unwrap(), "renewed");
-    let failed = cluster::run_login("echo nope >&2; exit 3".into()).await.unwrap_err();
+    assert_eq!(cluster::login("echo renewed").await.unwrap(), "renewed");
+    let failed = cluster::login("echo nope >&2; exit 3").await.unwrap_err();
     assert!(failed.contains("nope") && failed.contains('3'), "{failed}");
 }
 

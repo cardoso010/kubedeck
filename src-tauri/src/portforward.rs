@@ -10,7 +10,7 @@ use serde::Serialize;
 use tauri::async_runtime::JoinHandle;
 use tokio::net::{TcpListener, TcpStream};
 
-use crate::state::{err, CmdResult, Session};
+use crate::state::{err, kube_err, CmdResult, Session};
 
 #[derive(Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
@@ -66,13 +66,23 @@ pub async fn start_port_forward(
 
     let shared = info.clone();
     let task = tauri::async_runtime::spawn(async move {
-        while let Ok((socket, _)) = listener.accept().await {
-            shared.lock().unwrap().connections += 1;
-            let (client, kind, namespace, name, shared) = (client.clone(), kind.clone(), namespace.clone(), name.clone(), shared.clone());
-            tauri::async_runtime::spawn(async move {
-                let result = forward_connection(socket, &client, &kind, &namespace, &name, remote_port).await;
-                shared.lock().unwrap().last_error = result.err();
-            });
+        // Connections live in this set, so stopping the forward (aborting this task) also
+        // closes the ones already open instead of letting them keep tunnelling.
+        let mut connections = tokio::task::JoinSet::new();
+        let target: Arc<Mutex<Option<Resolved>>> = Arc::default();
+        loop {
+            tokio::select! {
+                accepted = listener.accept() => {
+                    let Ok((socket, _)) = accepted else { break };
+                    shared.lock().unwrap().connections += 1;
+                    let (client, kind, namespace, name, shared, target) = (client.clone(), kind.clone(), namespace.clone(), name.clone(), shared.clone(), target.clone());
+                    connections.spawn(async move {
+                        let result = forward_connection(socket, &client, &kind, &namespace, &name, remote_port, &target).await;
+                        shared.lock().unwrap().last_error = result.err();
+                    });
+                }
+                Some(_) = connections.join_next(), if !connections.is_empty() => {}
+            }
         }
     });
 
@@ -88,15 +98,49 @@ pub fn list_port_forwards(state: Session) -> Vec<ForwardInfo> {
     list
 }
 
-/// One TCP connection = one port-forward stream. A service is re-resolved per connection,
-/// so the forward keeps working when its pods are replaced.
-async fn forward_connection(mut socket: TcpStream, client: &Client, kind: &str, namespace: &str, name: &str, remote_port: u16) -> Result<(), String> {
-    let (pod, port) = resolve(client, kind, namespace, name, remote_port).await?;
+/// Where a forward's connections go, and since when; reused for a few seconds so clients
+/// that open many short connections (browsers, connection pools) do not resolve each time.
+struct Resolved {
+    pod: String,
+    port: u16,
+    at: std::time::Instant,
+}
+
+const RESOLVE_FOR: std::time::Duration = std::time::Duration::from_secs(10);
+
+/// One TCP connection = one port-forward stream. A service is re-resolved every few seconds
+/// and after a failure, so the forward keeps working when its pods are replaced.
+async fn forward_connection(
+    mut socket: TcpStream,
+    client: &Client,
+    kind: &str,
+    namespace: &str,
+    name: &str,
+    remote_port: u16,
+    target: &Mutex<Option<Resolved>>,
+) -> Result<(), String> {
+    let cached = target.lock().unwrap().as_ref().filter(|r| r.at.elapsed() < RESOLVE_FOR).map(|r| (r.pod.clone(), r.port));
+    let (pod, port) = match cached {
+        Some(hit) => hit,
+        None => {
+            let (pod, port) = resolve(client, kind, namespace, name, remote_port).await?;
+            *target.lock().unwrap() = Some(Resolved { pod: pod.clone(), port, at: std::time::Instant::now() });
+            (pod, port)
+        }
+    };
+    let result = tunnel(&mut socket, client, namespace, &pod, port).await;
+    if result.is_err() {
+        *target.lock().unwrap() = None;
+    }
+    result
+}
+
+async fn tunnel(socket: &mut TcpStream, client: &Client, namespace: &str, pod: &str, port: u16) -> Result<(), String> {
     let pods: Api<Pod> = Api::namespaced(client.clone(), namespace);
-    let mut forwarder = pods.portforward(&pod, &[port]).await.map_err(err)?;
+    let mut forwarder = pods.portforward(pod, &[port]).await.map_err(|e| kube_err(&e))?;
     let mut upstream = forwarder.take_stream(port).ok_or("port-forward stream unavailable")?;
     // A reset from either side is the normal way for many clients to end a connection.
-    let _ = tokio::io::copy_bidirectional(&mut socket, &mut upstream).await;
+    let _ = tokio::io::copy_bidirectional(socket, &mut upstream).await;
     drop(upstream);
     forwarder.join().await.map_err(err)
 }
@@ -105,12 +149,12 @@ async fn forward_connection(mut socket: TcpStream, client: &Client, kind: &str, 
 async fn resolve(client: &Client, kind: &str, namespace: &str, name: &str, remote_port: u16) -> Result<(String, u16), String> {
     let pods: Api<Pod> = Api::namespaced(client.clone(), namespace);
     if kind == "pod" {
-        pods.get(name).await.map_err(err)?;
+        pods.get(name).await.map_err(|e| kube_err(&e))?;
         return Ok((name.to_owned(), remote_port));
     }
 
     let services: Api<Service> = Api::namespaced(client.clone(), namespace);
-    let spec = services.get(name).await.map_err(err)?.spec.unwrap_or_default();
+    let spec = services.get(name).await.map_err(|e| kube_err(&e))?.spec.unwrap_or_default();
     let selector = spec.selector.filter(|s| !s.is_empty()).ok_or_else(|| format!("Service {name} has no selector, so it has no pods to forward to"))?;
     let target = spec.ports.unwrap_or_default().into_iter().find(|p| p.port == i32::from(remote_port)).and_then(|p| p.target_port);
 

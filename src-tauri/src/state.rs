@@ -108,6 +108,14 @@ impl AppState {
         }
     }
 
+    /// Ends every open shell (they keep their ids until the UI stops them); used when the
+    /// window is locked, since a shell could change anything in its container.
+    pub fn close_execs(&self) {
+        for exec in self.execs.lock().unwrap().values() {
+            let _ = exec.close.send(true);
+        }
+    }
+
     /// Stops every stream; used when switching clusters.
     pub fn stop_all(&self) {
         for (_, task) in self.tasks.lock().unwrap().drain() {
