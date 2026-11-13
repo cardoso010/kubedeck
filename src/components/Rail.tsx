@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
-import { IconAppWindow, IconBrandGithub, IconBug, IconCheck, IconDownload, IconHexagons, IconInfoCircle, IconLink, IconNews, IconSettings, IconTerminal2, IconWorld } from "@tabler/icons-react";
+import Logo from "./Logo";
+import { IconAppWindow, IconBrandGithub, IconBug, IconCheck, IconDownload, IconInfoCircle, IconLink, IconNews, IconSettings, IconTerminal2, IconWorld } from "@tabler/icons-react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { useTranslation } from "react-i18next";
 import { checkForUpdate, errorText, installUpdate, isProduction, openWindow, shortContextName, type UpdateStatus } from "../api";
@@ -59,7 +60,7 @@ export default function Rail({ section, onSection, connected, pins, current, onS
   return (
     <nav className="rail">
       <div className="rail-logo" title="kubedeck">
-        <IconHexagons size={20} stroke={1.6} />
+        <Logo size={20} />
       </div>
 
       {SECTIONS.map((s) => (
@@ -145,7 +146,7 @@ function About({ version }: { version: string }) {
   return (
     <div className="rail-popover about" style={{ bottom: 20 }}>
       <div className="about-head">
-        <IconHexagons size={26} stroke={1.5} />
+        <Logo size={26} />
         <div>
           <strong>kubedeck</strong> <span className="faint">{version && `v${version}`}</span>
           <div className="faint">{t("rail.aboutPopover.tagline")}</div>
