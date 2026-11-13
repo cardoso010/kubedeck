@@ -38,6 +38,7 @@
         <p class="lead">
           kubedeck is a desktop client for your clusters, built with Tauri and Rust. Live lists, logs and terminals, Helm,
           metrics and Prometheus history, a Problems view that tells you what is broken, and guard rails for production.
+          In English, Português, Español and 简体中文.
         </p>
 
         <div class="install" id="install">
@@ -115,8 +116,9 @@
         <ul>
           <li><strong>Read-only by default.</strong> Contexts named <code>prd</code>, <code>prod</code> or <code>production</code> open locked, and the backend refuses every write until you unlock.</li>
           <li><strong>Type the name to confirm.</strong> Deleting, scaling, draining, rolling back or uninstalling on production asks for the object's name.</li>
-          <li><strong>Secrets stay hidden.</strong> Values are masked until you reveal one key, and they are never sent to Claude.</li>
+          <li><strong>Secrets stay hidden.</strong> Secret values, and credentials in Helm values and manifests, are masked until you reveal them, and Secrets are never sent to Claude.</li>
           <li><strong>Your credentials, your RBAC.</strong> Everything goes through your kubeconfig, including EKS and GKE exec plugins. No agents in the cluster, no telemetry.</li>
+          <li><strong>Nothing runs behind your back.</strong> The app asks before running a login command for the first time, and locking a window closes its terminals.</li>
           <li><strong>Signed updates.</strong> The app updates itself in one click and refuses packages without a valid signature.</li>
         </ul>
       </section>

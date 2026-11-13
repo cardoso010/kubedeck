@@ -66,23 +66,24 @@ The app is not signed with an Apple Developer ID or notarized yet. The install s
   - **Delete**.
   - **Port forward** for pods and services: each TCP port is a button. A service picks a ready pod on every connection, so it keeps working when pods are replaced. The **Port Forwards** screen lists active tunnels with their connection count and last error.
 - **Workloads:** restart, scale and pause/resume Deployments, StatefulSets and DaemonSets; a **Rollout** tab with revision history, diffs between revisions and rollback; an **Events** tab for every object.
-- **Better logs:** the previous run (`--previous`), the merged logs of every pod in a workload, JSON mode, search with highlighting, copy and save to a file.
+- **Better logs:** the previous run (`--previous`), the merged logs of every pod in a workload, JSON mode, search with highlighting, copy and save to a file. Lines arrive in batches and only the ones on screen are drawn, so a pod that logs thousands of lines a second does not slow the window down.
 - **Problems** (first icon in the rail, with a count of critical ones): crash loops, OOMKilled, images that won't pull, pending or unready pods, unavailable workloads, failed jobs, pending PVCs, volumes almost full, failed PVs and unhealthy nodes.
 - **Related:** each object's owner, pods, services, ingresses, ConfigMaps/Secrets/volumes it uses and the node it runs on, all clickable.
 - **Nodes:** an overview with capacity, requests and usage, Prometheus history, conditions and taints; **cordon/uncordon** and **drain** with a preview of what will be evicted (PodDisruptionBudgets are respected; DaemonSet and static pods are skipped).
 - **Storage** (its own rail section): PersistentVolumeClaims with a **Used** column, PersistentVolumes and StorageClasses. A PVC's **Usage** tab shows space and inodes used, history (24 h to 30 days, from Prometheus) and lets you **expand** the volume when its StorageClass allows it, or move it to another **VolumeAttributesClass** (IOPS, throughput) of its driver, which the driver applies to the existing volume (Kubernetes 1.34+). Usage comes from Prometheus (`kubelet_volume_stats_*`) or, without it, straight from the kubelets; only volumes that measure themselves (CSI drivers such as EBS, `local` volumes) report usage. Volumes above 85% show up in Problems (critical above 95%).
-- **Explain with Claude:** only when you click. It sends the manifest (env values and the `last-applied` annotation removed), the events and, for pods, recent logs to the Anthropic API; Secrets are never sent. The API key is kept in the system keychain (or read from `ANTHROPIC_API_KEY`).
-- **Read-only mode per cluster:** production clusters open locked (the backend refuses every write, terminals included). The lock in the top bar unlocks for 15 minutes; ⌘K → "Always open this cluster read-only" changes each cluster's default.
+- **Explain with Claude:** only when you click. It sends the manifest (env values, ConfigMap data and the `last-applied` annotation removed; passwords and tokens in commands and arguments masked), the events and, for pods, recent logs (with credential-looking strings masked) to the Anthropic API; Secrets are never sent. The API key is kept in the system keychain (or read from `ANTHROPIC_API_KEY`).
+- **Read-only mode per cluster:** production clusters open locked (the backend refuses every write, terminals included, and locking a window closes the terminals it has open). The lock in the top bar unlocks for 15 minutes; ⌘K → "Always open this cluster read-only" changes each cluster's default.
 - **Hidden Secrets:** a Secret's YAML comes masked until you click **Reveal values**; the **Data** tab reveals or copies one key at a time, with a confirmation on production.
-- **Log in from the app:** when credentials expire, the banner has a field with the login command (`aws sso login --profile …` by default, editable and remembered per cluster) and a **Run login** button that runs it and reconnects.
+- **Log in from the app:** when credentials expire, the banner has a field with the login command (`aws sso login --profile …` by default, editable and remembered per cluster) and a **Run login** button that runs it and reconnects. The first time a command runs, the app shows it and asks for confirmation.
 - **Expired credentials:** if the cluster rejects your credentials (401, for example when the AWS session behind `aws eks get-token` ends), a banner explains what to renew (the kubeconfig's command and AWS profile) and the app reconnects by itself every 20 s. As soon as the credentials work again, the window recovers without reopening.
 - **Dock:** "open in dock" on the logs and terminal tabs moves the session to tabs at the bottom, which keep running while you browse.
 - **Starred port forwards:** the star on a Port Forwards row reopens that tunnel whenever the cluster is connected.
 - **Create from YAML** (`+` button or ⌘K): paste one or more documents, validate with a server-side dry run, then create.
 - **Notifications:** ⌘K → "Notify me when pods crash…" sends a system notification when a crash loop, OOMKilled or image error appears in the selected namespaces.
+- **Keyboard-friendly dialogs:** focus moves into each dialog and back when it closes, Tab stays inside, Escape closes it, and destructive confirmations start on Cancel.
 - **About** (ⓘ at the bottom of the rail, or ⌘K → "About kubedeck"): the version, links to the website, GitHub and release notes, a bug report already filled in with the version and OS, and buttons to copy the project link or the install command to share.
 - **Rightsizing:** each container's requests and limits against real usage (CPU p95 and peak memory over 24 h from Prometheus, or current usage from metrics-server), with the suggested request and how much can be reclaimed in total. **Apply** sets new requests either on the running pods, resized in place without a restart (Kubernetes 1.33+; they return to the template's values when replaced), or on the Deployment, StatefulSet or DaemonSet template (permanent, rolls the pods). It always runs a server-side dry run first and asks for the name on production. Native sidecars are included.
-- **Helm Releases:** lists releases and shows values, manifest, notes and history, with **rollback** to an earlier revision and **uninstall**. **Install chart** searches your configured repositories (the same as `helm repo list`, which can be managed there), picks a version and opens the chart's default values for editing; each release's **Upgrade** tab starts from its current values. Both have a *dry run* (renders and validates on the server without changing anything) and the production confirmation. The app ships its own Helm (3.22.1) as a sidecar, so it works with nothing installed. It always uses the app's kubeconfig and context. To use another binary, set `KUBEDECK_HELM` to its path.
+- **Helm Releases:** lists releases and shows values, manifest, notes and history, with **rollback** to an earlier revision and **uninstall**. Rendered Secrets in the manifest and credential-looking values (passwords, tokens, keys) come masked until you click **Reveal** (confirmed on production); the **Upgrade** tab asks to reveal first, so masked values are never written back. **Install chart** searches your configured repositories (the same as `helm repo list`, which can be managed there), picks a version and opens the chart's default values for editing; each release's **Upgrade** tab starts from its current values. Both have a *dry run* (renders and validates on the server without changing anything) and the production confirmation. The app ships its own Helm (3.22.1) as a sidecar, so it works with nothing installed. It always uses the app's kubeconfig and context. To use another binary, set `KUBEDECK_HELM` to its path.
 - **Production safety:** contexts with `prd`/`prod`/`production` in their name show a red strip, open read-only, and saving, deleting, scaling, draining, resizing, changing a volume class, installing, upgrading, rolling back or uninstalling on them requires typing the object's name.
 
 ## Develop
@@ -115,7 +116,15 @@ KUBECONFIG=$PWD/../.kind-kubeconfig KUBEDECK_E2E_CONTEXT=kind-kubedeck-test \
   cargo test -- --include-ignored
 ```
 
-CI (`.github/workflows/ci.yml`) runs the typecheck, clippy, unit tests and this same end-to-end suite on a kind cluster inside the runner, on every push and pull request.
+The interface has its own checks, which need no cluster:
+
+```bash
+npx tsc --noEmit    # typecheck
+npm run lint        # oxlint
+npm test            # vitest: helpers such as the production check, and every translation's placeholders
+```
+
+CI (`.github/workflows/ci.yml`) runs the typecheck, lint, the UI tests, clippy, the Rust unit tests and this same end-to-end suite on a kind cluster inside the runner, on every push and pull request.
 
 ## Release
 
@@ -131,7 +140,7 @@ The script checks that the tree is clean and on `main`. It then bumps the versio
 
 Installed apps find the new version on their next check, at startup and then every 6 hours.
 
-To check packaging without publishing anything, run the workflow by hand (**Actions → Release → Run workflow**): it only builds the four platforms and keeps the files as run artifacts for 7 days.
+To check packaging without publishing anything, run the workflow by hand (**Actions → Release → Run workflow**): it only builds the four platforms and keeps the files as run artifacts for 7 days. The workflow does not run on merges to `main`; a weekly run there only rebuilds, to keep the build caches a tag can use warm.
 
 Update packages are signed with a key kept in the repository secrets (`TAURI_SIGNING_PRIVATE_KEY` and `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`); installed apps only accept updates signed with it. Forks that publish their own builds need their own key pair and `pubkey` in `tauri.conf.json`.
 
@@ -183,7 +192,7 @@ Watch events, logs and terminal output flow from Rust to the interface over `tau
 
 ## Contributing
 
-Issues and pull requests are welcome. Before opening a pull request, run the typecheck, clippy and the end-to-end suite above (CI runs them too), and keep [CLAUDE.md](CLAUDE.md)'s conventions: every new command gets a typed wrapper in `src/api.ts`, a case in `src/dev-mock.ts` and end-to-end coverage, and every command that changes the cluster respects read-only mode.
+Issues and pull requests are welcome. Before opening a pull request, run the typecheck, lint, the UI tests, clippy and the end-to-end suite above (CI runs them too), and keep [CLAUDE.md](CLAUDE.md)'s conventions: every new command gets a typed wrapper in `src/api.ts`, a case in `src/dev-mock.ts` and end-to-end coverage, and every command that changes the cluster respects read-only mode.
 
 Please follow the [code of conduct](CODE_OF_CONDUCT.md). To report a security problem, see [SECURITY.md](SECURITY.md) instead of opening an issue.
 
