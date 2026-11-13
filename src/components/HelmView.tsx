@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import Editor from "@monaco-editor/react";
+import { Editor } from "./CodeEditor";
 import { useTranslation } from "react-i18next";
 import { useCurrentTheme } from "../theme";
 import { errorText, helmDetails, helmList, helmRollback, helmSearch, helmUninstall, splitChart, type HelmDetails, type HelmRelease, type KindInfo, type Row } from "../api";
@@ -8,6 +8,7 @@ import ConfirmDialog from "./ConfirmDialog";
 import ChartForm from "./ChartForm";
 import InstallChartDialog from "./InstallChartDialog";
 import { useReadOnly } from "../readOnly";
+import { usePoll } from "../usePoll";
 
 const POLL_MS = 10_000;
 
@@ -58,11 +59,8 @@ export default function HelmView({ namespaces, allNamespaces, defaultNamespace, 
   useEffect(() => {
     setReleases(null);
     setSelected(null);
-    void refresh();
-    const timer = setInterval(refresh, POLL_MS);
-    return () => clearInterval(timer);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [namespaces.join(",")]);
+  usePoll(refresh, POLL_MS, [namespaces.join(",")]);
 
   const rows = useMemo(() => (releases ?? []).map(toRow).sort((a, b) => a.name.localeCompare(b.name)), [releases]);
   const release = releases?.find((r) => `${r.namespace}/${r.name}` === selected) ?? null;

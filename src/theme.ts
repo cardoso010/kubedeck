@@ -2,7 +2,6 @@
 // theme, remembers it, keeps every window in sync, and gives the editor and the terminal
 // matching colors (they cannot read CSS variables).
 import { createContext, useContext, useEffect, useState } from "react";
-import { loader } from "@monaco-editor/react";
 
 export type ThemeId = "terminal" | "graphite" | "light";
 
@@ -53,50 +52,6 @@ function stored(): ThemeId {
 export function themeById(id: ThemeId): Theme {
   return THEMES.find((t) => t.id === id) ?? THEMES[0];
 }
-
-// Monaco themes matching each app theme; registered once, before any editor mounts.
-loader.init().then((monaco) => {
-  monaco.editor.defineTheme("kubedeck-terminal", {
-    base: "vs-dark",
-    inherit: true,
-    rules: [
-      { token: "type", foreground: "b6f36a" },
-      { token: "string", foreground: "e6c07b" },
-      { token: "number", foreground: "79c0ff" },
-      { token: "keyword", foreground: "ff7b72" },
-    ],
-    colors: {
-      "editor.background": "#05070a",
-      "editor.lineHighlightBackground": "#0f141a",
-      "editorLineNumber.foreground": "#3b444f",
-      "editorLineNumber.activeForeground": "#8b96a3",
-      "editor.selectionBackground": "#b6f36a2e",
-      "editorCursor.foreground": "#b6f36a",
-    },
-  });
-  monaco.editor.defineTheme("kubedeck-graphite", {
-    base: "vs-dark",
-    inherit: true,
-    rules: [{ token: "type", foreground: "c4b5fd" }],
-    colors: {
-      "editor.background": "#111317",
-      "editor.lineHighlightBackground": "#1b1e24",
-      "editorLineNumber.foreground": "#4b5160",
-      "editor.selectionBackground": "#a78bfa33",
-      "editorCursor.foreground": "#a78bfa",
-    },
-  });
-  monaco.editor.defineTheme("kubedeck-light", {
-    base: "vs",
-    inherit: true,
-    rules: [],
-    colors: {
-      "editor.background": "#ffffff",
-      "editor.lineHighlightBackground": "#f6f7f9",
-      "editorLineNumber.foreground": "#b4bac2",
-    },
-  });
-});
 
 /** The theme components render with (editors and terminals need it in JS). */
 export const ThemeContext = createContext<Theme>(THEMES[0]);

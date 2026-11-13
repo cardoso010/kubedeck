@@ -30,6 +30,7 @@ import TopBar from "./components/TopBar";
 import KindTabs from "./components/KindTabs";
 import CommandPalette, { type Command } from "./components/CommandPalette";
 import SettingsDialog from "./components/SettingsDialog";
+import { usePoll } from "./usePoll";
 
 /** The namespace selection is remembered per cluster context (per viewer, best effort). */
 const savedNamespaces = (context: string): string[] | null => {
@@ -239,30 +240,29 @@ export default function App() {
   // Problems are checked in the background so the rail badge stays current.
   const allNsKey = selectedNs.join(",");
   useEffect(() => {
-    if (!conn) return;
-    let stale = false;
     setProblems(null);
     seenProblems.current = null;
-    const load = () =>
-      api.clusterProblems(selectedNs).then(
-        (p) => {
-          if (stale) return;
-          const seen = seenProblems.current;
-          if (seen && notifyEnabled(conn.context)) notifyNew(api.shortContextName(conn.context), p.filter((x) => !seen.has(problemKey(x))));
-          seenProblems.current = new Set([...(seen ?? []), ...p.map(problemKey)]);
-          setProblems(p);
-          setProblemsError(null);
-        },
-        (e) => !stale && !api.isUnauthorized(api.errorText(e)) && setProblemsError(api.errorText(e)),
-      );
-    void load();
-    const timer = setInterval(load, view === PROBLEMS ? 10_000 : 30_000);
-    return () => {
-      stale = true;
-      clearInterval(timer);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [conn, allNsKey, view === PROBLEMS]);
+  }, [conn, allNsKey]);
+  // Keeps polling while hidden when crash notifications are on: that is when they matter.
+  usePoll(
+    async (alive) => {
+      if (!conn) return;
+      try {
+        const p = await api.clusterProblems(selectedNs);
+        if (!alive()) return;
+        const seen = seenProblems.current;
+        if (seen && notifyEnabled(conn.context)) notifyNew(api.shortContextName(conn.context), p.filter((x) => !seen.has(problemKey(x))));
+        seenProblems.current = new Set([...(seen ?? []), ...p.map(problemKey)]);
+        setProblems(p);
+        setProblemsError(null);
+      } catch (e) {
+        if (alive() && !api.isUnauthorized(api.errorText(e))) setProblemsError(api.errorText(e));
+      }
+    },
+    conn ? (view === PROBLEMS ? 10_000 : 30_000) : null,
+    [conn, allNsKey],
+    notifyOn,
+  );
 
   async function applyLock(next: boolean, until: number | null = null) {
     try {

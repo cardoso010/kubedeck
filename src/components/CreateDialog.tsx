@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
-import Editor from "@monaco-editor/react";
+import { Editor } from "./CodeEditor";
 import { createResources, errorText } from "../api";
 import { useCurrentTheme } from "../theme";
 import { useReadOnly } from "../readOnly";

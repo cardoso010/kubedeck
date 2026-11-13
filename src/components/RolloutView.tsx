@@ -1,9 +1,10 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useTranslation } from "react-i18next";
-import { DiffEditor } from "@monaco-editor/react";
+import { DiffEditor } from "./CodeEditor";
 import { age, errorText, rollback, rolloutStatus, type RevisionInfo, type RolloutStatus } from "../api";
 import { useCurrentTheme } from "../theme";
 import ConfirmDialog from "./ConfirmDialog";
+import { usePoll } from "../usePoll";
 
 const REFRESH_MS = 5_000;
 
@@ -30,12 +31,7 @@ export default function RolloutView({ namespace, name, production, context }: Pr
       (s) => (setStatus(s), setError(null), setNow(Date.now())),
       (e) => setError(errorText(e)),
     );
-  useEffect(() => {
-    void load();
-    const timer = setInterval(load, REFRESH_MS);
-    return () => clearInterval(timer);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [namespace, name]);
+  usePoll(load, REFRESH_MS, [namespace, name]);
 
   async function doRollback(r: RevisionInfo) {
     setConfirm(null);
